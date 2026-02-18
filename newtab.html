@@ -1,0 +1,777 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; font-src https://fonts.gstatic.com;">
+  <title>New Tab</title>
+  <style>
+    @import url("https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Space+Grotesk:wght@400;500;600;700&display=swap");
+
+    :root {
+      --ink: #1d1a2f;
+      --muted: #4f516a;
+      --card: rgba(255, 255, 255, 0.78);
+      --card-border: rgba(29, 26, 47, 0.10);
+
+      --accent-1: #ff4d8d;
+      --accent-2: #00c2ff;
+      --accent-3: #ffd166;
+      --accent-4: #2ee59d;
+      --accent-5: #2d6bff;
+      --accent-6: #9d50bb;
+
+      --focus: rgba(0, 194, 255, 0.35);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      font-family: "Space Grotesk", sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(1200px circle at 8% -10%, rgba(0, 194, 255, 0.22), transparent 60%),
+        radial-gradient(900px circle at 98% 8%, rgba(255, 77, 141, 0.22), transparent 60%),
+        radial-gradient(800px circle at 30% 100%, rgba(255, 209, 102, 0.65), transparent 60%),
+        linear-gradient(180deg, #fff7f0 0%, #f2f7ff 45%, #f0fff8 100%);
+      overflow: auto;
+      position: relative;
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background-image: radial-gradient(rgba(255, 255, 255, 0.55) 1px, transparent 1px);
+      background-size: 80px 80px;
+      opacity: 0.22;
+      mix-blend-mode: soft-light;
+    }
+
+    .orbs {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 0;
+      will-change: transform;
+      transition: transform 0.18s ease-out;
+    }
+
+    .orb {
+      position: absolute;
+      width: 240px;
+      height: 240px;
+      border-radius: 50%;
+      filter: blur(8px);
+      opacity: 0.85;
+      mix-blend-mode: screen;
+      animation: drift 16s ease-in-out infinite;
+    }
+
+    .orb.o1 {
+      top: 12%;
+      left: 8%;
+      background: radial-gradient(circle at 30% 30%, rgba(255, 77, 141, 0.9), rgba(255, 77, 141, 0.1));
+      animation-delay: -2s;
+    }
+
+    .orb.o2 {
+      bottom: 10%;
+      right: 14%;
+      width: 300px;
+      height: 300px;
+      background: radial-gradient(circle at 30% 30%, rgba(0, 194, 255, 0.9), rgba(0, 194, 255, 0.1));
+      animation-delay: -6s;
+    }
+
+    .orb.o3 {
+      top: 60%;
+      left: 55%;
+      width: 220px;
+      height: 220px;
+      background: radial-gradient(circle at 30% 30%, rgba(46, 229, 157, 0.9), rgba(46, 229, 157, 0.1));
+      animation-delay: -10s;
+    }
+
+    .orb.o4 {
+      top: 30%;
+      right: 35%;
+      width: 200px;
+      height: 200px;
+      background: radial-gradient(circle at 30% 30%, rgba(255, 209, 102, 0.95), rgba(255, 209, 102, 0.2));
+      animation-delay: -4s;
+    }
+
+    .orb.o5 {
+      bottom: 25%;
+      left: 20%;
+      width: 280px;
+      height: 280px;
+      background: radial-gradient(circle at 30% 30%, rgba(157, 80, 187, 0.85), rgba(157, 80, 187, 0.1));
+      animation-delay: -12s;
+    }
+
+    #w {
+      width: min(820px, calc(100vw - 64px));
+      padding: 64px 56px 52px;
+      text-align: center;
+      background: var(--card);
+      backdrop-filter: blur(18px) saturate(1.2);
+      border-radius: 36px;
+      border: 1px solid var(--card-border);
+      box-shadow:
+        0 28px 70px rgba(40, 45, 80, 0.20),
+        0 10px 30px rgba(255, 77, 141, 0.08);
+      position: relative;
+      z-index: 1;
+      animation: rise 0.7s ease both;
+      overflow: hidden;
+      max-height: calc(100vh - 32px);
+    }
+
+    #w::before {
+      content: "";
+      position: absolute;
+      inset: 1px;
+      border-radius: inherit;
+      background: linear-gradient(135deg, rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0));
+      pointer-events: none;
+      opacity: 0.9;
+      z-index: 1;
+    }
+
+    .card-orbs {
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      overflow: hidden;
+      z-index: 0;
+      pointer-events: none;
+      will-change: transform;
+      transition: transform 0.18s ease-out;
+    }
+
+    .card-orbs span {
+      position: absolute;
+      width: 180px;
+      height: 180px;
+      border-radius: 50%;
+      filter: blur(12px);
+      opacity: 0.65;
+      mix-blend-mode: screen;
+    }
+
+    .card-orbs .c1 {
+      top: -40px;
+      left: -20px;
+      background: radial-gradient(circle at 30% 30%, rgba(255, 77, 141, 0.9), rgba(255, 77, 141, 0.1));
+      animation: float1 14s ease-in-out infinite;
+    }
+
+    .card-orbs .c2 {
+      bottom: -50px;
+      right: -10px;
+      width: 220px;
+      height: 220px;
+      background: radial-gradient(circle at 30% 30%, rgba(0, 194, 255, 0.9), rgba(0, 194, 255, 0.1));
+      animation: float2 16s ease-in-out infinite;
+    }
+
+    .card-orbs .c3 {
+      top: 40%;
+      right: 20%;
+      width: 160px;
+      height: 160px;
+      background: radial-gradient(circle at 30% 30%, rgba(46, 229, 157, 0.9), rgba(46, 229, 157, 0.1));
+      animation: float3 12s ease-in-out infinite;
+    }
+
+    .card-orbs .c4 {
+      bottom: 20%;
+      left: 30%;
+      width: 140px;
+      height: 140px;
+      background: radial-gradient(circle at 30% 30%, rgba(255, 209, 102, 0.9), rgba(255, 209, 102, 0.1));
+      animation: float2 14s ease-in-out infinite;
+      animation-delay: -2s;
+    }
+
+    .card-orbs .c5 {
+      top: 15%;
+      left: 45%;
+      width: 130px;
+      height: 130px;
+      background: radial-gradient(circle at 30% 30%, rgba(157, 80, 187, 0.8), rgba(157, 80, 187, 0.1));
+      animation: float1 15s ease-in-out infinite;
+      animation-delay: -5s;
+    }
+
+    .content {
+      position: relative;
+      z-index: 2;
+    }
+
+    #c {
+      font-family: "Fraunces", serif;
+      font-size: 5.6rem;
+      font-weight: 600;
+      margin: 0 0 10px;
+      letter-spacing: -0.03em;
+    }
+
+    #d {
+      font-size: 1.05rem;
+      color: var(--muted);
+      margin: 0 0 42px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.22em;
+    }
+
+    .search {
+      position: relative;
+      margin: 0 0 42px;
+    }
+
+    .search::before {
+      content: "";
+      position: absolute;
+      inset: -2px;
+      border-radius: 999px;
+      background: linear-gradient(90deg, var(--accent-1), var(--accent-2), var(--accent-3));
+      opacity: 0.9;
+      z-index: 0;
+    }
+
+    #i {
+      position: relative;
+      z-index: 1;
+      width: 100%;
+      padding: 18px 26px;
+      border-radius: 999px;
+      border: none;
+      background: rgba(255, 255, 255, 0.92);
+      outline: 0;
+      font-size: 1.05rem;
+      text-align: center;
+      color: var(--ink);
+      box-shadow: 0 12px 30px rgba(29, 26, 47, 0.12);
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    #i::placeholder {
+      color: rgba(79, 81, 106, 0.65);
+    }
+
+    #i:focus {
+      transform: translateY(-1px);
+      box-shadow: 0 18px 40px rgba(29, 26, 47, 0.18), 0 0 0 6px var(--focus);
+    }
+
+    #g {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 24px;
+    }
+
+    #g .shortcut {
+      position: relative;
+    }
+
+    #g .shortcut a {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      color: inherit;
+      text-decoration: none;
+      transition: transform 0.2s ease, opacity 0.2s ease;
+      opacity: 0.96;
+      animation: pop 0.6s ease backwards;
+    }
+
+    #g .shortcut:nth-child(1) a {
+      animation-delay: 0.05s;
+    }
+
+    #g .shortcut:nth-child(2) a {
+      animation-delay: 0.1s;
+    }
+
+    #g .shortcut:nth-child(3) a {
+      animation-delay: 0.15s;
+    }
+
+    #g .shortcut:nth-child(4) a {
+      animation-delay: 0.2s;
+    }
+
+    #g .shortcut:nth-child(5) a {
+      animation-delay: 0.25s;
+    }
+
+    #g .shortcut:nth-child(6) a {
+      animation-delay: 0.3s;
+    }
+
+    #g .shortcut:nth-child(7) a {
+      animation-delay: 0.35s;
+    }
+
+    #g .shortcut:nth-child(8) a {
+      animation-delay: 0.4s;
+    }
+
+    #g .shortcut:hover a {
+      transform: translateY(-4px);
+      opacity: 1;
+    }
+
+    .remove-shortcut {
+      position: absolute;
+      top: -10px;
+      right: -10px;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      border: none;
+      background: rgba(29, 26, 47, 0.15);
+      color: var(--ink);
+      font-size: 16px;
+      cursor: pointer;
+      transition: background 0.2s ease;
+      backdrop-filter: blur(6px);
+      display: none;
+    }
+
+    .remove-shortcut:hover {
+      background: rgba(29, 26, 47, 0.25);
+    }
+
+    .shortcut.show-remove .remove-shortcut {
+      display: block;
+    }
+
+    b {
+      width: 68px;
+      height: 68px;
+      border-radius: 18px;
+      display: grid;
+      place-items: center;
+      font-size: 1.35rem;
+      font-weight: 700;
+      margin: 0 0 12px;
+      color: #fff;
+      text-shadow: 0 6px 14px rgba(0, 0, 0, 0.18);
+      box-shadow: 0 14px 30px rgba(29, 26, 47, 0.18);
+      border: 1px solid rgba(255, 255, 255, 0.4);
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+      background: linear-gradient(135deg, var(--accent-5), var(--accent-2));
+    }
+
+    a:nth-child(4n + 1) b {
+      background: linear-gradient(135deg, #ff4d8d, #ff9f68);
+    }
+
+    a:nth-child(4n + 2) b {
+      background: linear-gradient(135deg, #00c2ff, #2ee59d);
+    }
+
+    a:nth-child(4n + 3) b {
+      background: linear-gradient(135deg, #ffd166, #ff9f1c);
+      color: #5a3410;
+      text-shadow: none;
+    }
+
+    a:nth-child(4n + 4) b {
+      background: linear-gradient(135deg, #2d6bff, #00c2ff);
+    }
+
+    a:hover b {
+      transform: translateY(-2px) scale(1.03);
+      box-shadow: 0 18px 34px rgba(29, 26, 47, 0.24);
+    }
+
+    small {
+      font-size: 0.95rem;
+      color: #2f314a;
+      font-weight: 600;
+    }
+
+    @media (max-width: 720px) {
+      #w {
+        padding: 52px 32px 44px;
+        border-radius: 28px;
+        width: min(820px, calc(100vw - 32px));
+      }
+
+      #c {
+        font-size: 4.4rem;
+      }
+
+      #d {
+        letter-spacing: 0.18em;
+      }
+
+      #g {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 18px;
+      }
+    }
+
+    @media (max-height: 760px) {
+      body {
+        display: block;
+        padding: 16px 0 20px;
+      }
+
+      #w {
+        margin: 0 auto;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      * {
+        animation: none !important;
+        transition: none !important;
+      }
+
+      .orbs,
+      .card-orbs {
+        transform: none !important;
+      }
+    }
+
+    @keyframes rise {
+      from {
+        transform: translateY(18px);
+        opacity: 0;
+      }
+
+      to {
+        transform: translateY(0);
+        opacity: 1;
+      }
+    }
+
+    @keyframes pop {
+      from {
+        transform: translateY(10px) scale(0.98);
+        opacity: 0;
+      }
+
+      to {
+        transform: translateY(0) scale(1);
+        opacity: 1;
+      }
+    }
+
+    @keyframes drift {
+
+      0%,
+      100% {
+        transform: translate(0, 0);
+      }
+
+      50% {
+        transform: translate(100px, -150px) scale(1.2);
+      }
+    }
+
+    @keyframes float1 {
+
+      0%,
+      100% {
+        transform: translate(0, 0) scale(1);
+      }
+
+      50% {
+        transform: translate(60px, 40px) rotate(15deg) scale(1.15);
+      }
+    }
+
+    @keyframes float2 {
+
+      0%,
+      100% {
+        transform: translate(0, 0) scale(1);
+      }
+
+      50% {
+        transform: translate(-50px, -45px) rotate(-12deg) scale(1.2);
+      }
+    }
+
+    @keyframes float3 {
+
+      0%,
+      100% {
+        transform: translate(0, 0) scale(1);
+      }
+
+      50% {
+        transform: translate(45px, -40px) rotate(18deg) scale(1.15);
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="orbs" aria-hidden="true">
+    <span class="orb o1"></span>
+    <span class="orb o2"></span>
+    <span class="orb o3"></span>
+    <span class="orb o4"></span>
+    <span class="orb o5"></span>
+  </div>
+  <div id="w">
+    <div class="card-orbs" aria-hidden="true">
+      <span class="c1"></span>
+      <span class="c2"></span>
+      <span class="c3"></span>
+      <span class="c4"></span>
+      <span class="c5"></span>
+    </div>
+    <div class="content">
+      <div id="c"></div>
+      <div id="d"></div>
+      <div class="search">
+        <input type="text" id="i" placeholder="Search the web" autofocus autocomplete="off">
+      </div>
+      <div id="g"></div>
+    </div>
+  </div>
+
+  <script>
+    const clock = document.getElementById('c');
+    const dateE = document.getElementById('d');
+    const search = document.getElementById('i');
+    const grid = document.getElementById('g');
+
+    function shouldShowSeconds() {
+      try {
+        return localStorage.getItem('show-seconds') === 'true';
+      } catch (e) {
+        return false;
+      }
+    }
+
+    function updateTime() {
+      const now = new Date();
+      const timeOpts = { hour: '2-digit', minute: '2-digit', hour12: false };
+      if (shouldShowSeconds()) timeOpts.second = '2-digit';
+      clock.textContent = now.toLocaleTimeString([], timeOpts);
+      dateE.textContent = now.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
+    }
+
+    setInterval(updateTime, 1000);
+    updateTime();
+
+    window.addEventListener('storage', (e) => {
+      if (e.key === 'show-seconds') updateTime();
+    });
+
+    search.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        const query = search.value.trim();
+        if (query) {
+          if (window.electron && window.electron.invoke) {
+            window.electron.invoke('navigate-to', query);
+          } else {
+            window.location.href = 'https://www.google.com/search?q=' + encodeURIComponent(query);
+          }
+        }
+      }
+    });
+
+    const defaultShortcuts = [
+      { name: 'Google', url: 'https://google.com', icon: 'G' },
+      { name: 'YouTube', url: 'https://youtube.com', icon: 'Y' },
+      { name: 'GitHub', url: 'https://github.com', icon: 'H' },
+      { name: 'Wikipedia', url: 'https://wikipedia.org', icon: 'W' }
+    ];
+    const HIDDEN_DEFAULT_SHORTCUTS_KEY = 'hidden-default-newtab-shortcuts';
+
+    function escapeHtml(value) {
+      return (value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+    }
+
+    function escapeAttr(value) {
+      return escapeHtml(value)
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function getHiddenDefaultShortcuts() {
+      try {
+        return JSON.parse(localStorage.getItem(HIDDEN_DEFAULT_SHORTCUTS_KEY) || '[]');
+      } catch (e) {
+        return [];
+      }
+    }
+
+    function hideDefaultShortcut(url) {
+      if (!url) return;
+      try {
+        const hidden = getHiddenDefaultShortcuts();
+        if (!hidden.includes(url)) {
+          hidden.push(url);
+          localStorage.setItem(HIDDEN_DEFAULT_SHORTCUTS_KEY, JSON.stringify(hidden));
+        }
+      } catch (e) { }
+    }
+
+    function removeStoredShortcut(url, id) {
+      if (!url) return;
+      try {
+        const bms = JSON.parse(localStorage.getItem('browser-bookmarks') || '[]');
+        const filtered = bms.filter((b) => {
+          if (id) return String(b.id) !== String(id);
+          return b.url !== url;
+        });
+        localStorage.setItem('browser-bookmarks', JSON.stringify(filtered));
+      } catch (e) { }
+    }
+
+    function hideShortcutRemoveButtons() {
+      if (!grid) return;
+      grid.querySelectorAll('.shortcut.show-remove').forEach((el) => el.classList.remove('show-remove'));
+    }
+
+    document.addEventListener('click', (event) => {
+      if (!grid || !event.target) return;
+      if (!grid.contains(event.target)) hideShortcutRemoveButtons();
+    });
+
+    function renderShortcuts() {
+      if (!grid) return;
+      let shortcuts = [];
+      try {
+        const bms = JSON.parse(localStorage.getItem('browser-bookmarks') || '[]');
+        shortcuts = bms.filter((b) => b.target === 'newtab' || b.target === 'both');
+      } catch (e) { }
+
+      if (shortcuts.length === 0) {
+        const hiddenDefaults = getHiddenDefaultShortcuts();
+        shortcuts = defaultShortcuts
+          .filter((entry) => !hiddenDefaults.includes(entry.url))
+          .map((entry) => ({ ...entry, _default: true }));
+      }
+
+      grid.innerHTML = shortcuts
+        .map((shortcut) => {
+          const rawTitle = shortcut.name || shortcut.title || shortcut.url || '?';
+          const shortLabel = (rawTitle[0] || '?').toUpperCase();
+          const label = escapeHtml(shortLabel);
+          const displayTitle = escapeHtml(rawTitle);
+          const urlAttr = escapeAttr(shortcut.url);
+          const ariaLabel = escapeAttr(`Remove ${rawTitle}`);
+          const idAttr = shortcut.id ? `data-id="${shortcut.id}"` : '';
+
+          return `
+            <div class="shortcut" data-url="${urlAttr}" data-default="${!!shortcut._default}" ${idAttr}>
+              <a href="${urlAttr}">
+                <b>${label}</b>
+                <small>${displayTitle}</small>
+              </a>
+              <button type="button" class="remove-shortcut" aria-label="${ariaLabel}">×</button>
+            </div>
+          `;
+        })
+        .join('');
+
+      attachShortcutHandlers();
+    }
+
+    function attachShortcutHandlers() {
+      if (!grid) return;
+      grid.querySelectorAll('.shortcut').forEach((shortcutEl) => {
+        const anchor = shortcutEl.querySelector('a');
+        if (anchor) {
+          anchor.addEventListener('click', (event) => {
+            event.preventDefault();
+            const targetUrl = shortcutEl.dataset.url;
+            if (targetUrl) navigate(targetUrl);
+          });
+        }
+        shortcutEl.addEventListener('contextmenu', (event) => {
+          event.preventDefault();
+          hideShortcutRemoveButtons();
+          shortcutEl.classList.add('show-remove');
+        });
+      });
+
+      grid.querySelectorAll('.remove-shortcut').forEach((button) => {
+        button.addEventListener('click', (event) => {
+          event.stopPropagation();
+          event.preventDefault();
+          const shortcutEl = button.closest('.shortcut');
+          if (!shortcutEl) return;
+          const targetUrl = shortcutEl.dataset.url;
+          const isDefaultShortcut = shortcutEl.dataset.default === 'true';
+          const storedId = shortcutEl.dataset.id;
+
+          if (isDefaultShortcut) {
+            hideDefaultShortcut(targetUrl);
+          } else {
+            removeStoredShortcut(targetUrl, storedId);
+          }
+
+          renderShortcuts();
+        });
+      });
+    }
+
+    function navigate(url) {
+      if (window.electron && window.electron.invoke) {
+        window.electron.invoke('navigate-to', url);
+      } else {
+        window.location.href = url;
+      }
+    }
+
+    renderShortcuts();
+
+    // Parallax on wrappers so orb keyframe animations keep running smoothly.
+    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const orbLayer = document.querySelector('.orbs');
+    const cardOrbLayer = document.querySelector('.card-orbs');
+
+    if (!prefersReducedMotion && orbLayer && cardOrbLayer) {
+      let frame = null;
+      let px = 0;
+      let py = 0;
+
+      const paintParallax = () => {
+        orbLayer.style.transform = `translate3d(${px}px, ${py}px, 0)`;
+        cardOrbLayer.style.transform = `translate3d(${px * 0.55}px, ${py * 0.55}px, 0)`;
+        frame = null;
+      };
+
+      document.addEventListener('mousemove', (e) => {
+        px = (e.clientX / window.innerWidth - 0.5) * 20;
+        py = (e.clientY / window.innerHeight - 0.5) * 20;
+        if (!frame) frame = requestAnimationFrame(paintParallax);
+      });
+
+      document.addEventListener('mouseleave', () => {
+        px = 0;
+        py = 0;
+        if (!frame) frame = requestAnimationFrame(paintParallax);
+      });
+    }
+  </script>
+</body>
+
+</html>

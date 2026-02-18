@@ -1,0 +1,368 @@
+node_modules
+out
+dist/win-arm64-unpacked/vulkan-1.dll
+dist/win-arm64-unpacked/vk_swiftshader_icd.json
+dist/win-arm64-unpacked/vk_swiftshader.dll
+dist/win-arm64-unpacked/v8_context_snapshot.bin
+dist/win-arm64-unpacked/snapshot_blob.bin
+dist/win-arm64-unpacked/resources/elevate.exe
+dist/win-arm64-unpacked/resources/app.asar
+dist/win-arm64-unpacked/resources/app-update.yml
+dist/win-arm64-unpacked/resources.pak
+dist/win-arm64-unpacked/Orion.exe
+dist/win-arm64-unpacked/locales/zh-TW.pak
+dist/win-arm64-unpacked/locales/zh-CN.pak
+dist/win-arm64-unpacked/locales/vi.pak
+dist/win-arm64-unpacked/locales/ur.pak
+dist/win-arm64-unpacked/locales/uk.pak
+dist/win-arm64-unpacked/locales/tr.pak
+dist/win-arm64-unpacked/locales/th.pak
+dist/win-arm64-unpacked/locales/te.pak
+dist/win-arm64-unpacked/locales/ta.pak
+dist/win-arm64-unpacked/locales/sw.pak
+dist/win-arm64-unpacked/locales/sv.pak
+dist/win-arm64-unpacked/locales/sr.pak
+dist/win-arm64-unpacked/locales/sl.pak
+dist/win-arm64-unpacked/locales/sk.pak
+dist/win-arm64-unpacked/locales/ru.pak
+dist/win-arm64-unpacked/locales/ro.pak
+dist/win-arm64-unpacked/locales/pt-PT.pak
+dist/win-arm64-unpacked/locales/pt-BR.pak
+dist/win-arm64-unpacked/locales/pl.pak
+dist/win-arm64-unpacked/locales/nl.pak
+dist/win-arm64-unpacked/locales/nb.pak
+dist/win-arm64-unpacked/locales/ms.pak
+dist/win-arm64-unpacked/locales/mr.pak
+dist/win-arm64-unpacked/locales/ml.pak
+dist/win-arm64-unpacked/locales/lv.pak
+dist/win-arm64-unpacked/locales/lt.pak
+dist/win-arm64-unpacked/locales/ko.pak
+dist/win-arm64-unpacked/locales/kn.pak
+dist/win-arm64-unpacked/locales/ja.pak
+dist/win-arm64-unpacked/locales/it.pak
+dist/win-arm64-unpacked/locales/id.pak
+dist/win-arm64-unpacked/locales/hu.pak
+dist/win-arm64-unpacked/locales/hr.pak
+dist/win-arm64-unpacked/locales/hi.pak
+dist/win-arm64-unpacked/locales/he.pak
+dist/win-arm64-unpacked/locales/gu.pak
+dist/win-arm64-unpacked/locales/fr.pak
+dist/win-arm64-unpacked/locales/fil.pak
+dist/win-arm64-unpacked/locales/fi.pak
+dist/win-arm64-unpacked/locales/fa.pak
+dist/win-arm64-unpacked/locales/et.pak
+dist/win-arm64-unpacked/locales/es.pak
+dist/win-arm64-unpacked/locales/es-419.pak
+dist/win-arm64-unpacked/locales/en-US.pak
+dist/win-arm64-unpacked/locales/en-GB.pak
+dist/win-arm64-unpacked/locales/el.pak
+dist/win-arm64-unpacked/locales/de.pak
+dist/win-arm64-unpacked/locales/da.pak
+dist/win-arm64-unpacked/locales/cs.pak
+dist/win-arm64-unpacked/locales/ca.pak
+dist/win-arm64-unpacked/locales/bn.pak
+dist/win-arm64-unpacked/locales/bg.pak
+dist/win-arm64-unpacked/locales/ar.pak
+dist/win-arm64-unpacked/locales/am.pak
+dist/win-arm64-unpacked/locales/af.pak
+dist/win-arm64-unpacked/LICENSES.chromium.html
+dist/win-arm64-unpacked/LICENSE.electron.txt
+dist/win-arm64-unpacked/libGLESv2.dll
+dist/win-arm64-unpacked/libEGL.dll
+dist/win-arm64-unpacked/icudtl.dat
+dist/win-arm64-unpacked/ffmpeg.dll
+dist/win-arm64-unpacked/dxil.dll
+dist/win-arm64-unpacked/dxcompiler.dll
+dist/win-arm64-unpacked/d3dcompiler_47.dll
+dist/win-arm64-unpacked/chrome_200_percent.pak
+dist/win-arm64-unpacked/chrome_100_percent.pak
+dist/Orion Setup 1.0.0.exe.blockmap
+dist/Orion Setup 1.0.0.exe
+dist/Orion 1.0.0.exe
+dist/mac-arm64/Orion.app/Contents/Resources/electron.icns
+dist/mac-arm64/Orion.app/Contents/Resources/app.asar
+dist/mac-arm64/Orion.app/Contents/Resources/app-update.yml
+dist/mac-arm64/Orion.app/Contents/PkgInfo
+dist/mac-arm64/Orion.app/Contents/MacOS/Orion
+dist/mac-arm64/Orion.app/Contents/Info.plist
+dist/mac-arm64/Orion.app/Contents/Frameworks/Squirrel.framework/Versions/Current
+dist/mac-arm64/Orion.app/Contents/Frameworks/Squirrel.framework/Versions/A/Squirrel
+dist/mac-arm64/Orion.app/Contents/Frameworks/Squirrel.framework/Versions/A/Resources/ShipIt
+dist/mac-arm64/Orion.app/Contents/Frameworks/Squirrel.framework/Versions/A/Resources/Info.plist
+dist/mac-arm64/Orion.app/Contents/Frameworks/Squirrel.framework/Versions/A/_CodeSignature/CodeResources
+dist/mac-arm64/Orion.app/Contents/Frameworks/Squirrel.framework/Squirrel
+dist/mac-arm64/Orion.app/Contents/Frameworks/Squirrel.framework/Resources
+dist/mac-arm64/Orion.app/Contents/Frameworks/ReactiveObjC.framework/Versions/Current
+dist/mac-arm64/Orion.app/Contents/Frameworks/ReactiveObjC.framework/Versions/A/Resources/Info.plist
+dist/mac-arm64/Orion.app/Contents/Frameworks/ReactiveObjC.framework/Versions/A/ReactiveObjC
+dist/mac-arm64/Orion.app/Contents/Frameworks/ReactiveObjC.framework/Versions/A/_CodeSignature/CodeResources
+dist/mac-arm64/Orion.app/Contents/Frameworks/ReactiveObjC.framework/Resources
+dist/mac-arm64/Orion.app/Contents/Frameworks/ReactiveObjC.framework/ReactiveObjC
+dist/mac-arm64/Orion.app/Contents/Frameworks/Orion Helper.app/Contents/PkgInfo
+dist/mac-arm64/Orion.app/Contents/Frameworks/Orion Helper.app/Contents/MacOS/Orion Helper
+dist/mac-arm64/Orion.app/Contents/Frameworks/Orion Helper.app/Contents/Info.plist
+dist/mac-arm64/Orion.app/Contents/Frameworks/Orion Helper.app/Contents/_CodeSignature/CodeResources
+dist/mac-arm64/Orion.app/Contents/Frameworks/Orion Helper (Renderer).app/Contents/PkgInfo
+dist/mac-arm64/Orion.app/Contents/Frameworks/Orion Helper (Renderer).app/Contents/MacOS/Orion Helper (Renderer)
+dist/mac-arm64/Orion.app/Contents/Frameworks/Orion Helper (Renderer).app/Contents/Info.plist
+dist/mac-arm64/Orion.app/Contents/Frameworks/Orion Helper (Renderer).app/Contents/_CodeSignature/CodeResources
+dist/mac-arm64/Orion.app/Contents/Frameworks/Orion Helper (Plugin).app/Contents/PkgInfo
+dist/mac-arm64/Orion.app/Contents/Frameworks/Orion Helper (Plugin).app/Contents/MacOS/Orion Helper (Plugin)
+dist/mac-arm64/Orion.app/Contents/Frameworks/Orion Helper (Plugin).app/Contents/Info.plist
+dist/mac-arm64/Orion.app/Contents/Frameworks/Orion Helper (Plugin).app/Contents/_CodeSignature/CodeResources
+dist/mac-arm64/Orion.app/Contents/Frameworks/Orion Helper (GPU).app/Contents/PkgInfo
+dist/mac-arm64/Orion.app/Contents/Frameworks/Orion Helper (GPU).app/Contents/MacOS/Orion Helper (GPU)
+dist/mac-arm64/Orion.app/Contents/Frameworks/Orion Helper (GPU).app/Contents/Info.plist
+dist/mac-arm64/Orion.app/Contents/Frameworks/Orion Helper (GPU).app/Contents/_CodeSignature/CodeResources
+dist/mac-arm64/Orion.app/Contents/Frameworks/Mantle.framework/Versions/Current
+dist/mac-arm64/Orion.app/Contents/Frameworks/Mantle.framework/Versions/A/Resources/Info.plist
+dist/mac-arm64/Orion.app/Contents/Frameworks/Mantle.framework/Versions/A/Mantle
+dist/mac-arm64/Orion.app/Contents/Frameworks/Mantle.framework/Versions/A/_CodeSignature/CodeResources
+dist/mac-arm64/Orion.app/Contents/Frameworks/Mantle.framework/Resources
+dist/mac-arm64/Orion.app/Contents/Frameworks/Mantle.framework/Mantle
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/Current
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/zh_TW_NEUTER.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/zh_TW_MASCULINE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/zh_TW_FEMININE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/zh_TW.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/zh_CN_NEUTER.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/zh_CN_MASCULINE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/zh_CN_FEMININE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/zh_CN.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/vi_NEUTER.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/vi_MASCULINE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/vi_FEMININE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/vi.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/v8_context_snapshot.arm64.bin
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ur_NEUTER.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ur_MASCULINE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ur_FEMININE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ur.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/uk_NEUTER.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/uk_MASCULINE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/uk_FEMININE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/uk.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/tr_NEUTER.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/tr_MASCULINE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/tr_FEMININE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/tr.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/th_NEUTER.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/th_MASCULINE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/th_FEMININE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/th.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/te_NEUTER.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/te_MASCULINE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/te_FEMININE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/te.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ta_NEUTER.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ta_MASCULINE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ta_FEMININE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ta.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/sw_NEUTER.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/sw_MASCULINE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/sw_FEMININE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/sw.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/sv_NEUTER.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/sv_MASCULINE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/sv_FEMININE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/sv.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/sr_NEUTER.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/sr_MASCULINE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/sr_FEMININE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/sr.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/sl_NEUTER.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/sl_MASCULINE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/sl_FEMININE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/sl.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/sk_NEUTER.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/sk_MASCULINE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/sk_FEMININE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/sk.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ru_NEUTER.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ru_MASCULINE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ru_FEMININE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ru.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ro_NEUTER.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ro_MASCULINE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ro_FEMININE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ro.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/resources.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/pt_PT_NEUTER.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/pt_PT_MASCULINE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/pt_PT_FEMININE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/pt_PT.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/pt_BR_NEUTER.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/pt_BR_MASCULINE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/pt_BR_FEMININE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/pt_BR.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/pl_NEUTER.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/pl_MASCULINE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/pl_FEMININE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/pl.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/nl_NEUTER.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/nl_MASCULINE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/nl_FEMININE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/nl.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/nb_NEUTER.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/nb_MASCULINE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/nb_FEMININE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/nb.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ms_NEUTER.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ms_MASCULINE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ms_FEMININE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ms.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/mr_NEUTER.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/mr_MASCULINE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/mr_FEMININE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/mr.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ml_NEUTER.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ml_MASCULINE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ml_FEMININE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ml.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/MainMenu.nib
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/lv_NEUTER.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/lv_MASCULINE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/lv_FEMININE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/lv.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/lt_NEUTER.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/lt_MASCULINE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/lt_FEMININE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/lt.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ko_NEUTER.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ko_MASCULINE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ko_FEMININE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ko.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/kn_NEUTER.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/kn_MASCULINE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/kn_FEMININE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/kn.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ja_NEUTER.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ja_MASCULINE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ja_FEMININE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ja.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/it_NEUTER.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/it_MASCULINE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/it_FEMININE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/it.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/Info.plist
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/id_NEUTER.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/id_MASCULINE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/id_FEMININE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/id.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/icudtl.dat
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/hu_NEUTER.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/hu_MASCULINE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/hu_FEMININE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/hu.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/hr_NEUTER.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/hr_MASCULINE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/hr_FEMININE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/hr.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/hi_NEUTER.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/hi_MASCULINE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/hi_FEMININE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/hi.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/he_NEUTER.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/he_MASCULINE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/he_FEMININE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/he.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/gu_NEUTER.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/gu_MASCULINE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/gu_FEMININE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/gu.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/fr_NEUTER.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/fr_MASCULINE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/fr_FEMININE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/fr.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/fil_NEUTER.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/fil_MASCULINE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/fil_FEMININE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/fil.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/fi_NEUTER.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/fi_MASCULINE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/fi_FEMININE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/fi.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/fa_NEUTER.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/_CodeSignature/CodeResources
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Electron Framework
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Helpers
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Libraries
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Resources
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/_CodeSignature/CodeResources
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Electron Framework
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Helpers/chrome_crashpad_handler
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Libraries/libEGL.dylib
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Libraries/libffmpeg.dylib
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Libraries/libGLESv2.dylib
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Libraries/libvk_swiftshader.dylib
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Libraries/vk_swiftshader_icd.json
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/af.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/af_FEMININE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/af_MASCULINE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/af_NEUTER.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/am.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/am_FEMININE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/am_MASCULINE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/am_NEUTER.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ar.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ar_FEMININE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ar_MASCULINE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ar_NEUTER.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/bg.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/bg_FEMININE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/bg_MASCULINE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/bg_NEUTER.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/bn.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/bn_FEMININE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/bn_MASCULINE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/bn_NEUTER.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ca.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ca_FEMININE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ca_MASCULINE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ca_NEUTER.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/chrome_100_percent.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/chrome_200_percent.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/cs.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/cs_FEMININE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/cs_MASCULINE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/cs_NEUTER.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/da.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/da_FEMININE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/da_MASCULINE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/da_NEUTER.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/de.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/de_FEMININE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/de_MASCULINE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/de_NEUTER.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/el.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/el_FEMININE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/el_MASCULINE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/el_NEUTER.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/en.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/en_FEMININE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/en_GB.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/en_GB_FEMININE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/en_GB_MASCULINE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/en_GB_NEUTER.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/en_MASCULINE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/en_NEUTER.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/es.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/es_419.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/fa_MASCULINE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/fa_FEMININE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/fa.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/et_NEUTER.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/et_MASCULINE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/et_FEMININE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/et.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/es_NEUTER.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/es_MASCULINE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/es_FEMININE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/es_419_NEUTER.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/es_419_MASCULINE.lproj/locale.pak
+dist/mac-arm64/Orion.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/es_419_FEMININE.lproj/locale.pak
+dist/.DS_Store
+build_log.txt
+.DS_Store
+dist/builder-debug.yml
+/dist

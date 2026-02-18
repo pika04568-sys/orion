@@ -1,0 +1,1741 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self';script-src 'self';style-src 'self' https://fonts.googleapis.com 'unsafe-inline';font-src https://fonts.gstatic.com">
+    <title>Orion</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600&display=swap');
+
+        :root {
+            --bg-color: #eff4fb;
+            --sidebar-bg: #ffffff;
+            --card-bg: #ffffff;
+            --accent-color: #0f6bff;
+            --accent-hover: #0a57d3;
+            --text-primary: #10213a;
+            --text-secondary: #5f728c;
+            --text-color: var(--text-primary);
+            --border-color: #dbe6f4;
+            --panel-glow: rgba(15, 107, 255, 0.12);
+            --tab-active-bg: rgba(255, 255, 255, 0.94);
+            --tab-inactive-bg: rgba(244, 249, 255, 0.9);
+            --glass-bg: rgba(255, 255, 255, 0.76);
+            --glass-border: rgba(255, 255, 255, 0.62);
+            --chrome-top: 82px;
+            --tab-rail-width: 240px
+        }
+
+        @media (prefers-color-scheme:dark) {
+            :root {
+                --bg-color: #0b1426;
+                --sidebar-bg: #15233d;
+                --card-bg: #1a2b47;
+                --accent-color: #58a6ff;
+                --accent-hover: #8ec5ff;
+                --text-primary: #f4f8ff;
+                --text-secondary: #9bb3d1;
+                --text-color: var(--text-primary);
+                --border-color: #2b4468;
+                --panel-glow: rgba(88, 166, 255, 0.24);
+                --tab-active-bg: #1e3352;
+                --tab-inactive-bg: #14253f;
+                --glass-bg: rgba(11, 20, 38, 0.74);
+                --glass-border: rgba(154, 185, 226, 0.22)
+            }
+
+            body {
+                background:
+                    radial-gradient(circle at 16% -8%, rgba(88, 166, 255, .26), transparent 48%),
+                    radial-gradient(circle at 85% 18%, rgba(56, 189, 248, .2), transparent 42%),
+                    linear-gradient(180deg, #0f1c33 0%, var(--bg-color) 72%)
+            }
+
+            body::before {
+                opacity: .2
+            }
+
+            #chrome-container,
+            body.vertical-tabs #tab-bar {
+                background: linear-gradient(180deg, rgba(11, 20, 38, .94), var(--glass-bg))
+            }
+
+            .settings-hero {
+                background:
+                    radial-gradient(circle at 20% 15%, rgba(129, 140, 248, .24), transparent 52%),
+                    radial-gradient(circle at 85% 80%, rgba(56, 189, 248, .22), transparent 44%),
+                    var(--card-bg)
+            }
+
+            .settings-section,
+            .adblock-card {
+                box-shadow: 0 20px 46px rgba(0, 0, 0, .35)
+            }
+
+            .setting-toggle,
+            #search-engine-select,
+            .settings-input,
+            .settings-color-wheel,
+            .settings-version,
+            .panel-close-btn {
+                background: rgba(15, 23, 42, .58)
+            }
+
+            .tab .tab-close:hover {
+                background: rgba(255, 255, 255, .14)
+            }
+
+            .nav-btn,
+            #new-tab-btn,
+            #clear-tabs-btn,
+            .bookmarks-bar-item,
+            #address-bar {
+                background: rgba(11, 20, 38, .58)
+            }
+
+            #bookmarks-bar {
+                background: rgba(11, 20, 38, .56)
+            }
+
+            .dropdown-menu {
+                background: rgba(11, 20, 38, .92)
+            }
+
+            #adblock-rules {
+                background: rgba(15, 23, 42, .58)
+            }
+
+            .adblock-sample code {
+                background: rgba(15, 23, 42, .56)
+            }
+
+            .modal-content,
+            .download-item,
+            #find-bar,
+            .bookmark-item,
+            .history-item {
+                background: rgba(11, 20, 38, .7)
+            }
+
+            #address-bar {
+                background: rgba(11, 20, 38, .62)
+            }
+
+            .bookmarks-bar-item,
+            .dropdown-item {
+                color: var(--text-primary)
+            }
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none
+        }
+
+        input,
+        textarea {
+            user-select: text
+        }
+
+        body {
+            font-family: Outfit, sans-serif;
+            background:
+                radial-gradient(circle at 16% -12%, rgba(66, 153, 255, .24), transparent 48%),
+                radial-gradient(circle at 85% 18%, rgba(56, 189, 248, .2), transparent 42%),
+                linear-gradient(180deg, #f7fbff 0%, var(--bg-color) 70%);
+            color: var(--text-primary);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            transition: background-color 1s, color 1s;
+            position: relative
+        }
+
+        body::before {
+            content: "";
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            background: linear-gradient(100deg, rgba(255, 255, 255, .32), transparent 35%, rgba(255, 255, 255, .18));
+            opacity: .55
+        }
+
+        #chrome-container {
+            display: flex;
+            flex-direction: column;
+            background:
+                linear-gradient(180deg, rgba(255, 255, 255, .88), var(--glass-bg));
+            backdrop-filter: blur(18px) saturate(1.1);
+            border-bottom: 1px solid var(--glass-border);
+            box-shadow: 0 10px 24px rgba(10, 24, 48, .08);
+            z-index: 100
+        }
+
+        body.vertical-tabs #chrome-container {
+            flex-direction: row;
+            flex-wrap: wrap
+        }
+
+        body.vertical-tabs #tab-bar {
+            order: -1;
+            flex-direction: column;
+            width: var(--tab-rail-width);
+            height: 100vh;
+            position: fixed;
+            left: 0;
+            top: 0;
+            padding: 60px 12px 12px;
+            background: linear-gradient(180deg, rgba(255, 255, 255, .9), var(--glass-bg));
+            border-right: 1px solid var(--border-color);
+            z-index: 50;
+            overflow-y: auto;
+            gap: 8px;
+            backdrop-filter: blur(18px) saturate(1.08)
+        }
+
+        body.vertical-tabs #toolbar,
+        body.vertical-tabs #view-container {
+            margin-left: var(--tab-rail-width)
+        }
+
+        body.vertical-tabs #toolbar {
+            flex: 1;
+            width: calc(100vw - var(--tab-rail-width));
+            padding: 10px 14px 10px 18px
+        }
+
+        body.vertical-tabs #bookmarks-bar {
+            margin-left: var(--tab-rail-width);
+            width: calc(100vw - var(--tab-rail-width))
+        }
+
+        body.vertical-tabs .tab {
+            width: 100%;
+            max-width: none;
+            border-radius: 12px;
+            border: 1px solid transparent;
+            padding: 10px 14px;
+            background: transparent;
+            box-shadow: none
+        }
+
+        body.vertical-tabs .tab:hover {
+            background: rgba(15, 107, 255, 0.08)
+        }
+
+        body.vertical-tabs .tab.active {
+            background: var(--accent-color);
+            color: #fff;
+            box-shadow: 0 6px 16px rgba(15, 107, 255, 0.3)
+        }
+
+        #tab-bar {
+            display: flex;
+            align-items: center;
+            padding: 10px 10px 2px;
+            gap: 6px;
+            overflow-x: auto
+        }
+
+        #tab-bar::-webkit-scrollbar {
+            display: none
+        }
+
+        .tab {
+            display: flex;
+            align-items: center;
+            padding: 9px 14px;
+            border-radius: 11px 11px 0 0;
+            background: var(--tab-inactive-bg);
+            border: 1px solid var(--border-color);
+            border-bottom: none;
+            min-width: 120px;
+            max-width: 200px;
+            cursor: pointer;
+            transition: transform .2s, box-shadow .2s, border-color .2s, background-color .2s, color .2s;
+            position: relative;
+            font-size: 13px;
+            white-space: nowrap;
+            box-shadow: 0 10px 26px rgba(10, 24, 48, .08)
+        }
+
+        .tab.active {
+            background: var(--tab-active-bg);
+            color: var(--accent-color);
+            font-weight: 600;
+            border-color: rgba(15, 107, 255, .3);
+            box-shadow: 0 14px 30px rgba(15, 107, 255, .2)
+        }
+
+        .tab:hover {
+            transform: translateY(-1px);
+            border-color: rgba(15, 107, 255, .24)
+        }
+
+        .tab .tab-title {
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis
+        }
+
+        .tab .tab-close {
+            margin-left: 10px;
+            opacity: 0;
+            font-size: 14px;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 22px;
+            height: 22px;
+            border-radius: 999px;
+            border: 1px solid transparent;
+            color: var(--text-secondary);
+            transition: opacity .18s, transform .18s, border-color .18s, background-color .18s, color .18s
+        }
+
+        .tab:hover .tab-close,
+        .tab.active .tab-close {
+            opacity: .88
+        }
+
+        .tab .tab-close:hover {
+            opacity: 1;
+            background: rgba(0, 0, 0, .08);
+            border-color: var(--border-color);
+            color: var(--text-primary);
+            transform: scale(1.05)
+        }
+
+        body.vertical-tabs .tab.active .tab-close {
+            color: rgba(255, 255, 255, .95);
+            border-color: rgba(255, 255, 255, .28)
+        }
+
+        body.vertical-tabs .tab.active .tab-close:hover {
+            background: rgba(255, 255, 255, .2)
+        }
+
+        #new-tab-btn,
+        #clear-tabs-btn {
+            padding: 6px 10px;
+            border-radius: 10px;
+            cursor: pointer;
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            border: 1px solid transparent;
+            background: rgba(255, 255, 255, .55);
+            transition: transform .2s, border-color .2s, color .2s, background-color .2s
+        }
+
+        #new-tab-btn:hover,
+        #clear-tabs-btn:hover {
+            transform: translateY(-1px);
+            border-color: rgba(15, 107, 255, .28);
+            color: var(--accent-color);
+            background: rgba(255, 255, 255, .88)
+        }
+
+        #toolbar {
+            display: flex;
+            align-items: center;
+            padding: 10px 14px 12px;
+            gap: 12px;
+            min-width: 0
+        }
+
+        .nav-buttons,
+        .action-buttons {
+            display: flex;
+            gap: 7px;
+            flex: 0 0 auto
+        }
+
+        .nav-btn {
+            width: 32px;
+            height: 32px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            color: var(--text-secondary);
+            border: 1px solid transparent;
+            background: rgba(255, 255, 255, .55);
+            transition: transform .2s, border-color .2s, color .2s, background-color .2s
+        }
+
+        .nav-btn:hover {
+            background: rgba(255, 255, 255, .92);
+            border-color: rgba(15, 107, 255, .24);
+            color: var(--text-primary);
+            transform: translateY(-1px)
+        }
+
+        .nav-btn:focus-visible {
+            outline: 0;
+            border-color: var(--accent-color);
+            box-shadow: 0 0 0 3px rgba(15, 107, 255, .16)
+        }
+
+        #address-bar-container {
+            flex: 1;
+            position: relative;
+            display: flex;
+            align-items: center;
+            min-width: 0
+        }
+
+        #address-bar-container::before {
+            content: "";
+            position: absolute;
+            left: 15px;
+            width: 9px;
+            height: 9px;
+            border: 2px solid var(--text-secondary);
+            border-radius: 50%;
+            opacity: .8;
+            pointer-events: none
+        }
+
+        #address-bar-container::after {
+            content: "";
+            position: absolute;
+            left: 24px;
+            width: 7px;
+            height: 2px;
+            background: var(--text-secondary);
+            transform: rotate(35deg);
+            border-radius: 99px;
+            opacity: .8;
+            pointer-events: none
+        }
+
+        #address-bar {
+            width: 100%;
+            padding: 9px 48px 9px 42px;
+            border-radius: 14px;
+            border: 1px solid var(--border-color);
+            background: rgba(255, 255, 255, .68);
+            backdrop-filter: blur(14px);
+            color: var(--text-primary);
+            font-size: 14px;
+            outline: 0;
+            transition: border-color .2s, box-shadow .2s, background-color .2s;
+            box-shadow: inset 0 1px 2px rgba(0, 0, 0, .04), 0 8px 20px rgba(11, 31, 58, .08)
+        }
+
+        #address-bar:focus {
+            border-color: var(--accent-color);
+            box-shadow: 0 0 0 3px rgba(15, 107, 255, .16), inset 0 1px 2px rgba(0, 0, 0, .05), 0 14px 34px rgba(15, 107, 255, .16);
+            background: rgba(255, 255, 255, .94)
+        }
+
+        #add-bookmark-btn {
+            position: absolute;
+            right: 8px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 30px;
+            height: 30px;
+            padding: 4px;
+            color: var(--text-secondary);
+            border-radius: 9px;
+            border: 1px solid transparent;
+            background: transparent
+        }
+
+        #add-bookmark-btn:hover {
+            color: var(--accent-color);
+            border-color: rgba(15, 107, 255, .22);
+            background: rgba(15, 107, 255, .08)
+        }
+
+        #bookmarks-bar {
+            height: 38px;
+            padding: 0 14px;
+            display: none;
+            align-items: center;
+            gap: 10px;
+            background: rgba(255, 255, 255, .48);
+            border-bottom: 1px solid var(--border-color);
+            overflow-x: auto;
+            backdrop-filter: blur(14px);
+            width: 100%
+        }
+
+        #bookmarks-bar::-webkit-scrollbar {
+            display: none
+        }
+
+        .bookmarks-bar-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 5px 10px;
+            border-radius: 999px;
+            border: 1px solid transparent;
+            cursor: pointer;
+            font-size: 13px;
+            white-space: nowrap;
+            color: var(--text-primary);
+            background: rgba(255, 255, 255, .55);
+            transition: border-color .2s, transform .2s, background-color .2s, color .2s
+        }
+
+        .bookmarks-bar-item:hover {
+            border-color: rgba(15, 107, 255, .25);
+            color: var(--accent-color);
+            transform: translateY(-1px);
+            background: rgba(255, 255, 255, .92)
+        }
+
+        .bookmarks-bar-item img {
+            width: 16px;
+            height: 16px;
+            border-radius: 2px
+        }
+
+        #progress-bar-container {
+            position: absolute;
+            bottom: 2px;
+            left: 18px;
+            right: 18px;
+            height: 2px;
+            background: 0;
+            overflow: hidden;
+            border-radius: 2px;
+            display: none
+        }
+
+        #progress-bar {
+            height: 100%;
+            width: 0;
+            background: var(--accent-color);
+            transition: width .3s
+        }
+
+        #progress-bar-container.loading {
+            display: block
+        }
+
+        #progress-bar-container.loading #progress-bar {
+            animation: progress-pulse 2s infinite linear
+        }
+
+        @keyframes progress-pulse {
+            0% {
+                width: 0;
+                opacity: 1
+            }
+
+            50% {
+                width: 70%;
+                opacity: 1
+            }
+
+            100% {
+                width: 100%;
+                opacity: 0
+            }
+        }
+
+        .dropdown-menu {
+            position: absolute;
+            top: 100%;
+            right: 0;
+            background: rgba(255, 255, 255, .9);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            box-shadow: 0 22px 52px rgba(9, 26, 52, .2);
+            min-width: 240px;
+            margin-top: 12px;
+            display: none;
+            z-index: 9999;
+            overflow: hidden;
+            padding: 8px 0;
+            backdrop-filter: blur(14px) saturate(1.1)
+        }
+
+        .profile-menu-wrap {
+            position: relative
+        }
+
+        .dropdown-menu.show {
+            display: block
+        }
+
+        .dropdown-item {
+            padding: 11px 14px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            color: var(--text-color);
+            font-size: 14px;
+            gap: 8px;
+            transition: background-color .2s, color .2s
+        }
+
+        .dropdown-item:hover {
+            background: rgba(15, 107, 255, .1)
+        }
+
+        .profile-rename-btn {
+            background: 0;
+            border: 0;
+            cursor: pointer;
+            padding: 4px;
+            border-radius: 6px;
+            opacity: 0;
+            color: var(--text-secondary)
+        }
+
+        .dropdown-item:hover .profile-rename-btn {
+            opacity: 1
+        }
+
+        .profile-rename-btn:hover {
+            background: rgba(15, 107, 255, .12);
+            color: var(--accent-color)
+        }
+
+        .dropdown-item.active {
+            color: var(--accent-color);
+            font-weight: 600
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--accent-color);
+            margin-right: 10px
+        }
+
+        .divider {
+            height: 1px;
+            background: var(--border-color);
+            margin: 8px 10px
+        }
+
+        #view-container {
+            flex: 1;
+            background:
+                radial-gradient(circle at 85% 0%, rgba(56, 189, 248, .12), transparent 32%),
+                linear-gradient(180deg, rgba(255, 255, 255, .25), transparent 18%),
+                var(--bg-color);
+            position: relative
+        }
+
+        #find-bar {
+            position: absolute;
+            top: 14px;
+            right: 20px;
+            background: rgba(255, 255, 255, .88);
+            border: 1px solid var(--border-color);
+            border-radius: 14px;
+            padding: 8px 10px;
+            z-index: 1000;
+            align-items: center;
+            gap: 8px;
+            backdrop-filter: blur(16px);
+            box-shadow: 0 16px 34px rgba(10, 24, 48, .14)
+        }
+
+        #find-input {
+            min-width: 200px;
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 8px 10px;
+            font-size: 13px;
+            background: rgba(255, 255, 255, .8);
+            color: var(--text-primary);
+            outline: 0
+        }
+
+        #find-input:focus {
+            border-color: var(--accent-color);
+            box-shadow: 0 0 0 3px rgba(15, 107, 255, .14)
+        }
+
+        #find-results {
+            font-size: 12px;
+            color: var(--text-secondary);
+            min-width: 44px;
+            text-align: center
+        }
+
+        #history-sidebar,
+        #settings-sidebar,
+        #bookmarks-sidebar,
+        #downloads-sidebar,
+        #adblock-sidebar {
+            position: fixed;
+            left: 0;
+            right: 0;
+            top: var(--chrome-top);
+            bottom: 0;
+            width: 100vw;
+            height: calc(100vh - var(--chrome-top));
+            background:
+                radial-gradient(circle at 85% -20%, var(--panel-glow), transparent 56%),
+                radial-gradient(circle at -20% 85%, rgba(56, 189, 248, .08), transparent 52%),
+                var(--bg-color);
+            z-index: 2000;
+            transition: opacity .28s, transform .28s;
+            padding: 52px 56px 34px;
+            display: flex;
+            flex-direction: column;
+            gap: 22px;
+            opacity: 0;
+            pointer-events: none;
+            transform: translateY(10px) scale(.98)
+        }
+
+        #history-sidebar.open,
+        #settings-sidebar.open,
+        #bookmarks-sidebar.open,
+        #downloads-sidebar.open,
+        #adblock-sidebar.open {
+            opacity: 1;
+            pointer-events: auto;
+            transform: translateY(0) scale(1)
+        }
+
+        .history-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            max-width: 1200px;
+            margin: 0 auto;
+            width: 100%
+        }
+
+        .panel-header {
+            gap: 16px;
+            flex-wrap: wrap
+        }
+
+        .panel-title-wrap {
+            display: flex;
+            flex-direction: column;
+            gap: 4px
+        }
+
+        .panel-kicker {
+            font-size: 11px;
+            letter-spacing: .1em;
+            text-transform: uppercase;
+            font-weight: 700;
+            color: var(--text-secondary)
+        }
+
+        .panel-close-btn {
+            margin-left: auto;
+            width: 40px;
+            height: 40px;
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+            background: var(--card-bg);
+            color: var(--text-secondary);
+            font-size: 22px;
+            line-height: 1;
+            box-shadow: 0 8px 20px rgba(2, 6, 23, .08);
+            transition: transform .2s, border-color .2s, color .2s, box-shadow .2s
+        }
+
+        .panel-close-btn:hover {
+            border-color: var(--accent-color);
+            color: var(--accent-color);
+            box-shadow: 0 12px 24px rgba(2, 6, 23, .12);
+            transform: translateY(-1px)
+        }
+
+        .panel-close-btn:focus-visible {
+            outline: 0;
+            border-color: var(--accent-color);
+            box-shadow: 0 0 0 3px rgba(15, 107, 255, .2)
+        }
+
+        .adblock-help {
+            margin: 0;
+            width: 100%;
+            font-size: 12px;
+            color: var(--text-secondary);
+            display: flex;
+            align-items: flex-start;
+            gap: 8px
+        }
+
+        .adblock-help::before {
+            content: "i";
+            width: 16px;
+            height: 16px;
+            border-radius: 999px;
+            border: 1px solid var(--border-color);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            font-weight: 700;
+            margin-top: 1px;
+            flex: 0 0 auto
+        }
+
+        .adblock-layout {
+            width: 100%;
+            max-width: 1100px;
+            margin: 0 auto;
+            display: grid;
+            gap: 14px
+        }
+
+        .adblock-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 22px;
+            padding: 22px;
+            box-shadow: 0 14px 40px rgba(2, 6, 23, .08);
+            display: flex;
+            flex-direction: column;
+            gap: 14px
+        }
+
+        .adblock-intro {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            flex-wrap: wrap;
+            gap: 12px
+        }
+
+        .adblock-intro p {
+            max-width: 680px;
+            color: var(--text-secondary);
+            font-size: 14px;
+            line-height: 1.45
+        }
+
+        .adblock-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 10px;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--accent-color);
+            background: rgba(15, 107, 255, .12)
+        }
+
+        #adblock-rules {
+            width: 100%;
+            min-height: 52vh;
+            font-size: 13px;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+            line-height: 1.55;
+            letter-spacing: .01em;
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 14px;
+            background: rgba(15, 23, 42, .04);
+            padding: 14px 16px;
+            resize: vertical;
+            outline: 0
+        }
+
+        #adblock-rules:focus {
+            border-color: var(--accent-color);
+            box-shadow: 0 0 0 3px rgba(15, 107, 255, .12)
+        }
+
+        .adblock-sample {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px
+        }
+
+        .adblock-sample code {
+            display: inline-block;
+            border-radius: 10px;
+            border: 1px dashed var(--border-color);
+            padding: 6px 8px;
+            background: rgba(148, 163, 184, .12);
+            font-size: 12px
+        }
+
+        .adblock-actions {
+            display: flex;
+            justify-content: flex-end
+        }
+
+        #save-adblock-rules {
+            height: 42px;
+            padding: 0 20px;
+            min-width: 220px;
+            border-radius: 12px;
+            border: 0;
+            font-size: 14px;
+            font-weight: 600;
+            color: #fff;
+            background: var(--accent-color);
+            box-shadow: 0 12px 24px rgba(15, 107, 255, .25);
+            cursor: pointer;
+            transition: transform .2s, box-shadow .2s, background-color .2s
+        }
+
+        #save-adblock-rules:hover {
+            background: var(--accent-hover);
+            transform: translateY(-1px);
+            box-shadow: 0 16px 32px rgba(15, 107, 255, .3)
+        }
+
+        #save-adblock-rules:focus-visible {
+            outline: 0;
+            box-shadow: 0 0 0 3px rgba(15, 107, 255, .28), 0 16px 32px rgba(15, 107, 255, .3)
+        }
+
+        h2 {
+            font-size: 32px;
+            font-weight: 700;
+            line-height: 1.1;
+            color: var(--accent-color)
+        }
+
+        #history-list,
+        #bookmarks-list,
+        #downloads-list {
+            flex: 1;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            max-width: 1200px;
+            margin: 0 auto;
+            width: 100%;
+            padding-bottom: 40px
+        }
+
+        #history-list::-webkit-scrollbar,
+        #bookmarks-list::-webkit-scrollbar,
+        #downloads-list::-webkit-scrollbar {
+            width: 10px
+        }
+
+        #history-list::-webkit-scrollbar-thumb,
+        #bookmarks-list::-webkit-scrollbar-thumb,
+        #downloads-list::-webkit-scrollbar-thumb {
+            background: rgba(95, 114, 140, .35);
+            border-radius: 999px;
+            border: 2px solid transparent;
+            background-clip: padding-box
+        }
+
+        .history-item,
+        .bookmark-item {
+            padding: 12px 20px;
+            border-radius: 14px;
+            background: rgba(255, 255, 255, .86);
+            border: 1px solid var(--border-color);
+            cursor: pointer;
+            transition: border-color .2s, box-shadow .2s, transform .2s, background-color .2s;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            position: relative;
+            box-shadow: 0 12px 26px rgba(5, 20, 44, .08)
+        }
+
+        .history-item:hover,
+        .bookmark-item:hover {
+            border-color: var(--accent-color);
+            box-shadow: 0 18px 36px rgba(15, 107, 255, .2);
+            transform: translateY(-3px)
+        }
+
+        .favicon,
+        .bookmark-item>img {
+            width: 22px;
+            height: 22px;
+            border-radius: 7px;
+            box-shadow: 0 2px 10px rgba(15, 107, 255, .2);
+            flex: 0 0 auto
+        }
+
+        .history-item>div:first-of-type,
+        .bookmark-item>div:first-of-type {
+            min-width: 0;
+            flex: 1
+        }
+
+        .history-item>div:first-of-type>div:first-child,
+        .bookmark-item>div:first-of-type>div:first-child {
+            font-size: 15px;
+            font-weight: 600;
+            color: var(--text-primary);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap
+        }
+
+        .title {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--text-primary);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap
+        }
+
+        .url {
+            font-size: 13px;
+            color: var(--text-secondary);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap
+        }
+
+        .clear-history-section {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            background: rgba(255, 255, 255, .58);
+            padding: 6px;
+            border-radius: 14px;
+            border: 1px solid var(--border-color);
+            box-shadow: 0 8px 18px rgba(5, 20, 44, .08)
+        }
+
+        .clear-history-btn {
+            padding: 8px 16px;
+            border-radius: 10px;
+            border: 0;
+            background: 0;
+            color: var(--text-secondary);
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: .2s;
+            white-space: nowrap
+        }
+
+        .clear-history-btn:hover {
+            background: rgba(255, 255, 255, .96);
+            color: var(--accent-color);
+            box-shadow: 0 8px 18px rgba(15, 107, 255, .18);
+            transform: translateY(-1px)
+        }
+
+        .clear-history-btn.danger {
+            color: #ef4444
+        }
+
+        .download-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 14px;
+            padding: 14px 16px;
+            border: 1px solid var(--border-color);
+            border-radius: 14px;
+            background: rgba(255, 255, 255, .86);
+            font-size: 14px;
+            box-shadow: 0 12px 28px rgba(10, 24, 48, .08)
+        }
+
+        .download-item div:first-child {
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font-weight: 600
+        }
+
+        .download-item div:last-child {
+            color: var(--text-secondary);
+            font-size: 12px;
+            font-weight: 600;
+            letter-spacing: .04em;
+            text-transform: uppercase
+        }
+
+        .remove-bm {
+            margin-left: auto;
+            width: 30px;
+            height: 30px;
+            border: 1px solid transparent;
+            border-radius: 9px;
+            background: rgba(239, 68, 68, .08);
+            color: #ef4444;
+            font-size: 18px;
+            line-height: 1;
+            cursor: pointer;
+            transition: transform .2s, border-color .2s, background-color .2s
+        }
+
+        .remove-bm:hover {
+            transform: translateY(-1px);
+            border-color: rgba(239, 68, 68, .35);
+            background: rgba(239, 68, 68, .14)
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 3000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(8, 18, 34, .45);
+            align-items: center;
+            justify-content: center;
+            backdrop-filter: blur(4px)
+        }
+
+        .modal.show {
+            display: flex
+        }
+
+        .modal-content {
+            background: rgba(255, 255, 255, .92);
+            border-radius: 18px;
+            padding: 22px;
+            width: min(360px, calc(100vw - 28px));
+            box-shadow: 0 26px 46px rgba(10, 24, 48, .24);
+            border: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            gap: 14px
+        }
+
+        .modal-content h3 {
+            font-size: 18px
+        }
+
+        .modal-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 12px
+        }
+
+        .modal-content button {
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            height: 36px;
+            padding: 0 14px;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-primary);
+            background: rgba(255, 255, 255, .86);
+            cursor: pointer;
+            transition: transform .2s, border-color .2s, background-color .2s
+        }
+
+        .modal-content button:hover {
+            transform: translateY(-1px)
+        }
+
+        #rename-input {
+            width: 100%;
+            height: 38px;
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 0 12px;
+            font-size: 14px;
+            color: var(--text-primary);
+            background: rgba(255, 255, 255, .88);
+            outline: 0
+        }
+
+        #rename-input:focus {
+            border-color: var(--accent-color);
+            box-shadow: 0 0 0 3px rgba(15, 107, 255, .14)
+        }
+
+        #rename-save-btn,
+        #add-to-both-btn {
+            background: var(--accent-color);
+            border-color: transparent;
+            color: #fff
+        }
+
+        #rename-save-btn:hover,
+        #add-to-both-btn:hover {
+            background: var(--accent-hover)
+        }
+
+        #bookmark-dest-modal .modal-content {
+            width: min(320px, calc(100vw - 28px))
+        }
+
+        #bookmark-dest-modal .modal-content button {
+            width: 100%
+        }
+
+        #add-to-bar-btn:hover,
+        #add-to-newtab-btn:hover,
+        #cancel-bookmark-btn:hover,
+        #rename-cancel-btn:hover {
+            border-color: rgba(15, 107, 255, .24);
+            background: rgba(15, 107, 255, .08)
+        }
+
+        .modal-btn {
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            border: 0
+        }
+
+        .modal-btn.primary {
+            background: var(--accent-color);
+            color: #fff
+        }
+
+        .settings-content {
+            flex: 1;
+            overflow-y: auto;
+            max-width: 980px;
+            margin: 0 auto;
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            padding-bottom: 28px
+        }
+
+        .settings-section {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 20px;
+            padding: 24px;
+            box-shadow: 0 14px 40px rgba(2, 6, 23, .08);
+            transition: transform .2s, box-shadow .2s, border-color .2s
+        }
+
+        .settings-section:hover {
+            border-color: rgba(15, 107, 255, .3);
+            transform: translateY(-1px);
+            box-shadow: 0 18px 42px rgba(2, 6, 23, .12)
+        }
+
+        .settings-hero {
+            background:
+                radial-gradient(circle at 20% 15%, rgba(15, 107, 255, .22), transparent 52%),
+                radial-gradient(circle at 85% 80%, rgba(56, 189, 248, .2), transparent 44%),
+                linear-gradient(135deg, rgba(255, 255, 255, .75), rgba(255, 255, 255, .35));
+            border: 1px solid var(--border-color);
+            border-radius: 24px;
+            padding: 28px 30px;
+            box-shadow: 0 18px 46px rgba(2, 6, 23, .09)
+        }
+
+        .settings-kicker {
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: .08em;
+            color: var(--accent-color);
+            margin-bottom: 8px
+        }
+
+        .settings-hero h3 {
+            font-size: 26px;
+            margin-bottom: 6px
+        }
+
+        .settings-hero p {
+            font-size: 15px;
+            color: var(--text-secondary);
+            max-width: 620px
+        }
+
+        .settings-section h3 {
+            font-size: 19px;
+            margin-bottom: 6px
+        }
+
+        .settings-subtitle {
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-bottom: 18px
+        }
+
+        .settings-stack {
+            display: flex;
+            flex-direction: column;
+            gap: 12px
+        }
+
+        .setting-toggle {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border: 1px solid var(--border-color);
+            border-radius: 14px;
+            padding: 12px 14px;
+            background: rgba(255, 255, 255, .45);
+            transition: border-color .2s, transform .2s, box-shadow .2s
+        }
+
+        .setting-toggle:hover {
+            border-color: rgba(15, 107, 255, .35);
+            transform: translateY(-1px);
+            box-shadow: 0 8px 20px rgba(2, 6, 23, .06)
+        }
+
+        .setting-toggle .label-main {
+            font-size: 14px;
+            font-weight: 600
+        }
+
+        .setting-toggle .label-sub {
+            font-size: 12px;
+            color: var(--text-secondary)
+        }
+
+        .setting-toggle input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            accent-color: var(--accent-color)
+        }
+
+        .settings-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 14px
+        }
+
+        .settings-label {
+            font-size: 14px;
+            color: var(--text-secondary)
+        }
+
+        #search-engine-select,
+        .settings-input,
+        .settings-color-wheel {
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            background: rgba(255, 255, 255, .75);
+            color: var(--text-primary);
+            padding: 10px 12px;
+            font-size: 14px;
+            outline: 0
+        }
+
+        #search-engine-select:focus,
+        .settings-input:focus {
+            border-color: var(--accent-color);
+            box-shadow: 0 0 0 3px rgba(15, 107, 255, .12)
+        }
+
+        #search-engine-select {
+            min-width: 180px
+        }
+
+        .settings-actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap
+        }
+
+        .settings-btn {
+            border: 0;
+            border-radius: 12px;
+            padding: 10px 14px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform .2s, box-shadow .2s
+        }
+
+        .settings-btn:hover {
+            transform: translateY(-1px)
+        }
+
+        .settings-btn-primary {
+            background: var(--accent-color);
+            color: #fff;
+            box-shadow: 0 10px 26px rgba(15, 107, 255, .25)
+        }
+
+        .settings-btn-secondary {
+            background: rgba(148, 163, 184, .15);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color)
+        }
+
+        .settings-version {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+            padding: 8px 10px;
+            border: 1px dashed var(--border-color);
+            border-radius: 12px;
+            background: rgba(255, 255, 255, .45)
+        }
+
+        .settings-version strong {
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: .06em;
+            color: var(--text-secondary);
+            font-weight: 600
+        }
+
+        .color-picker {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap
+        }
+
+        .color-option {
+            width: 40px;
+            height: 40px;
+            border-radius: 12px;
+            cursor: pointer;
+            border: 2px solid rgba(255, 255, 255, .7);
+            box-shadow: 0 8px 20px rgba(2, 6, 23, .15);
+            transition: transform .2s, box-shadow .2s
+        }
+
+        .color-option:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 14px 30px rgba(2, 6, 23, .2)
+        }
+
+        .settings-color-controls {
+            margin-top: 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px
+        }
+
+        .settings-color-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap
+        }
+
+        .settings-color-wheel {
+            width: 52px;
+            height: 38px;
+            padding: 4px
+        }
+
+        @media (max-width:900px) {
+
+            #toolbar {
+                gap: 8px;
+                padding: 8px 10px 10px
+            }
+
+            .nav-buttons,
+            .action-buttons {
+                gap: 5px
+            }
+
+            .nav-btn {
+                width: 30px;
+                height: 30px
+            }
+
+            #find-bar {
+                right: 10px;
+                top: 10px;
+                padding: 8px
+            }
+
+            #find-input {
+                min-width: 150px
+            }
+
+            #history-sidebar,
+            #settings-sidebar,
+            #bookmarks-sidebar,
+            #downloads-sidebar,
+            #adblock-sidebar {
+                padding: 22px
+            }
+
+            .history-header {
+                align-items: flex-start;
+                gap: 10px
+            }
+
+            .clear-history-section {
+                flex-wrap: wrap
+            }
+
+            h2 {
+                font-size: 28px
+            }
+
+            .panel-close-btn {
+                width: 36px;
+                height: 36px
+            }
+
+            .adblock-card,
+            .settings-section,
+            .settings-hero {
+                padding: 18px
+            }
+
+            #adblock-rules {
+                min-height: 42vh
+            }
+
+            .settings-row {
+                flex-direction: column;
+                align-items: flex-start
+            }
+
+            #bookmark-dest-modal .modal-content {
+                width: min(360px, calc(100vw - 24px))
+            }
+        }
+
+        @media (max-width:720px) {
+            #toolbar {
+                flex-wrap: wrap;
+                row-gap: 8px
+            }
+
+            #address-bar-container {
+                order: 3;
+                flex-basis: 100%
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div id="chrome-container">
+        <div id="tab-bar">
+            <div id="new-tab-btn" title="New Tab"><svg width="20" height="20" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="2">
+                    <line x1="12" y1="5" x2="12" y2="19"></line>
+                    <line x1="5" y1="12" x2="19" y2="12"></line>
+                </svg></div>
+            <div id="clear-tabs-btn" title="Close Others"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="2">
+                    <path d="M18 6L6 18M6 6l12 12M3 6h18"></path>
+                </svg></div>
+        </div>
+        <div id="toolbar">
+            <div class="nav-buttons"><button id="back-btn" class="nav-btn"><svg width="18" height="18"
+                        viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="15 18 9 12 15 6"></polyline>
+                    </svg></button><button id="forward-btn" class="nav-btn"><svg width="18" height="18"
+                        viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="9 18 15 12 9 6"></polyline>
+                    </svg></button><button id="reload-btn" class="nav-btn"><svg width="18" height="18"
+                        viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="23 4 23 10 17 10"></polyline>
+                        <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                    </svg></button><button id="home-btn" class="nav-btn"><svg width="18" height="18" viewBox="0 0 24 24"
+                        fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                        <polyline points="9 22 9 12 15 12 15 22"></polyline>
+                    </svg></button></div>
+            <div id="address-bar-container"><input type="text" id="address-bar" placeholder="Search or enter URL">
+                <div id="progress-bar-container">
+                    <div id="progress-bar"></div>
+                </div><button id="add-bookmark-btn" class="nav-btn"><svg width="16" height="16" viewBox="0 0 24 24"
+                        fill="none" stroke="currentColor" stroke-width="2">
+                        <path
+                            d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z">
+                        </path>
+                    </svg></button>
+            </div>
+            <div class="action-buttons"><button id="history-btn" class="nav-btn"><svg width="18" height="18"
+                        viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <polyline points="12 6 12 12 16 14"></polyline>
+                    </svg></button><button id="bookmark-btn" class="nav-btn"><svg width="18" height="18"
+                        viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path>
+                    </svg></button><button id="downloads-btn" class="nav-btn"><svg width="18" height="18"
+                        viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"></path>
+                        <polyline points="7 10 12 15 17 10"></polyline>
+                        <line x1="12" y1="15" x2="12" y2="3"></line>
+                    </svg></button><button id="adblock-btn" class="nav-btn"><svg width="18" height="18"
+                        viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                        <line x1="9" y1="9" x2="15" y2="15"></line>
+                        <line x1="15" y1="9" x2="9" y2="15"></line>
+                    </svg></button><button id="settings-btn" class="nav-btn"><svg width="18" height="18"
+                        viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="3"></circle>
+                        <path
+                            d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z">
+                        </path>
+                    </svg></button>
+                <div class="profile-menu-wrap"><button id="profile-btn" class="nav-btn"><svg width="18" height="18"
+                            viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"></path>
+                            <circle cx="12" cy="7" r="4"></circle>
+                        </svg></button>
+                    <div id="profile-menu" class="dropdown-menu">
+                        <div id="profile-list-container"></div>
+                        <div class="divider"></div>
+                        <div id="add-profile-btn" class="dropdown-item">Add New Profile</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div id="bookmarks-bar"></div>
+    <div id="view-container">
+        <div id="find-bar" style="display:none">
+            <input type="text" id="find-input" placeholder="Find..."><span id="find-results">0/0</span><button
+                id="find-prev" class="nav-btn">↑</button><button id="find-next" class="nav-btn">↓</button><button
+                id="find-close" class="nav-btn">×</button>
+        </div>
+    </div>
+    <div id="history-sidebar">
+        <div class="history-header panel-header">
+            <div class="panel-title-wrap">
+                <h2>History</h2>
+            </div>
+            <div class="clear-history-section"><button id="clear-history-hour"
+                    class="clear-history-btn">Hour</button><button id="clear-history-today"
+                    class="clear-history-btn">Today</button><button id="clear-history-week"
+                    class="clear-history-btn">Week</button><button id="clear-history-all"
+                    class="clear-history-btn danger">Clear All</button></div><button id="close-history"
+                class="nav-btn panel-close-btn" aria-label="Close history panel">×</button>
+        </div>
+        <div id="history-list"></div>
+    </div>
+    <div id="bookmarks-sidebar">
+        <div class="history-header panel-header">
+            <div class="panel-title-wrap">
+                <h2>Bookmarks</h2>
+            </div><button id="close-bookmarks" class="nav-btn panel-close-btn"
+                aria-label="Close bookmarks panel">×</button>
+        </div>
+        <div id="bookmarks-list"></div>
+    </div>
+    <div id="downloads-sidebar">
+        <div class="history-header panel-header">
+            <div class="panel-title-wrap">
+                <h2>Downloads</h2>
+            </div><button id="close-downloads" class="nav-btn panel-close-btn"
+                aria-label="Close downloads panel">×</button>
+        </div>
+        <div id="downloads-list"></div>
+    </div>
+    <div id="adblock-sidebar">
+        <div class="history-header panel-header">
+            <div class="panel-title-wrap">
+                <div class="panel-kicker">Privacy</div>
+                <h2>Adblock</h2>
+            </div><button id="close-adblock" class="nav-btn panel-close-btn" aria-label="Close adblock panel">×</button>
+        </div>
+        <div class="adblock-layout">
+            <div class="adblock-card">
+                <div class="adblock-intro">
+                    <p>Create custom block rules to remove ads, popups, and known trackers. Add one rule per line and
+                        apply instantly.</p><span class="adblock-badge">One rule per line</span>
+                </div><textarea id="adblock-rules"
+                    placeholder="||ads.example.com^\n||tracker.example.net^\n! comment lines start with !"></textarea>
+                <div class="adblock-help">Tip: lines starting with "!" are comments. Inline comments are allowed after
+                    a rule.</div>
+                <div class="adblock-sample">
+                    <code>||ads.example.com^</code><code>@@||trusted-site.com^</code><code>! note</code></div>
+                <div class="adblock-actions"><button id="save-adblock-rules">Save &amp; Apply Rules</button></div>
+            </div>
+        </div>
+    </div>
+    <div id="settings-sidebar">
+        <div class="history-header panel-header">
+            <div class="panel-title-wrap">
+                <div class="panel-kicker">Browser Controls</div>
+                <h2>Settings</h2>
+            </div><button id="close-settings" class="nav-btn panel-close-btn"
+                aria-label="Close settings panel">×</button>
+        </div>
+        <div class="settings-content">
+            <div class="settings-hero">
+                <div class="settings-kicker">Personalization</div>
+                <h3>Make Orion yours</h3>
+                <p>Customize the look and behavior of your browser in one place. Changes apply immediately.</p>
+            </div>
+            <div class="settings-section">
+                <h3>Theme</h3>
+                <p class="settings-subtitle">Pick an accent and tune layout preferences.</p>
+                <div class="color-picker" id="profile-color-picker"></div>
+                <div class="settings-stack">
+                    <label class="setting-toggle">
+                        <div>
+                            <div class="label-main">Vertical Tabs</div>
+                            <div class="label-sub">Dock tabs on the left side</div>
+                        </div>
+                        <input type="checkbox" id="vertical-tabs-toggle">
+                    </label>
+                    <label class="setting-toggle">
+                        <div>
+                            <div class="label-main">Show Seconds</div>
+                            <div class="label-sub">Display seconds in time widgets</div>
+                        </div>
+                        <input type="checkbox" id="show-seconds-toggle">
+                    </label>
+                </div>
+            </div>
+            <div class="settings-section">
+                <h3>Search</h3>
+                <p class="settings-subtitle">Choose the engine used by the address bar for plain text queries.</p>
+                <div class="settings-row">
+                    <div class="settings-label">Default search engine</div>
+                    <select id="search-engine-select">
+                        <option value="google">Google</option>
+                        <option value="bing">Bing</option>
+                    </select>
+                </div>
+            </div>
+            <div class="settings-section">
+                <h3>System</h3>
+                <p class="settings-subtitle">Check your version and open browser extension management.</p>
+                <div class="settings-row">
+                    <div class="settings-version"><strong>Orion</strong><span id="app-version"></span></div>
+                    <div class="settings-actions"><button id="check-updates-btn"
+                            class="settings-btn settings-btn-primary">Check for Updates</button><button
+                            id="open-extensions-btn" class="settings-btn settings-btn-secondary">Open
+                            Extensions</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div id="rename-modal" class="modal">
+        <div class="modal-content">
+            <h3>Rename</h3><input id="rename-input">
+            <div class="modal-actions"><button id="rename-cancel-btn">Cancel</button><button
+                    id="rename-save-btn">Save</button></div>
+        </div>
+    </div>
+    <div id="bookmark-dest-modal" class="modal">
+        <div class="modal-content">
+            <h3>Bookmark</h3><button id="add-to-bar-btn">Bar</button><button id="add-to-newtab-btn">New
+                Tab</button><button id="add-to-both-btn">Both</button><button id="cancel-bookmark-btn">Cancel</button>
+        </div>
+    </div>
+    <script src="renderer.js"></script>
+</body>
+
+</html>

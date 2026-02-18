@@ -1,0 +1,664 @@
+const {
+  app,
+  BrowserWindow,
+  WebContentsView,
+  ipcMain,
+  globalShortcut,
+  session,
+  dialog,
+  Menu,
+  MenuItem
+} = require("electron");
+const { autoUpdater } = require("electron-updater");
+const path = require("path");
+const fs = require("fs");
+const os = require("os");
+
+const INTERNAL_PAGES = new Map([
+  ["chrome://newtab", "newtab.html"],
+  ["chrome://extensions", "extensions.html"]
+]);
+
+let windows = {};
+let views = {};
+let states = {};
+let adRules = [];
+let partitions = new Set();
+let pTabs = { 0: [] };
+let pNames = { 0: "Default" };
+let defSearch = "chrome://newtab";
+
+const hPath = path.join(app.getPath("userData"), "browser_history.json");
+const sPath = path.join(app.getPath("userData"), "browser_settings.json");
+
+let bHist = loadH();
+let bSett = loadS();
+
+function loadS() {
+  try {
+    if (fs.existsSync(sPath)) {
+      const s = JSON.parse(fs.readFileSync(sPath, "utf8"));
+      if (!s.profileExtensions) s.profileExtensions = {};
+      return s;
+    }
+  } catch (e) { }
+  return { themeColor: "#e9e9f0", profileExtensions: {} };
+}
+
+function saveS() {
+  try {
+    fs.writeFileSync(sPath, JSON.stringify(bSett));
+  } catch (e) { }
+}
+
+function genId() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2);
+}
+
+function loadH() {
+  try {
+    if (fs.existsSync(hPath)) return JSON.parse(fs.readFileSync(hPath, "utf8"));
+  } catch (e) { }
+  return { visits: [], lastCleanup: Date.now() };
+}
+
+function saveH() {
+  try {
+    const limit = Date.now() - 90 * 864e5;
+    bHist.visits = bHist.visits.filter((v) => v.timestamp > limit);
+    fs.writeFileSync(hPath, JSON.stringify(bHist));
+  } catch (e) { }
+}
+
+function addH(url, title) {
+  if (!url) return;
+  if (url.startsWith("about:") || url.startsWith("file:") || url.startsWith("chrome:")) return;
+  if (url.includes("newtab")) return;
+  const now = Date.now();
+  const last = bHist.visits[bHist.visits.length - 1];
+  if (last && now - last.timestamp < 5000) {
+    try {
+      if (new URL(last.url).hostname === new URL(url).hostname) {
+        last.url = url;
+        last.title = title || last.title;
+        last.timestamp = now;
+        return saveH();
+      }
+    } catch (e) { }
+  }
+  if (!bHist.visits.find((v) => v.url === url && v.timestamp > now - 18e5)) {
+    bHist.visits.push({
+      id: genId(),
+      url,
+      title: title || new URL(url).hostname,
+      timestamp: now
+    });
+    if (bHist.visits.length > 1000) bHist.visits.shift();
+    saveH();
+  }
+}
+
+function getH(q = "", limit = 50) {
+  let r = [...bHist.visits];
+  if (q) {
+    const nq = q.toLowerCase();
+    r = r.filter(
+      (v) => v.url.toLowerCase().includes(nq) || v.title.toLowerCase().includes(nq)
+    );
+  }
+  return r.sort((a, b) => b.timestamp - a.timestamp).slice(0, limit);
+}
+
+function updateB(pIdx) {
+  const win = windows[pIdx];
+  const s = states[pIdx];
+  if (!win || !s || !s.activeView || !s.visible) return;
+  const [w, h] = win.getContentSize();
+  const top = s.metrics.top || 76;
+  s.activeView.setBounds({
+    x: s.metrics.left,
+    y: top,
+    width: Math.max(0, w - s.metrics.left),
+    height: Math.max(0, h - top)
+  });
+}
+
+function isInternalUrl(url) {
+  return INTERNAL_PAGES.has(url);
+}
+
+function isInternalPageUrl(url) {
+  if (!url) return false;
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "file:") return false;
+    const file = parsed.pathname.split("/").pop().toLowerCase();
+    return file === "newtab.html" || file === "extensions.html";
+  } catch (e) {
+    return false;
+  }
+}
+
+function isHttpUrl(url) {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch (e) {
+    return false;
+  }
+}
+
+function normalizeHttpUrl(raw) {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  if (isHttpUrl(trimmed)) return trimmed;
+  if (trimmed.startsWith("chrome://")) return null;
+  if (!trimmed.includes("://")) return `https://${trimmed}`;
+  return null;
+}
+
+function loadInternal(webContents, url) {
+  const file = INTERNAL_PAGES.get(url);
+  if (file) return webContents.loadFile(file);
+  return webContents.loadFile("newtab.html");
+}
+
+function createW(pIdx = 0) {
+  if (windows[pIdx]) return windows[pIdx].focus();
+  const win = new BrowserWindow({
+    width: 1400,
+    height: 900,
+    backgroundColor: bSett.themeColor || "#e9e9f0",
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: true,
+      webSecurity: true,
+      safeDialogs: true,
+      preload: path.join(__dirname, "preload.js"),
+      partition: `persist:profile-${pIdx}`
+    },
+    autoHideMenuBar: true
+  });
+  win.profileIndex = pIdx;
+  windows[pIdx] = win;
+  if (!pTabs[pIdx]) pTabs[pIdx] = [];
+  states[pIdx] = { activeView: null, metrics: { top: 76, left: 0 }, visible: true };
+  win.loadFile("index.html");
+  win.on("resize", () => updateB(pIdx));
+  win.on("closed", () => {
+    delete windows[pIdx];
+    delete states[pIdx];
+    saveH();
+  });
+  broadcast();
+  const sess = session.fromPartition(`persist:profile-${pIdx}`);
+  (bSett.profileExtensions[pIdx] || []).forEach(async (p) => {
+    try {
+      await sess.loadExtension(p);
+    } catch (e) { }
+  });
+}
+
+function broadcast() {
+  const p = Object.keys(pTabs).map((i) => ({
+    id: parseInt(i, 10),
+    name: pNames[i] || `Profile ${i}`
+  }));
+  Object.values(windows).forEach((w) => {
+    if (w && !w.isDestroyed()) w.webContents.send("profile-list-updated", { profiles: p });
+  });
+}
+
+function getActiveT(pIdx) {
+  const s = states[pIdx];
+  if (!s || !s.activeView) return null;
+  for (const [id, v] of Object.entries(views)) if (v === s.activeView) return id;
+  return null;
+}
+
+function createT(pIdx, win) {
+  const id = `p-${pIdx}-t-1`;
+  const home = "chrome://newtab";
+  win.webContents.send("profile-changed", { profileIndex: pIdx, tabs: pTabs[pIdx] });
+  if (!pTabs[pIdx].length) {
+    pTabs[pIdx].push({ id, url: home, title: "New Tab" });
+    createV(id, home, false, pIdx);
+  }
+  switchT(pTabs[pIdx][0].id, pIdx);
+  broadcast();
+  win.webContents.send("history-loaded", getH());
+}
+
+function createV(id, url, inc, pIdx) {
+  const win = windows[pIdx];
+  const s = states[pIdx];
+  const webP = {
+    contextIsolation: true,
+    nodeIntegration: false,
+    sandbox: true,
+    webSecurity: true,
+    safeDialogs: true,
+    preload: path.join(__dirname, "preload.js"),
+    partition: inc ? `incognito-${Date.now()}` : `persist:profile-${pIdx}`
+  };
+  ad(webP.partition);
+  const v = new WebContentsView({ webPreferences: webP });
+  v.webContents.setUserAgent(
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+  );
+  views[id] = v;
+  updateB(pIdx);
+
+  v.webContents.on("will-navigate", (event, targetUrl) => {
+    if (isInternalUrl(targetUrl)) {
+      if (isInternalPageUrl(v.webContents.getURL())) {
+        event.preventDefault();
+        loadInternal(v.webContents, targetUrl);
+      } else {
+        event.preventDefault();
+      }
+      return;
+    }
+    if (!isHttpUrl(targetUrl)) event.preventDefault();
+  });
+
+  v.webContents.on("did-navigate", (_e, u) => {
+    if (win) {
+      win.webContents.send("view-event", { tabId: id, type: "did-navigate", url: u });
+      try {
+        const host = new URL(u).hostname;
+        addH(u, host);
+        win.webContents.send("history-updated", getH());
+      } catch (e) {
+        addH(u, u);
+      }
+    }
+  });
+  v.webContents.on("did-start-loading", () => {
+    if (win) win.webContents.send("view-event", { tabId: id, type: "did-start-loading" });
+  });
+  v.webContents.on("did-stop-loading", () => {
+    if (win) win.webContents.send("view-event", { tabId: id, type: "did-stop-loading" });
+  });
+  v.webContents.on("page-title-updated", (_e, t) => {
+    if (win) {
+      win.webContents.send("view-event", { tabId: id, type: "title", title: t });
+      const currentUrl = v.webContents.getURL();
+      if (currentUrl) {
+        addH(currentUrl, t);
+        win.webContents.send("history-updated", getH());
+      }
+    }
+  });
+  v.webContents.on("found-in-page", (_e, r) => {
+    if (win) win.webContents.send("find-result", r);
+  });
+  v.webContents.on("context-menu", (_e, p) => {
+    const m = new Menu();
+    if (p.linkURL) {
+      m.append(
+        new MenuItem({
+          label: "Open in new tab",
+          click: () => openL(p.linkURL, pIdx)
+        })
+      );
+    }
+    m.append(
+      new MenuItem({
+        label: "Back",
+        enabled: v.webContents.canGoBack(),
+        click: () => v.webContents.goBack()
+      })
+    );
+    m.append(
+      new MenuItem({
+        label: "Forward",
+        enabled: v.webContents.canGoForward(),
+        click: () => v.webContents.goForward()
+      })
+    );
+    m.append(new MenuItem({ label: "Reload", click: () => v.webContents.reload() }));
+    m.append(new MenuItem({ type: "separator" }));
+    m.append(
+      new MenuItem({
+        label: "Inspect",
+        click: () => v.webContents.inspectElement(p.x, p.y)
+      })
+    );
+    m.popup(BrowserWindow.fromWebContents(v.webContents));
+  });
+  v.webContents.setWindowOpenHandler(({ url: targetUrl }) => {
+    if (isHttpUrl(targetUrl)) openL(targetUrl, pIdx);
+    return { action: "deny" };
+  });
+
+  v.tUrl = url;
+  if (isInternalUrl(url)) loadInternal(v.webContents, url);
+  else if (isHttpUrl(url)) {
+    v.webContents.loadURL(url).catch(() => loadInternal(v.webContents, "chrome://newtab"));
+  } else loadInternal(v.webContents, "chrome://newtab");
+}
+
+function switchT(id, pIdx) {
+  const win = windows[pIdx];
+  const s = states[pIdx];
+  if (!win || !views[id]) return;
+  if (s.activeView && s.activeView !== views[id] && s.visible) {
+    try {
+      win.contentView.removeChildView(s.activeView);
+    } catch (e) { }
+  }
+  s.activeView = views[id];
+  if (s.visible && s.activeView && !s.activeView.webContents.isDestroyed()) {
+    try {
+      win.contentView.addChildView(s.activeView);
+      updateB(pIdx);
+    } catch (e) { }
+  }
+  if (win && !win.isDestroyed() && s.activeView && !s.activeView.webContents.isDestroyed()) {
+    const u = s.activeView.webContents.getURL() || views[id].tUrl || "";
+    const t = s.activeView.webContents.getTitle();
+    win.webContents.send("tab-switched", { tabId: id, url: u, title: t || u });
+  }
+  setTimeout(() => updateB(pIdx), 100);
+}
+
+function openL(u, pIdx) {
+  const url = normalizeHttpUrl(u);
+  if (!url) return;
+  const id = `p-${pIdx}-t-${Date.now()}`;
+  pTabs[pIdx].push({ id, url, title: "New Tab" });
+  createV(id, url, false, pIdx);
+  switchT(id, pIdx);
+}
+
+function closeTab(pIdx, id, win) {
+  const w = win || windows[pIdx];
+  const s = states[pIdx];
+  if (!views[id] || !w) return;
+  const wasA = s.activeView === views[id];
+  try {
+    w.contentView.removeChildView(views[id]);
+  } catch (e) { }
+  views[id].webContents.destroy();
+  delete views[id];
+  pTabs[pIdx] = pTabs[pIdx].filter((t) => t.id !== id);
+  if (wasA) {
+    s.activeView = null;
+    if (pTabs[pIdx].length) switchT(pTabs[pIdx][0].id, pIdx);
+    else {
+      const nid = `p-${pIdx}-t-${Date.now()}`;
+      pTabs[pIdx].push({ id: nid, url: "chrome://newtab", title: "New Tab" });
+      createV(nid, "chrome://newtab", false, pIdx);
+      switchT(nid, pIdx);
+    }
+  }
+  w.webContents.send("tab-closed", id);
+  updateB(pIdx);
+}
+
+function clearOtherTabs(pIdx, keepId, win) {
+  const ids = pTabs[pIdx].map((t) => t.id).filter((id) => id !== keepId);
+  ids.forEach((id) => closeTab(pIdx, id, win));
+}
+
+function clearHistoryRange(range) {
+  const now = new Date();
+  if (range === "all") {
+    bHist.visits = [];
+    saveH();
+    return;
+  }
+  let cutoff = 0;
+  if (range === "hour") cutoff = Date.now() - 3600e3;
+  else if (range === "week") cutoff = Date.now() - 7 * 864e5;
+  else if (range === "today") {
+    cutoff = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  } else return;
+  bHist.visits = bHist.visits.filter((v) => v.timestamp < cutoff);
+  saveH();
+}
+
+ipcMain.on("set-chrome-metrics", (e, m) => {
+  const w = BrowserWindow.fromWebContents(e.sender);
+  if (!w) return;
+  const s = states[w.profileIndex];
+  if (m && s) {
+    if (m.top !== undefined) s.metrics.top = m.top;
+    if (m.left !== undefined) s.metrics.left = m.left;
+    updateB(w.profileIndex);
+  }
+});
+ipcMain.on("renderer-ready", (e) => {
+  const w = e.sender.getOwnerBrowserWindow();
+  if (w) {
+    createT(w.profileIndex, w);
+    broadcast();
+  }
+});
+ipcMain.on("fetch-and-show-history", (e, q) => e.reply("history-data-received", getH(q)));
+ipcMain.on("apply-browser-color", (e, c) => {
+  const w = BrowserWindow.fromWebContents(e.sender);
+  if (w) {
+    w.setBackgroundColor(c);
+    bSett.themeColor = c;
+    saveS();
+  }
+});
+ipcMain.on("update-default-search-engine", (_e, u) => {
+  defSearch = u;
+});
+ipcMain.on("toggle-browser-view", (e, v) => {
+  const w = BrowserWindow.fromWebContents(e.sender);
+  if (!w) return;
+  const s = states[w.profileIndex];
+  if (!s) return;
+  s.visible = !!v;
+  if (s.visible) {
+    if (s.activeView) {
+      try {
+        w.contentView.addChildView(s.activeView);
+      } catch (e) { }
+      updateB(w.profileIndex);
+    }
+  } else if (s.activeView) {
+    try {
+      w.contentView.removeChildView(s.activeView);
+    } catch (e) { }
+  }
+});
+ipcMain.handle("add-new-profile", () => {
+  let n = 0;
+  while (pTabs[n]) n++;
+  pTabs[n] = [];
+  pNames[n] = `Profile ${n}`;
+  createW(n);
+  return n;
+});
+ipcMain.on("rename-profile", (_e, { profileIndex, newName }) => {
+  if (pNames[profileIndex]) {
+    pNames[profileIndex] = newName;
+    broadcast();
+  }
+});
+ipcMain.handle("create-tab", (e, { tabId, url, inc }) => {
+  const w = BrowserWindow.fromWebContents(e.sender);
+  if (!w) return;
+  const pIdx = w.profileIndex;
+  const u = url || "https://www.google.com/";
+  if (!pTabs[pIdx].find((t) => t.id === tabId)) {
+    const nt = { id: tabId, url: u, title: "New Tab" };
+    pTabs[pIdx].push(nt);
+    w.webContents.send("tab-created", nt);
+  }
+  createV(tabId, u, !!inc, pIdx);
+  switchT(tabId, pIdx);
+});
+ipcMain.handle("switch-tab", (e, id) => {
+  const w = BrowserWindow.fromWebContents(e.sender);
+  if (w) switchT(id, w.profileIndex);
+});
+ipcMain.handle("close-tab", (e, id) => {
+  const w = BrowserWindow.fromWebContents(e.sender);
+  if (w) closeTab(w.profileIndex, id, w);
+});
+ipcMain.handle("clear-other-tabs", (e, keepId) => {
+  const w = BrowserWindow.fromWebContents(e.sender);
+  if (w) clearOtherTabs(w.profileIndex, keepId, w);
+});
+ipcMain.handle("navigate-to", (e, u) => {
+  const w = BrowserWindow.fromWebContents(e.sender);
+  if (!w) return;
+  const s = states[w.profileIndex];
+  if (!s || !s.activeView) return;
+  const tu = (u || "").trim();
+  if (tu === "chrome://extensions" || tu === "chrome://newtab") {
+    return loadInternal(s.activeView.webContents, tu);
+  }
+  const templates = {
+    google: "https://www.google.com/search?q=",
+    bing: "https://www.bing.com/search?q=",
+    duckduckgo: "https://www.duckduckgo.com/?q=",
+    yahoo: "https://search.yahoo.com/search?p=",
+    yandex: "https://yandex.com/search/?text=",
+    brave: "https://search.brave.com/search?q=",
+    naver: "https://search.naver.com/search.naver?query=",
+    startpage: "https://startpage.com/do/search?q=",
+    baidu: "https://www.baidu.com/s?wd=",
+    ecosia: "https://www.ecosia.org/search?q=",
+    "yahoo japan": "https://search.yahoo.co.jp/search?p=",
+    "yandex japan": "https://yandex.co.jp/search/?text="
+  };
+  let final = tu;
+  if (!tu.includes("://")) {
+    if (tu.includes(".") && !tu.includes(" ")) final = `https://${tu}`;
+    else {
+      let t = templates.google;
+      for (const [k, v] of Object.entries(templates)) {
+        if (defSearch.includes(k)) {
+          t = v;
+          break;
+        }
+      }
+      final = t + encodeURIComponent(tu);
+    }
+  }
+  if (isHttpUrl(final)) return s.activeView.webContents.loadURL(final);
+  return loadInternal(s.activeView.webContents, "chrome://newtab");
+});
+ipcMain.handle("go-back", (e) => {
+  const w = BrowserWindow.fromWebContents(e.sender);
+  if (!w) return;
+  const s = states[w.profileIndex];
+  if (s && s.activeView && s.activeView.webContents.canGoBack()) s.activeView.webContents.goBack();
+});
+ipcMain.handle("go-forward", (e) => {
+  const w = BrowserWindow.fromWebContents(e.sender);
+  if (!w) return;
+  const s = states[w.profileIndex];
+  if (s && s.activeView && s.activeView.webContents.canGoForward())
+    s.activeView.webContents.goForward();
+});
+ipcMain.handle("reload-page", (e) => {
+  const w = BrowserWindow.fromWebContents(e.sender);
+  if (!w) return;
+  const s = states[w.profileIndex];
+  if (s && s.activeView) s.activeView.webContents.reload();
+});
+ipcMain.handle("switch-profile", (e, pIdx) => {
+  if (windows[pIdx]) windows[pIdx].focus();
+  else createW(pIdx);
+});
+ipcMain.handle("clear-history-range", (_e, range) => clearHistoryRange(range));
+ipcMain.handle("find-in-page", (e, t, o = {}) => {
+  const w = BrowserWindow.fromWebContents(e.sender);
+  if (!w) return;
+  const s = states[w.profileIndex];
+  if (s && s.activeView && t) s.activeView.webContents.findInPage(t, o);
+});
+ipcMain.handle("stop-find-in-page", (e, a) => {
+  const w = BrowserWindow.fromWebContents(e.sender);
+  if (!w) return;
+  const s = states[w.profileIndex];
+  if (s && s.activeView) s.activeView.webContents.stopFindInPage(a || "clearSelection");
+});
+ipcMain.handle("select-extension-folder", async (e) =>
+  dialog
+    .showOpenDialog(BrowserWindow.fromWebContents(e.sender), { properties: ["openDirectory"] })
+    .then((r) => (r.canceled ? null : r.filePaths[0]))
+);
+ipcMain.handle("load-extension", async (e, p) => {
+  const w = BrowserWindow.fromWebContents(e.sender);
+  if (!w) return { success: false, error: "No window." };
+  const pIdx = w.profileIndex;
+  if (!p || !path.isAbsolute(p) || !fs.existsSync(p))
+    return { success: false, error: "Invalid extension path." };
+  const sess = session.fromPartition(`persist:profile-${pIdx}`);
+  try {
+    const ext = await sess.loadExtension(p);
+    if (!bSett.profileExtensions[pIdx]) bSett.profileExtensions[pIdx] = [];
+    if (!bSett.profileExtensions[pIdx].includes(p)) {
+      bSett.profileExtensions[pIdx].push(p);
+      saveS();
+    }
+    return { success: true, name: ext.name };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+ipcMain.handle("get-extensions", (e) => {
+  const w = BrowserWindow.fromWebContents(e.sender) || e.sender.getOwnerBrowserWindow();
+  const pIdx = w ? w.profileIndex : 0;
+  const sess = session.fromPartition(`persist:profile-${pIdx}`);
+  return sess.getAllExtensions().map((ext) => ({
+    id: ext.id,
+    name: ext.name,
+    version: ext.version,
+    description: ext.description
+  }));
+});
+ipcMain.handle("remove-extension", (e, id) => {
+  const w = BrowserWindow.fromWebContents(e.sender) || e.sender.getOwnerBrowserWindow();
+  const pIdx = w ? w.profileIndex : 0;
+  const sess = session.fromPartition(`persist:profile-${pIdx}`);
+  const ext = sess.getExtension(id);
+  if (ext && bSett.profileExtensions[pIdx]) {
+    bSett.profileExtensions[pIdx] = bSett.profileExtensions[pIdx].filter((p) => p !== ext.path);
+    saveS();
+  }
+  sess.removeExtension(id);
+});
+ipcMain.handle("get-app-version", () => app.getVersion());
+ipcMain.handle("check-for-updates", () => autoUpdater.checkForUpdatesAndNotify());
+ipcMain.handle("update-adblock-rules", (_e, r) => {
+  adRules = (r || "")
+    .split("\n")
+    .map((line) => line.trim())
+    .map((line) => {
+      if (!line || line.startsWith("!")) return "";
+      return line.replace(/\s*!.*$/, "").trim();
+    })
+    .filter((x) => x);
+});
+
+function ad(p) {
+  if (partitions.has(p)) return;
+  partitions.add(p);
+  const sess = session.fromPartition(p);
+  sess.webRequest.onBeforeRequest((d, cb) => {
+    if (!d.url.startsWith("http") || !adRules.length) return cb({ cancel: false });
+    const url = d.url.toLowerCase();
+    cb({ cancel: adRules.some((r) => url.includes(r.toLowerCase())) });
+  });
+}
+
+app.on("window-all-closed", () => {
+  if (process.platform !== "darwin") app.quit();
+});
+
+app.whenReady().then(() => {
+  createW(0);
+  autoUpdater.checkForUpdatesAndNotify();
+});

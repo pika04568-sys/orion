@@ -1,0 +1,77 @@
+{
+  "name": "orion",
+  "productName": "Orion",
+  "description": "My Electron application description",
+  "keywords": [],
+  "main": "./main.js",
+  "version": "1.0.0",
+  "author": "kenokayasu",
+  "scripts": {
+    "start": "electron .",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder",
+    "dist:mac": "electron-builder --mac",
+    "dist:win": "electron-builder --win"
+  },
+  "build": {
+    "appId": "com.orion.browser",
+    "productName": "Orion",
+    "directories": {
+      "output": "dist"
+    },
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        "dmg"
+      ]
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "dmg": {
+      "contents": [
+        {
+          "x": 410,
+          "y": 150,
+          "type": "link",
+          "path": "/Applications"
+        },
+        {
+          "x": 130,
+          "y": 150,
+          "type": "file"
+        }
+      ]
+    },
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://example.com/updates"
+      }
+    ],
+    "compression": "maximum",
+    "files": [
+      "main.js",
+      "renderer.js",
+      "preload.js",
+      "index.html",
+      "newtab.html",
+      "extensions.html",
+      "package.json"
+    ]
+  },
+  "devDependencies": {
+    "electron": "39.1.2",
+    "electron-builder": "^26.4.0"
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.9"
+  }
+}

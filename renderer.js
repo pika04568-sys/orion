@@ -1,0 +1,156 @@
+const ipcRenderer = window.electron || { invoke: async () => { }, send: () => { }, on: () => { } }; let tabBar, newTabBtn, clearTabsBtn, addressBar, backBtn, forwardBtn, reloadBtn, historyBtn, historySidebar, closeHistoryBtn, historyList, chromeContainer, profileBtn, profileMenu, profileListContainer, addProfileBtn, settingsBtn, settingsSidebar, closeSettingsBtn, profileColorPicker, renameModal, renameInput, renameSaveBtn, renameCancelBtn, pendingRenameProfileId = null, bookmarkBtn, bookmarksSidebar, closeBookmarksBtn, bookmarksList, downloadsBtn, downloadsSidebar, closeDownloadsBtn, downloadsList, findBar, findInput, findResults, findPrev, findNext, findClose, openExtensionsBtn, progressBarContainer, progressBar, addBookmarkBtn, bookmarksBar, bookmarkDestModal, addToBarBtn, addToNewTabBtn, addToBothBtn, cancelBookmarkBtn, pendingBookmark = null, activeTabId = null, activeProfile = 0, tabs = [], profiles = []; const S_ENG = { google: 'https://www.google.com/search?q=', bing: 'https://www.bing.com/search?q=', yahoo: 'https://search.yahoo.com/search?p=', duckduckgo: 'https://duckduckgo.com/?q=', brave: 'https://search.brave.com/search?q=', yandex: 'https://yandex.com/search/?text=', baidu: 'https://www.baidu.com/s?wd=', startpage: 'https://www.startpage.com/do/search?q=', naver: 'https://search.naver.com/search.naver?query=' }; const S_HOME = { google: 'https://www.google.com/', bing: 'https://www.bing.com/', yahoo: 'https://www.yahoo.com/', duckduckgo: 'https://duckduckgo.com/', brave: 'https://search.brave.com/', yandex: 'https://yandex.com/', baidu: 'https://www.baidu.com/', startpage: 'https://www.startpage.com/', naver: 'https://www.naver.com/' }; function applyColor(c) { const custom = { 'emerald green': '#50c878', 'emerald': '#50c878', 'turquoise': '#40E0D0' }; const color = custom[c.toLowerCase()] || c; const temp = document.createElement('div'); temp.style.color = color; document.body.appendChild(temp); const rgb = getComputedStyle(temp).color; document.body.removeChild(temp); const match = rgb.match(/\d+/g); if (!match) return; const [r, g, b] = match; ipcRenderer.send('apply-browser-color', color); localStorage.setItem('browser-theme-color', color); const bright = (r * 299 + g * 587 + b * 114) / 1000; const dark = bright < 128; document.body.style.setProperty('--bg-color', color); document.body.style.setProperty('--glass-bg', `rgba(${r},${g},${b},0.9)`); document.body.style.setProperty('--text-color', dark ? '#e8eaed' : '#333'); document.body.style.setProperty('--tab-inactive-bg', dark ? color : `rgba(${r},${g},${b},0.8)`); document.body.style.setProperty('--sidebar-bg', `rgba(${r},${g},${b},0.9)`) } function init() { tabBar = document.getElementById('tab-bar'); newTabBtn = document.getElementById('new-tab-btn'); addressBar = document.getElementById('address-bar'); backBtn = document.getElementById('back-btn'); forwardBtn = document.getElementById('forward-btn'); reloadBtn = document.getElementById('reload-btn'); historyBtn = document.getElementById('history-btn'); historySidebar = document.getElementById('history-sidebar'); closeHistoryBtn = document.getElementById('close-history'); historyList = document.getElementById('history-list'); chromeContainer = document.getElementById('chrome-container'); profileBtn = document.getElementById('profile-btn'); profileMenu = document.getElementById('profile-menu'); profileListContainer = document.getElementById('profile-list-container'); addProfileBtn = document.getElementById('add-profile-btn'); settingsBtn = document.getElementById('settings-btn'); settingsSidebar = document.getElementById('settings-sidebar'); closeSettingsBtn = document.getElementById('close-settings'); profileColorPicker = document.getElementById('profile-color-picker'); bookmarkBtn = document.getElementById('bookmark-btn'); bookmarksSidebar = document.getElementById('bookmarks-sidebar'); closeBookmarksBtn = document.getElementById('close-bookmarks'); bookmarksList = document.getElementById('bookmarks-list'); addBookmarkBtn = document.getElementById('add-bookmark-btn'); progressBarContainer = document.getElementById('progress-bar-container'); progressBar = document.getElementById('progress-bar'); clearTabsBtn = document.getElementById('clear-tabs-btn'); openExtensionsBtn = document.getElementById('open-extensions-btn'); downloadsBtn = document.getElementById('downloads-btn'); downloadsSidebar = document.getElementById('downloads-sidebar'); closeDownloadsBtn = document.getElementById('close-downloads'); downloadsList = document.getElementById('downloads-list'); findBar = document.getElementById('find-bar'); findInput = document.getElementById('find-input'); findResults = document.getElementById('find-results'); findPrev = document.getElementById('find-prev'); findNext = document.getElementById('find-next'); findClose = document.getElementById('find-close'); bookmarksBar = document.getElementById('bookmarks-bar'); bookmarkDestModal = document.getElementById('bookmark-dest-modal'); addToBarBtn = document.getElementById('add-to-bar-btn'); addToNewTabBtn = document.getElementById('add-to-newtab-btn'); addToBothBtn = document.getElementById('add-to-both-btn'); cancelBookmarkBtn = document.getElementById('cancel-bookmark-btn'); renameModal = document.getElementById('rename-modal'); renameInput = document.getElementById('rename-input'); renameSaveBtn = document.getElementById('rename-save-btn'); renameCancelBtn = document.getElementById('rename-cancel-btn'); const checkUpdatesBtn = document.getElementById('check-updates-btn'), versionEl = document.getElementById('app-version'), adblockBtn = document.getElementById('adblock-btn'), adblockSidebar = document.getElementById('adblock-sidebar'), closeAdblockBtn = document.getElementById('close-adblock'), adblockText = document.getElementById('adblock-rules'), saveAdblockBtn = document.getElementById('save-adblock-rules'); ipcRenderer.invoke('update-adblock-rules', localStorage.getItem('adblock-rules') || ''); const sidebars = [historySidebar, settingsSidebar, bookmarksSidebar, downloadsSidebar, adblockSidebar].filter(Boolean); const toggle = (s, v) => { sidebars.forEach(p => { if (p !== s) p.classList.remove('open') }); if (s) s.classList.toggle('open', v); const hasOpen = sidebars.some(p => p.classList.contains('open')); ipcRenderer.send('toggle-browser-view', !hasOpen); if (hasOpen && findBar) { findBar.style.display = 'none'; ipcRenderer.invoke('stop-find-in-page', 'clearSelection'); } }; if (adblockBtn) adblockBtn.onclick = () => { adblockText.value = localStorage.getItem('adblock-rules') || ''; toggle(adblockSidebar, true) }; if (closeAdblockBtn) closeAdblockBtn.onclick = () => toggle(adblockSidebar, false); if (saveAdblockBtn) saveAdblockBtn.onclick = () => { localStorage.setItem('adblock-rules', adblockText.value); ipcRenderer.invoke('update-adblock-rules', adblockText.value); saveAdblockBtn.textContent = 'Saved!'; setTimeout(() => saveAdblockBtn.textContent = 'Save & Apply Rules', 2000) }; if (checkUpdatesBtn) checkUpdatesBtn.onclick = async () => { await ipcRenderer.invoke('check-for-updates'); checkUpdatesBtn.textContent = 'Checking...'; setTimeout(() => checkUpdatesBtn.textContent = 'Check for Updates', 3000) }; if (versionEl) ipcRenderer.invoke('get-app-version').then(v => versionEl.textContent = `v${v}`); const metrics = () => { const chromeHeight = Math.ceil(chromeContainer.getBoundingClientRect().height); const barHeight = bookmarksBar && window.getComputedStyle(bookmarksBar).display !== 'none' ? Math.ceil(bookmarksBar.getBoundingClientRect().height) : 0; const top = chromeHeight + barHeight; const left = document.body.classList.contains('vertical-tabs') ? 240 : 0; document.documentElement.style.setProperty('--chrome-top', `${top}px`); ipcRenderer.send('set-chrome-metrics', { top, left }); }; window.onresize = metrics; setInterval(metrics, 1000); metrics(); ipcRenderer.send('renderer-ready'); const savedColor = localStorage.getItem('browser-theme-color'); if (savedColor) applyColor(savedColor); renderProfileList(); renderBookmarksBar(); addressBar.onkeydown = e => { if (e.key === 'Enter') { let url = addressBar.value.trim(); if (url && !url.includes('.') && !url.includes('://')) url = (S_ENG[localStorage.getItem('default-search-engine') || 'google'] || S_ENG.google) + encodeURIComponent(url); ipcRenderer.invoke('navigate-to', url); addressBar.blur() } }; clearTabsBtn.onclick = () => { if (activeTabId) ipcRenderer.invoke('clear-other-tabs', activeTabId) }; backBtn.onclick = () => ipcRenderer.invoke('go-back'); forwardBtn.onclick = () => ipcRenderer.invoke('go-forward'); reloadBtn.onclick = () => ipcRenderer.invoke('reload-page'); document.getElementById('home-btn').onclick = () => ipcRenderer.invoke('navigate-to', 'chrome://newtab'); newTabBtn.onclick = () => ipcRenderer.invoke('create-tab', { tabId: `p-${activeProfile}-t-${Date.now()}`, url: 'chrome://newtab' }); addBookmarkBtn.onclick = () => openBookmarkModal(); const saveBm = (target) => { if (pendingBookmark) { saveBookmark(pendingBookmark.url, pendingBookmark.title, target); bookmarkDestModal.classList.remove('show'); pendingBookmark = null } }; addToBarBtn.onclick = () => saveBm('bar'); addToNewTabBtn.onclick = () => saveBm('newtab'); addToBothBtn.onclick = () => saveBm('both'); cancelBookmarkBtn.onclick = () => bookmarkDestModal.classList.remove('show'); historyBtn.onclick = () => { toggle(historySidebar, true); ipcRenderer.send('fetch-and-show-history') }; closeHistoryBtn.onclick = () => toggle(historySidebar, false);['all', 'hour', 'today', 'week'].forEach(r => { const b = document.getElementById(`clear-history-${r}`); if (b) b.onclick = async () => { if (confirm(`Clear ${r === 'all' ? 'all' : r} history?`)) { await ipcRenderer.invoke('clear-history-range', r); ipcRenderer.send('fetch-and-show-history') } } }); profileBtn.onclick = e => { e.stopPropagation(); const show = !profileMenu.classList.contains('show'); profileMenu.classList.toggle('show', show); if (!show) ipcRenderer.send('toggle-browser-view', true) }; document.onclick = () => { if (profileMenu.classList.contains('show')) { profileMenu.classList.remove('show'); ipcRenderer.send('toggle-browser-view', true) } }; addProfileBtn.onclick = async e => { e.stopPropagation(); await ipcRenderer.invoke('add-new-profile'); profileMenu.classList.remove('show'); ipcRenderer.send('toggle-browser-view', true) }; renameSaveBtn.onclick = () => { const n = renameInput.value.trim(); if (n && pendingRenameProfileId !== null) { ipcRenderer.send('rename-profile', { profileIndex: pendingRenameProfileId, newName: n }); renameModal.classList.remove('show') } }; renameCancelBtn.onclick = () => renameModal.classList.remove('show'); bookmarkBtn.onclick = () => { const show = !bookmarksSidebar.classList.contains('open'); toggle(bookmarksSidebar, show); if (show) renderBookmarks() }; closeBookmarksBtn.onclick = () => toggle(bookmarksSidebar, false); settingsBtn.onclick = () => toggle(settingsSidebar, true); closeSettingsBtn.onclick = () => toggle(settingsSidebar, false); openExtensionsBtn.onclick = () => { settingsSidebar.classList.remove('open'); ipcRenderer.invoke('navigate-to', 'chrome://extensions'); ipcRenderer.send('toggle-browser-view', true) }; downloadsBtn.onclick = () => toggle(downloadsSidebar, !downloadsSidebar.classList.contains('open')); closeDownloadsBtn.onclick = () => toggle(downloadsSidebar, false); findInput.oninput = () => { const v = findInput.value.trim(); if (v) ipcRenderer.invoke('find-in-page', v); else { ipcRenderer.invoke('stop-find-in-page', 'clearSelection'); findResults.textContent = '0/0' } }; findInput.onkeydown = e => { if (e.key === 'Enter') ipcRenderer.invoke('find-in-page', findInput.value.trim(), { forward: !e.shiftKey, findNext: true }); else if (e.key === 'Escape') { findBar.style.display = 'none'; ipcRenderer.invoke('stop-find-in-page', 'clearSelection') } }; findNext.onclick = () => ipcRenderer.invoke('find-in-page', findInput.value.trim(), { forward: true, findNext: true }); findPrev.onclick = () => ipcRenderer.invoke('find-in-page', findInput.value.trim(), { forward: false, findNext: true }); findClose.onclick = () => { findBar.style.display = 'none'; ipcRenderer.invoke('stop-find-in-page', 'clearSelection') }; initSettings() } function initSettings() { const colors = ['#e9e9f0', '#ffffff', '#f0f4f8', '#e3f2fd', '#e8f5e9', '#fff3e0', '#fce4ec', '#f3e5f5', '#202124', '#3c4043', '#E0115F']; profileColorPicker.innerHTML = ''; const pCon = document.createElement('div'); pCon.className = 'color-picker'; colors.forEach(c => { const d = document.createElement('div'); d.className = 'color-option'; d.style.backgroundColor = c; d.title = c; d.onclick = () => applyColor(c); pCon.appendChild(d) }); profileColorPicker.appendChild(pCon); const sCon = document.createElement('div'); sCon.className = 'settings-color-controls'; sCon.innerHTML = `<div class="settings-color-row"><span class="settings-label">Color Picker</span><input type="color" id="custom-color-wheel" class="settings-color-wheel" value="#ffffff"></div><div class="settings-color-row"><input type="text" id="custom-color-input" class="settings-input" placeholder="Color name or hex"><button id="apply-custom-color" class="settings-btn settings-btn-secondary">Apply Color</button></div>`; profileColorPicker.appendChild(sCon); const wheel = sCon.querySelector('#custom-color-wheel'), text = sCon.querySelector('#custom-color-input'), btn = sCon.querySelector('#apply-custom-color'); wheel.oninput = e => { applyColor(e.target.value); text.value = e.target.value }; btn.onclick = () => text.value && applyColor(text.value); const disco = document.createElement('button'); disco.className = 'settings-btn settings-btn-secondary'; disco.textContent = 'Disco Mode'; let int = null; disco.onclick = () => { if (int) { clearInterval(int); int = null; disco.textContent = 'Disco Mode'; applyColor('#ffffff') } else { disco.textContent = 'Stop Disco'; int = setInterval(() => applyColor('#' + Math.floor(Math.random() * 16777215).toString(16)), 1000) } }; profileColorPicker.appendChild(disco); const vt = document.getElementById('vertical-tabs-toggle'), ss = document.getElementById('show-seconds-toggle'), se = document.getElementById('search-engine-select'); if (vt) { vt.checked = localStorage.getItem('vertical-tabs') === 'true'; if (vt.checked) document.body.classList.add('vertical-tabs'); vt.onchange = e => { const en = e.target.checked; localStorage.setItem('vertical-tabs', en); document.body.classList.toggle('vertical-tabs', en); metrics() } } if (ss) { ss.checked = localStorage.getItem('show-seconds') === 'true'; ss.onchange = e => localStorage.setItem('show-seconds', e.target.checked) } if (se) { se.value = localStorage.getItem('default-search-engine') || 'google'; se.onchange = e => { const eng = e.target.value; localStorage.setItem('default-search-engine', eng); const url = S_HOME[eng] || S_HOME.google; ipcRenderer.send('update-default-search-engine', url); if (activeTabId) ipcRenderer.invoke('navigate-to', url) } } } const formatUrl = (url) => !url || url.includes('newtab.html') || url === 'chrome://newtab' ? '' : url; ipcRenderer.on('tab-created', (e, t) => { addTabToUI(t); setActiveTab(t.id) }); ipcRenderer.on('tab-switched', (e, { tabId, url, title }) => { setActiveTab(tabId); addressBar.value = formatUrl(url); updateTabTitle(tabId, title) }); ipcRenderer.on('active-tab-changed', (e, id) => setActiveTab(id)); ipcRenderer.on('view-event', (e, d) => { if (d.type === 'did-navigate' && d.tabId === activeTabId) addressBar.value = formatUrl(d.url); else if (d.type === 'title') updateTabTitle(d.tabId, d.title); else if (['did-start-loading', 'did-stop-loading'].includes(d.type) && d.tabId === activeTabId) progressBarContainer.classList.toggle('loading', d.type === 'did-start-loading') }); ipcRenderer.on('history-data-received', (e, h) => renderHistory(h)); ipcRenderer.on('keyboard-shortcut', (e, t) => { if (t === 'new-tab') newTabBtn.click(); else if (t === 'close-tab' && activeTabId) ipcRenderer.invoke('close-tab', activeTabId); else if (t === 'focus-address-bar') { addressBar.focus(); addressBar.select() } else if (t === 'show-history') historyBtn.click(); else if (t === 'find-in-page') { findBar.style.display = findBar.style.display === 'none' ? 'flex' : 'none'; if (findBar.style.display === 'flex') { findInput.focus(); findInput.select() } else ipcRenderer.invoke('stop-find-in-page', 'clearSelection') } }); ipcRenderer.on('tab-closed', (e, id) => { const el = document.querySelector(`.tab[data-id="${id}"]`); if (el) el.remove(); tabs = tabs.filter(t => t.id !== id) }); ipcRenderer.on('profile-changed', (e, { profileIndex, tabs: pTabs }) => { activeProfile = profileIndex; document.querySelectorAll('.tab').forEach(t => t.remove()); tabs = []; pTabs.forEach(t => addTabToUI(t)); renderProfileList() }); ipcRenderer.on('profile-list-updated', (e, d) => { profiles = d.profiles; renderProfileList() }); function renderProfileList() { profileListContainer.innerHTML = ''; profiles.forEach(p => { const item = document.createElement('div'); item.className = `dropdown-item ${p.id === activeProfile ? 'active' : ''}`; const n = document.createElement('span'); n.textContent = p.name; n.style.flex = '1'; const r = document.createElement('button'); r.textContent = '✎'; r.className = 'profile-rename-btn'; if (p.id === activeProfile) { const d = document.createElement('div'); d.className = 'status-dot'; item.appendChild(d) } item.appendChild(n); item.appendChild(r); item.onclick = e => { if (e.target === r) return; ipcRenderer.invoke('switch-profile', p.id); profileMenu.classList.remove('show'); ipcRenderer.send('toggle-browser-view', true) }; r.onclick = e => { e.stopPropagation(); pendingRenameProfileId = p.id; renameInput.value = p.name; renameModal.classList.add('show'); renameInput.focus() }; profileListContainer.appendChild(item) }) } function addTabToUI(t) { if (tabs.find(x => x.id === t.id)) return; const el = document.createElement('div'); el.className = 'tab'; el.dataset.id = t.id; el.innerHTML = `<span class="tab-title">${t.title || 'Loading...'}</span><span class="tab-close">&times;</span>`; el.onclick = e => { if (e.target.classList.contains('tab-close')) ipcRenderer.invoke('close-tab', t.id); else ipcRenderer.invoke('switch-tab', t.id) }; tabBar.insertBefore(el, newTabBtn); tabs.push(t) } function setActiveTab(id) { activeTabId = id; document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.id === id)); const t = tabs.find(x => x.id === id); if (t && addressBar) addressBar.value = formatUrl(t.url) } function updateTabTitle(id, title) { const el = document.querySelector(`.tab[data-id="${id}"] .tab-title`); if (el) el.textContent = title || 'Loading...'; const t = tabs.find(x => x.id === id); if (t) t.title = title } const getBms = () => JSON.parse(localStorage.getItem('browser-bookmarks') || '[]');
+function saveBookmark(u, t, target = 'both') {
+  const bms = getBms();
+  const idx = bms.findIndex((b) => b.url === u);
+  if (idx !== -1) {
+    bms[idx].target = target;
+    bms[idx].title = t || bms[idx].title;
+  } else {
+    bms.push({ url: u, title: t || u, id: Date.now(), target });
+  }
+  localStorage.setItem('browser-bookmarks', JSON.stringify(bms));
+  renderBookmarks();
+  renderBookmarksBar();
+}
+function getFaviconHost(url) {
+  try {
+    return new URL(url).hostname;
+  } catch (e) {
+    return '';
+  }
+}
+function buildFavicon(host, size = 20) {
+  const img = document.createElement('img');
+  img.className = 'favicon';
+  img.width = size;
+  img.height = size;
+  const safeHost = host || 'google.com';
+  img.src = `https://www.google.com/s2/favicons?domain=${encodeURIComponent(safeHost)}&sz=32`;
+  img.alt = '';
+  img.loading = 'lazy';
+  return img;
+}
+function buildHistoryEntry(entry) {
+  const host = getFaviconHost(entry.url);
+  const el = document.createElement('div');
+  el.className = 'history-item';
+  const icon = buildFavicon(host);
+  const info = document.createElement('div');
+  info.style.flex = '1';
+  info.style.minWidth = '0';
+  const title = document.createElement('div');
+  title.textContent = entry.title || entry.url;
+  const urlEl = document.createElement('div');
+  urlEl.className = 'url';
+  urlEl.textContent = entry.url;
+  info.appendChild(title);
+  info.appendChild(urlEl);
+  el.append(icon, info);
+  return el;
+}
+function renderHistory(h) {
+  historyList.innerHTML = '';
+  h.forEach((i) => {
+    const el = buildHistoryEntry(i);
+    el.onclick = () => {
+      ipcRenderer.invoke('navigate-to', i.url);
+      historySidebar.classList.remove('open');
+      ipcRenderer.send('toggle-browser-view', true);
+    };
+    historyList.appendChild(el);
+  });
+}
+function buildBookmarkBarItem(bookmark) {
+  const host = getFaviconHost(bookmark.url);
+  const el = document.createElement('div');
+  el.className = 'bookmarks-bar-item';
+  const icon = buildFavicon(host, 16);
+  const label = document.createElement('span');
+  label.textContent = bookmark.title || bookmark.url;
+  el.append(icon, label);
+  return el;
+}
+function buildBookmarkItem(bookmark) {
+  const host = getFaviconHost(bookmark.url);
+  const el = document.createElement('div');
+  el.className = 'bookmark-item';
+  const icon = buildFavicon(host);
+  const info = document.createElement('div');
+  const title = document.createElement('div');
+  title.textContent = bookmark.title || bookmark.url;
+  const urlEl = document.createElement('div');
+  urlEl.className = 'url';
+  urlEl.textContent = bookmark.url;
+  info.append(title, urlEl);
+  const removeBtn = document.createElement('button');
+  removeBtn.className = 'remove-bm';
+  removeBtn.style.marginLeft = 'auto';
+  removeBtn.textContent = '×';
+  el.append(icon, info, removeBtn);
+  return el;
+}
+function renderBookmarksBar() {
+  if (!bookmarksBar) return;
+  const bms = getBms().filter((b) => b.target === 'bar' || b.target === 'both');
+  bookmarksBar.style.display = bms.length ? 'flex' : 'none';
+  bookmarksBar.innerHTML = '';
+  bms.forEach((b) => {
+    const el = buildBookmarkBarItem(b);
+    el.onclick = () => ipcRenderer.invoke('navigate-to', b.url);
+    bookmarksBar.appendChild(el);
+  });
+  if (typeof window.onresize === 'function') window.onresize();
+}
+function renderBookmarks() {
+  if (!bookmarksList) return;
+  const bms = getBms();
+  bookmarksList.innerHTML = bms.length ? '' : '<div style="text-align:center;padding:40px">No bookmarks yet.</div>';
+  bms.forEach((b) => {
+    const el = buildBookmarkItem(b);
+    const removeBtn = el.querySelector('.remove-bm');
+    el.onclick = (e) => {
+      if (e.target === removeBtn) return;
+      ipcRenderer.invoke('navigate-to', b.url);
+      bookmarksSidebar.classList.remove('open');
+      ipcRenderer.send('toggle-browser-view', true);
+    };
+    if (removeBtn) {
+      removeBtn.onclick = (e) => {
+        e.stopPropagation();
+        localStorage.setItem(
+          'browser-bookmarks',
+          JSON.stringify(getBms().filter((x) => x.id !== b.id))
+        );
+        renderBookmarks();
+      };
+    }
+    bookmarksList.appendChild(el);
+  });
+}
+function refreshDownloadElement(el, info) {
+  while (el.firstChild) el.removeChild(el.firstChild);
+  const name = document.createElement('div');
+  name.textContent = info.filename || '';
+  const status = document.createElement('div');
+  const received = info.receivedBytes || 0;
+  const total = info.totalBytes || 0;
+  const ratio = total > 0 ? received / total : 0;
+  const percent = Math.floor(ratio * 100) || 0;
+  status.textContent = info.state === 'completed' ? 'Done' : `${percent}%`;
+  el.appendChild(name);
+  el.appendChild(status);
+  if (info.state === 'completed') el.style.borderColor = 'green';
+  else el.style.removeProperty('border-color');
+}
+function updateDlUI(i) {
+  let el = document.getElementById(`dl-${i.id}`);
+  if (!el) {
+    el = document.createElement('div');
+    el.id = `dl-${i.id}`;
+    el.className = 'download-item';
+    downloadsList.appendChild(el);
+  }
+  refreshDownloadElement(el, i);
+}
+ipcRenderer.on('find-result', (e, r) => findResults.textContent = r ? `${r.activeMatchOrdinal}/${r.matches}` : '0/0'); ipcRenderer.on('download-started', (e, i) => updateDlUI(i)); ipcRenderer.on('download-updated', (e, i) => updateDlUI(i)); function openBookmarkModal() { if (!activeTabId) return; const t = tabs.find((x) => x.id === activeTabId); if (!t) return; pendingBookmark = { url: t.url, title: t.title }; if (bookmarkDestModal) bookmarkDestModal.classList.add('show'); }
+document.addEventListener('keydown', (event) => { const target = event.target; const tagName = target && target.tagName ? target.tagName.toLowerCase() : ''; if (tagName === 'input' || tagName === 'textarea' || (target && target.isContentEditable)) return; if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLowerCase() === 'd') { event.preventDefault(); openBookmarkModal(); } }); init();

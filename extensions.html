@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; font-src https://fonts.gstatic.com;">
+    <title>Extensions</title>
+    <style>
+        @import url("https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Sora:wght@500;600;700&display=swap");
+
+        :root {
+            --ink: #10213a;
+            --muted: #5f728c;
+            --surface: rgba(255, 255, 255, 0.88);
+            --panel: #ffffff;
+            --line: #dbe6f4;
+            --accent: #0f6bff;
+            --accent-hover: #0a57d3;
+            --danger: #ef4444;
+            --danger-bg: rgba(239, 68, 68, 0.08);
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            font-family: "Outfit", sans-serif;
+            color: var(--ink);
+            background:
+                radial-gradient(circle at 14% -8%, rgba(15, 107, 255, 0.2), transparent 42%),
+                radial-gradient(circle at 95% 4%, rgba(56, 189, 248, 0.2), transparent 44%),
+                linear-gradient(180deg, #f7fbff 0%, #eef4fb 100%);
+        }
+
+        .page-shell {
+            max-width: 1080px;
+            margin: 0 auto;
+            padding: 32px 24px 40px;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 14px;
+            margin-bottom: 22px;
+        }
+
+        .eyebrow {
+            margin: 0 0 6px;
+            font-size: 11px;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            font-weight: 700;
+            color: var(--muted);
+        }
+
+        .header h1 {
+            margin: 0;
+            font-family: "Sora", sans-serif;
+            font-size: clamp(1.35rem, 2.5vw, 1.9rem);
+            letter-spacing: -0.02em;
+        }
+
+        .header-badge {
+            border: 1px solid rgba(15, 107, 255, 0.22);
+            background: rgba(15, 107, 255, 0.1);
+            color: var(--accent);
+            border-radius: 999px;
+            padding: 7px 12px;
+            font-size: 12px;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        .panel {
+            background: var(--surface);
+            backdrop-filter: blur(14px);
+            border: 1px solid var(--line);
+            border-radius: 18px;
+            box-shadow: 0 18px 38px rgba(10, 24, 48, 0.1);
+        }
+
+        .load-section {
+            padding: 22px;
+            margin-bottom: 18px;
+        }
+
+        .load-section h2 {
+            margin: 0;
+            font-size: 1.12rem;
+            font-family: "Sora", sans-serif;
+            letter-spacing: -0.01em;
+        }
+
+        .load-section p {
+            margin: 8px 0 0;
+            color: var(--muted);
+            font-size: 14px;
+            line-height: 1.45;
+        }
+
+        .input-group {
+            margin-top: 16px;
+            display: flex;
+            gap: 10px;
+        }
+
+        input[type="text"] {
+            flex: 1;
+            height: 42px;
+            padding: 0 12px;
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            font-size: 14px;
+            color: var(--ink);
+            background: rgba(255, 255, 255, 0.85);
+            outline: 0;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        input[type="text"]:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(15, 107, 255, 0.14);
+        }
+
+        button {
+            height: 42px;
+            border: 0;
+            border-radius: 12px;
+            padding: 0 18px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s, background-color 0.2s, border-color 0.2s;
+        }
+
+        #load-btn {
+            background: var(--accent);
+            color: #fff;
+            box-shadow: 0 12px 22px rgba(15, 107, 255, 0.24);
+        }
+
+        #load-btn:hover {
+            background: var(--accent-hover);
+            transform: translateY(-1px);
+            box-shadow: 0 16px 30px rgba(15, 107, 255, 0.28);
+        }
+
+        #load-btn:disabled {
+            opacity: 0.68;
+            cursor: wait;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .list-section {
+            padding: 20px;
+        }
+
+        .list-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 14px;
+        }
+
+        .list-header h2 {
+            margin: 0;
+            font-size: 1.05rem;
+            font-family: "Sora", sans-serif;
+        }
+
+        .list-note {
+            margin: 0;
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .extension-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 14px;
+        }
+
+        .extension-card {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            box-shadow: 0 12px 26px rgba(10, 24, 48, 0.08);
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s;
+        }
+
+        .extension-card:hover {
+            transform: translateY(-2px);
+            border-color: rgba(15, 107, 255, 0.24);
+            box-shadow: 0 18px 32px rgba(10, 24, 48, 0.12);
+        }
+
+        .extension-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 10px;
+        }
+
+        .extension-name {
+            font-size: 15px;
+            font-weight: 600;
+            min-width: 0;
+            word-break: break-word;
+        }
+
+        .extension-version {
+            flex: 0 0 auto;
+            color: var(--muted);
+            font-size: 12px;
+            font-weight: 500;
+            border-radius: 999px;
+            border: 1px solid var(--line);
+            padding: 3px 8px;
+            background: rgba(239, 244, 252, 0.75);
+        }
+
+        .extension-desc {
+            color: var(--muted);
+            font-size: 13px;
+            line-height: 1.45;
+            min-height: 38px;
+        }
+
+        .extension-actions {
+            display: flex;
+            justify-content: flex-end;
+        }
+
+        .remove-btn {
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            background: var(--danger-bg);
+            color: var(--danger);
+            height: 34px;
+            padding: 0 12px;
+            border-radius: 10px;
+            font-size: 13px;
+            box-shadow: none;
+        }
+
+        .remove-btn:hover {
+            background: rgba(239, 68, 68, 0.16);
+            transform: translateY(-1px);
+        }
+
+        .empty-state {
+            grid-column: 1 / -1;
+            text-align: center;
+            color: var(--muted);
+            border: 1px dashed var(--line);
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.65);
+            padding: 36px 16px;
+            font-size: 14px;
+        }
+
+        @media (max-width: 700px) {
+            .page-shell {
+                padding: 20px 14px 28px;
+            }
+
+            .header {
+                align-items: flex-start;
+                flex-direction: column;
+            }
+
+            .input-group {
+                flex-direction: column;
+            }
+
+            #load-btn {
+                width: 100%;
+            }
+
+            .list-header {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="page-shell">
+        <div class="header">
+            <div>
+                <p class="eyebrow">Extensions</p>
+                <h1>Manage Installed Extensions</h1>
+            </div>
+            <div class="header-badge">Unpacked Mode</div>
+        </div>
+
+        <div class="panel load-section">
+            <h2>Load Unpacked Extension</h2>
+            <p>
+                To install an extension, download it, unzip it, and paste the full folder path below.
+                <br>
+                (e.g., /Users/username/Downloads/my-extension)
+            </p>
+            <div class="input-group">
+                <input type="text" id="ext-path" placeholder="absolute/path/to/extension/folder">
+                <button id="load-btn">Load Extension</button>
+            </div>
+        </div>
+
+        <div class="panel list-section">
+            <div class="list-header">
+                <h2>Installed Extensions</h2>
+                <p class="list-note">Loaded from local folders in this browser profile.</p>
+            </div>
+            <div id="ext-list" class="extension-list"></div>
+        </div>
+    </div>
+
+    <script>
+        // Use window.electron exposed by preload.js
+        const { invoke } = window.electron;
+
+        const loadBtn = document.getElementById('load-btn');
+        const pathInput = document.getElementById('ext-path');
+        const list = document.getElementById('ext-list');
+
+        async function refreshList() {
+            try {
+                const extensions = await invoke('get-extensions');
+                list.innerHTML = '';
+
+                if (!extensions || extensions.length === 0) {
+                    list.innerHTML = '<div class="empty-state">No extensions installed.</div>';
+                    return;
+                }
+
+                extensions.forEach(ext => {
+                    const card = document.createElement('div');
+                    card.className = 'extension-card';
+                    card.innerHTML = `
+                        <div class="extension-header">
+                            <span class="extension-name">${ext.name}</span>
+                            <span class="extension-version">v${ext.version}</span>
+                        </div>
+                        <div class="extension-desc">${ext.description || 'No description provided.'}</div>
+                        <div class="extension-actions">
+                            <button class="remove-btn" onclick="removeExtension('${ext.id}')">Remove</button>
+                        </div>
+                    `;
+                    list.appendChild(card);
+                });
+            } catch (err) {
+                console.error('Failed to refresh extension list:', err);
+                list.innerHTML = '<div class="empty-state">Error loading extensions.</div>';
+            }
+        }
+
+        window.removeExtension = async (id) => {
+            if (confirm('Are you sure you want to remove this extension?')) {
+                await invoke('remove-extension', id);
+                refreshList();
+            }
+        };
+
+        loadBtn.addEventListener('click', async () => {
+            // Open native folder picker
+            const path = await invoke('select-extension-folder');
+            if (!path) return; // User cancelled
+
+            pathInput.value = path;
+            loadBtn.disabled = true;
+            loadBtn.textContent = 'Loading...';
+
+            try {
+                const result = await invoke('load-extension', path);
+                if (result.success) {
+                    alert('Extension loaded successfully!');
+                    pathInput.value = '';
+                    refreshList();
+                } else {
+                    alert('Failed to load extension: ' + result.error);
+                }
+            } catch (err) {
+                alert('Error invoking extension load: ' + err.message);
+            } finally {
+                loadBtn.disabled = false;
+                loadBtn.textContent = 'Load Extension';
+            }
+        });
+
+        // Initial load
+        refreshList();
+    </script>
+</body>
+
+</html>
