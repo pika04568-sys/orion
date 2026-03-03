@@ -81,7 +81,8 @@ function buildApi(allowedInvoke, allowedSend, allowedOn) {
     },
     on: (channel, listener) => {
       if (!allowedOn || !allowedOn.has(channel)) return () => {};
-      const subscription = (_event, ...args) => listener(...args);
+      // Mirror Electron's ipcRenderer.on signature: (event, ...args).
+      const subscription = (event, ...args) => listener(event, ...args);
       ipcRenderer.on(channel, subscription);
       return () => ipcRenderer.removeListener(channel, subscription);
     }

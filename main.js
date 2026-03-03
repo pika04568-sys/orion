@@ -218,14 +218,26 @@ function getActiveT(pIdx) {
   return null;
 }
 
+function insertTabAfter(pIdx, tab, afterTabId) {
+  if (!pTabs[pIdx]) pTabs[pIdx] = [];
+  const list = pTabs[pIdx];
+  if (!afterTabId) {
+    list.push(tab);
+    return;
+  }
+  const idx = list.findIndex((t) => t.id === afterTabId);
+  if (idx === -1) list.push(tab);
+  else list.splice(idx + 1, 0, tab);
+}
+
 function createT(pIdx, win) {
   const id = `p-${pIdx}-t-1`;
   const home = "chrome://newtab";
-  win.webContents.send("profile-changed", { profileIndex: pIdx, tabs: pTabs[pIdx] });
   if (!pTabs[pIdx].length) {
     pTabs[pIdx].push({ id, url: home, title: "New Tab" });
     createV(id, home, false, pIdx);
   }
+  win.webContents.send("profile-changed", { profileIndex: pIdx, tabs: pTabs[pIdx] });
   switchT(pTabs[pIdx][0].id, pIdx);
   broadcast();
   win.webContents.send("history-loaded", getH());
@@ -483,15 +495,16 @@ ipcMain.on("rename-profile", (_e, { profileIndex, newName }) => {
     broadcast();
   }
 });
-ipcMain.handle("create-tab", (e, { tabId, url, inc }) => {
+ipcMain.handle("create-tab", (e, { tabId, url, inc, afterTabId }) => {
   const w = BrowserWindow.fromWebContents(e.sender);
   if (!w) return;
   const pIdx = w.profileIndex;
   const u = url || "https://www.google.com/";
   if (!pTabs[pIdx].find((t) => t.id === tabId)) {
     const nt = { id: tabId, url: u, title: "New Tab" };
-    pTabs[pIdx].push(nt);
-    w.webContents.send("tab-created", nt);
+    const insertAfter = typeof afterTabId === "string" && afterTabId.length ? afterTabId : null;
+    insertTabAfter(pIdx, nt, insertAfter);
+    w.webContents.send("tab-created", { ...nt, afterTabId: insertAfter });
   }
   createV(tabId, u, !!inc, pIdx);
   switchT(tabId, pIdx);

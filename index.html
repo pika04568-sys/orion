@@ -59,7 +59,7 @@
             }
 
             #chrome-container,
-            body.vertical-tabs #tab-bar {
+            body.vertical-tabs #tab-bar-wrapper {
                 background: linear-gradient(180deg, rgba(11, 20, 38, .94), var(--glass-bg))
             }
 
@@ -182,7 +182,7 @@
             flex-wrap: wrap
         }
 
-        body.vertical-tabs #tab-bar {
+        body.vertical-tabs #tab-bar-wrapper {
             order: -1;
             flex-direction: column;
             width: var(--tab-rail-width);
@@ -194,9 +194,8 @@
             background: linear-gradient(180deg, rgba(255, 255, 255, .9), var(--glass-bg));
             border-right: 1px solid var(--border-color);
             z-index: 50;
-            overflow-y: auto;
             gap: 8px;
-            backdrop-filter: blur(18px) saturate(1.08)
+            backdrop-filter: blur(18px) saturate(1.08);
         }
 
         body.vertical-tabs #toolbar,
@@ -235,12 +234,40 @@
             box-shadow: 0 6px 16px rgba(15, 107, 255, 0.3)
         }
 
-        #tab-bar {
+        #tab-bar-wrapper {
             display: flex;
             align-items: center;
             padding: 10px 10px 2px;
             gap: 6px;
-            overflow-x: auto
+            position: relative;
+            min-width: 0;
+        }
+
+        .tab-actions {
+            display: flex;
+            gap: 6px;
+            flex: 0 0 auto;
+        }
+
+        #tab-bar {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            overflow-x: auto;
+            flex: 1;
+            min-width: 0;
+        }
+
+        body.vertical-tabs #tab-bar {
+            flex-direction: column;
+            width: 100%;
+            overflow-y: auto;
+            max-height: calc(100vh - 64px);
+        }
+
+        body.vertical-tabs .tab-actions {
+            order: -1;
+            width: 100%;
         }
 
         #tab-bar::-webkit-scrollbar {
@@ -1525,16 +1552,19 @@
 
 <body>
     <div id="chrome-container">
-        <div id="tab-bar">
-            <div id="new-tab-btn" title="New Tab"><svg width="20" height="20" viewBox="0 0 24 24" fill="none"
-                    stroke="currentColor" stroke-width="2">
-                    <line x1="12" y1="5" x2="12" y2="19"></line>
-                    <line x1="5" y1="12" x2="19" y2="12"></line>
-                </svg></div>
-            <div id="clear-tabs-btn" title="Close Others"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"
-                    stroke="currentColor" stroke-width="2">
-                    <path d="M18 6L6 18M6 6l12 12M3 6h18"></path>
-                </svg></div>
+        <div id="tab-bar-wrapper">
+            <div id="tab-bar"></div>
+            <div class="tab-actions">
+                <div id="new-tab-btn" title="New Tab"><svg width="20" height="20" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="2">
+                        <line x1="12" y1="5" x2="12" y2="19"></line>
+                        <line x1="5" y1="12" x2="19" y2="12"></line>
+                    </svg></div>
+                <div id="clear-tabs-btn" title="Close Others"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="2">
+                        <path d="M18 6L6 18M6 6l12 12M3 6h18"></path>
+                    </svg></div>
+            </div>
         </div>
         <div id="toolbar">
             <div class="nav-buttons"><button id="back-btn" class="nav-btn"><svg width="18" height="18"
