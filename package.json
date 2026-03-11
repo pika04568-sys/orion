@@ -52,8 +52,10 @@
     },
     "publish": [
       {
-        "provider": "generic",
-        "url": "https://example.com/updates"
+        "provider": "github",
+        "owner": "pika04568-sys",
+        "repo": "orion",
+        "releaseType": "release"
       }
     ],
     "compression": "maximum",
@@ -72,6 +74,7 @@
     "electron-builder": "^26.4.0"
   },
   "dependencies": {
-    "electron-updater": "^6.3.9"
+    "electron-updater": "^6.8.3",
+    "update-electron-app": "^3.1.2"
   }
 }

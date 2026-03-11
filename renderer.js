@@ -1,8 +1,495 @@
-const ipcRenderer = window.electron || { invoke: async () => { }, send: () => { }, on: () => { } }; let tabBar, newTabBtn, clearTabsBtn, addressBar, backBtn, forwardBtn, reloadBtn, historyBtn, historySidebar, closeHistoryBtn, historyList, chromeContainer, profileBtn, profileMenu, profileListContainer, addProfileBtn, settingsBtn, settingsSidebar, closeSettingsBtn, profileColorPicker, renameModal, renameInput, renameSaveBtn, renameCancelBtn, pendingRenameProfileId = null, bookmarkBtn, bookmarksSidebar, closeBookmarksBtn, bookmarksList, downloadsBtn, downloadsSidebar, closeDownloadsBtn, downloadsList, findBar, findInput, findResults, findPrev, findNext, findClose, openExtensionsBtn, progressBarContainer, progressBar, addBookmarkBtn, bookmarksBar, bookmarkDestModal, addToBarBtn, addToNewTabBtn, addToBothBtn, cancelBookmarkBtn, pendingBookmark = null, activeTabId = null, activeProfile = 0, tabs = [], profiles = []; const S_ENG = { google: 'https://www.google.com/search?q=', bing: 'https://www.bing.com/search?q=', yahoo: 'https://search.yahoo.com/search?p=', duckduckgo: 'https://duckduckgo.com/?q=', brave: 'https://search.brave.com/search?q=', yandex: 'https://yandex.com/search/?text=', baidu: 'https://www.baidu.com/s?wd=', startpage: 'https://www.startpage.com/do/search?q=', naver: 'https://search.naver.com/search.naver?query=' }; const S_HOME = { google: 'https://www.google.com/', bing: 'https://www.bing.com/', yahoo: 'https://www.yahoo.com/', duckduckgo: 'https://duckduckgo.com/', brave: 'https://search.brave.com/', yandex: 'https://yandex.com/', baidu: 'https://www.baidu.com/', startpage: 'https://www.startpage.com/', naver: 'https://www.naver.com/' }; function applyColor(c) { const custom = { 'emerald green': '#50c878', 'emerald': '#50c878', 'turquoise': '#40E0D0' }; const color = custom[c.toLowerCase()] || c; const temp = document.createElement('div'); temp.style.color = color; document.body.appendChild(temp); const rgb = getComputedStyle(temp).color; document.body.removeChild(temp); const match = rgb.match(/\d+/g); if (!match) return; const [r, g, b] = match; ipcRenderer.send('apply-browser-color', color); localStorage.setItem('browser-theme-color', color); const bright = (r * 299 + g * 587 + b * 114) / 1000; const dark = bright < 128; const primary = dark ? '#f4f8ff' : '#10213a'; const secondary = dark ? '#9bb3d1' : '#5f728c'; document.body.style.setProperty('--bg-color', color); document.body.style.setProperty('--glass-bg', `rgba(${r},${g},${b},0.9)`); document.body.style.setProperty('--text-primary', primary); document.body.style.setProperty('--text-secondary', secondary); document.body.style.setProperty('--text-color', primary); document.body.style.setProperty('--tab-inactive-bg', dark ? color : `rgba(${r},${g},${b},0.8)`); document.body.style.setProperty('--sidebar-bg', `rgba(${r},${g},${b},0.9)`) } function init() { tabBar = document.getElementById('tab-bar'); newTabBtn = document.getElementById('new-tab-btn'); addressBar = document.getElementById('address-bar'); backBtn = document.getElementById('back-btn'); forwardBtn = document.getElementById('forward-btn'); reloadBtn = document.getElementById('reload-btn'); historyBtn = document.getElementById('history-btn'); historySidebar = document.getElementById('history-sidebar'); closeHistoryBtn = document.getElementById('close-history'); historyList = document.getElementById('history-list'); chromeContainer = document.getElementById('chrome-container'); profileBtn = document.getElementById('profile-btn'); profileMenu = document.getElementById('profile-menu'); profileListContainer = document.getElementById('profile-list-container'); addProfileBtn = document.getElementById('add-profile-btn'); settingsBtn = document.getElementById('settings-btn'); settingsSidebar = document.getElementById('settings-sidebar'); closeSettingsBtn = document.getElementById('close-settings'); profileColorPicker = document.getElementById('profile-color-picker'); bookmarkBtn = document.getElementById('bookmark-btn'); bookmarksSidebar = document.getElementById('bookmarks-sidebar'); closeBookmarksBtn = document.getElementById('close-bookmarks'); bookmarksList = document.getElementById('bookmarks-list'); addBookmarkBtn = document.getElementById('add-bookmark-btn'); progressBarContainer = document.getElementById('progress-bar-container'); progressBar = document.getElementById('progress-bar'); clearTabsBtn = document.getElementById('clear-tabs-btn'); openExtensionsBtn = document.getElementById('open-extensions-btn'); downloadsBtn = document.getElementById('downloads-btn'); downloadsSidebar = document.getElementById('downloads-sidebar'); closeDownloadsBtn = document.getElementById('close-downloads'); downloadsList = document.getElementById('downloads-list'); findBar = document.getElementById('find-bar'); findInput = document.getElementById('find-input'); findResults = document.getElementById('find-results'); findPrev = document.getElementById('find-prev'); findNext = document.getElementById('find-next'); findClose = document.getElementById('find-close'); bookmarksBar = document.getElementById('bookmarks-bar'); bookmarkDestModal = document.getElementById('bookmark-dest-modal'); addToBarBtn = document.getElementById('add-to-bar-btn'); addToNewTabBtn = document.getElementById('add-to-newtab-btn'); addToBothBtn = document.getElementById('add-to-both-btn'); cancelBookmarkBtn = document.getElementById('cancel-bookmark-btn'); renameModal = document.getElementById('rename-modal'); renameInput = document.getElementById('rename-input'); renameSaveBtn = document.getElementById('rename-save-btn'); renameCancelBtn = document.getElementById('rename-cancel-btn'); const checkUpdatesBtn = document.getElementById('check-updates-btn'), versionEl = document.getElementById('app-version'), adblockBtn = document.getElementById('adblock-btn'), adblockSidebar = document.getElementById('adblock-sidebar'), closeAdblockBtn = document.getElementById('close-adblock'), adblockText = document.getElementById('adblock-rules'), saveAdblockBtn = document.getElementById('save-adblock-rules'); ipcRenderer.invoke('update-adblock-rules', localStorage.getItem('adblock-rules') || ''); const sidebars = [historySidebar, settingsSidebar, bookmarksSidebar, downloadsSidebar, adblockSidebar].filter(Boolean); const toggle = (s, v) => { sidebars.forEach(p => { if (p !== s) p.classList.remove('open') }); if (s) s.classList.toggle('open', v); const hasOpen = sidebars.some(p => p.classList.contains('open')); ipcRenderer.send('toggle-browser-view', !hasOpen); if (hasOpen && findBar) { findBar.style.display = 'none'; ipcRenderer.invoke('stop-find-in-page', 'clearSelection'); } }; if (adblockBtn) adblockBtn.onclick = () => { adblockText.value = localStorage.getItem('adblock-rules') || ''; toggle(adblockSidebar, true) }; if (closeAdblockBtn) closeAdblockBtn.onclick = () => toggle(adblockSidebar, false); if (saveAdblockBtn) saveAdblockBtn.onclick = () => { localStorage.setItem('adblock-rules', adblockText.value); ipcRenderer.invoke('update-adblock-rules', adblockText.value); saveAdblockBtn.textContent = 'Saved!'; setTimeout(() => saveAdblockBtn.textContent = 'Save & Apply Rules', 2000) }; if (checkUpdatesBtn) checkUpdatesBtn.onclick = async () => { await ipcRenderer.invoke('check-for-updates'); checkUpdatesBtn.textContent = 'Checking...'; setTimeout(() => checkUpdatesBtn.textContent = 'Check for Updates', 3000) }; if (versionEl) ipcRenderer.invoke('get-app-version').then(v => versionEl.textContent = `v${v}`); const metrics = () => { const chromeHeight = Math.ceil(chromeContainer.getBoundingClientRect().height); const barHeight = bookmarksBar && window.getComputedStyle(bookmarksBar).display !== 'none' ? Math.ceil(bookmarksBar.getBoundingClientRect().height) : 0; const top = chromeHeight + barHeight; const left = document.body.classList.contains('vertical-tabs') ? 240 : 0; document.documentElement.style.setProperty('--chrome-top', `${top}px`); ipcRenderer.send('set-chrome-metrics', { top, left }); }; window.onresize = metrics; setInterval(metrics, 1000); metrics(); ipcRenderer.send('renderer-ready'); const savedColor = localStorage.getItem('browser-theme-color'); if (savedColor) applyColor(savedColor); renderProfileList(); renderBookmarksBar(); addressBar.onkeydown = e => { if (e.key === 'Enter') { let url = addressBar.value.trim(); if (url && !url.includes('.') && !url.includes('://')) url = (S_ENG[localStorage.getItem('default-search-engine') || 'google'] || S_ENG.google) + encodeURIComponent(url); ipcRenderer.invoke('navigate-to', url); addressBar.blur() } }; clearTabsBtn.onclick = () => { if (activeTabId) ipcRenderer.invoke('clear-other-tabs', activeTabId) }; backBtn.onclick = () => ipcRenderer.invoke('go-back'); forwardBtn.onclick = () => ipcRenderer.invoke('go-forward'); reloadBtn.onclick = () => ipcRenderer.invoke('reload-page'); document.getElementById('home-btn').onclick = () => ipcRenderer.invoke('navigate-to', 'chrome://newtab'); newTabBtn.onclick = () => ipcRenderer.invoke('create-tab', { tabId: `p-${activeProfile}-t-${Date.now()}`, url: 'chrome://newtab' }); addBookmarkBtn.onclick = () => openBookmarkModal(); const saveBm = (target) => { if (pendingBookmark) { saveBookmark(pendingBookmark.url, pendingBookmark.title, target); bookmarkDestModal.classList.remove('show'); pendingBookmark = null } }; addToBarBtn.onclick = () => saveBm('bar'); addToNewTabBtn.onclick = () => saveBm('newtab'); addToBothBtn.onclick = () => saveBm('both'); cancelBookmarkBtn.onclick = () => bookmarkDestModal.classList.remove('show'); historyBtn.onclick = () => { toggle(historySidebar, true); ipcRenderer.send('fetch-and-show-history') }; closeHistoryBtn.onclick = () => toggle(historySidebar, false);['all', 'hour', 'today', 'week'].forEach(r => { const b = document.getElementById(`clear-history-${r}`); if (b) b.onclick = async () => { if (confirm(`Clear ${r === 'all' ? 'all' : r} history?`)) { await ipcRenderer.invoke('clear-history-range', r); ipcRenderer.send('fetch-and-show-history') } } }); profileBtn.onclick = e => { e.stopPropagation(); const show = !profileMenu.classList.contains('show'); profileMenu.classList.toggle('show', show); if (!show) ipcRenderer.send('toggle-browser-view', true) }; document.onclick = () => { if (profileMenu.classList.contains('show')) { profileMenu.classList.remove('show'); ipcRenderer.send('toggle-browser-view', true) } }; addProfileBtn.onclick = async e => { e.stopPropagation(); await ipcRenderer.invoke('add-new-profile'); profileMenu.classList.remove('show'); ipcRenderer.send('toggle-browser-view', true) }; renameSaveBtn.onclick = () => { const n = renameInput.value.trim(); if (n && pendingRenameProfileId !== null) { ipcRenderer.send('rename-profile', { profileIndex: pendingRenameProfileId, newName: n }); renameModal.classList.remove('show') } }; renameCancelBtn.onclick = () => renameModal.classList.remove('show'); bookmarkBtn.onclick = () => { const show = !bookmarksSidebar.classList.contains('open'); toggle(bookmarksSidebar, show); if (show) renderBookmarks() }; closeBookmarksBtn.onclick = () => toggle(bookmarksSidebar, false); settingsBtn.onclick = () => toggle(settingsSidebar, true); closeSettingsBtn.onclick = () => toggle(settingsSidebar, false); openExtensionsBtn.onclick = () => { settingsSidebar.classList.remove('open'); ipcRenderer.invoke('navigate-to', 'chrome://extensions'); ipcRenderer.send('toggle-browser-view', true) }; downloadsBtn.onclick = () => toggle(downloadsSidebar, !downloadsSidebar.classList.contains('open')); closeDownloadsBtn.onclick = () => toggle(downloadsSidebar, false); findInput.oninput = () => { const v = findInput.value.trim(); if (v) ipcRenderer.invoke('find-in-page', v); else { ipcRenderer.invoke('stop-find-in-page', 'clearSelection'); findResults.textContent = '0/0' } }; findInput.onkeydown = e => { if (e.key === 'Enter') ipcRenderer.invoke('find-in-page', findInput.value.trim(), { forward: !e.shiftKey, findNext: true }); else if (e.key === 'Escape') { findBar.style.display = 'none'; ipcRenderer.invoke('stop-find-in-page', 'clearSelection') } }; findNext.onclick = () => ipcRenderer.invoke('find-in-page', findInput.value.trim(), { forward: true, findNext: true }); findPrev.onclick = () => ipcRenderer.invoke('find-in-page', findInput.value.trim(), { forward: false, findNext: true }); findClose.onclick = () => { findBar.style.display = 'none'; ipcRenderer.invoke('stop-find-in-page', 'clearSelection') }; initSettings() } function initSettings() { const colors = ['#e9e9f0', '#ffffff', '#f0f4f8', '#e3f2fd', '#e8f5e9', '#fff3e0', '#fce4ec', '#f3e5f5', '#202124', '#3c4043', '#E0115F']; profileColorPicker.innerHTML = ''; const pCon = document.createElement('div'); pCon.className = 'color-picker'; colors.forEach(c => { const d = document.createElement('div'); d.className = 'color-option'; d.style.backgroundColor = c; d.title = c; d.onclick = () => applyColor(c); pCon.appendChild(d) }); profileColorPicker.appendChild(pCon); const sCon = document.createElement('div'); sCon.className = 'settings-color-controls'; sCon.innerHTML = `<div class="settings-color-row"><span class="settings-label">Color Picker</span><input type="color" id="custom-color-wheel" class="settings-color-wheel" value="#ffffff"></div><div class="settings-color-row"><input type="text" id="custom-color-input" class="settings-input" placeholder="Color name or hex"><button id="apply-custom-color" class="settings-btn settings-btn-secondary">Apply Color</button></div>`; profileColorPicker.appendChild(sCon); const wheel = sCon.querySelector('#custom-color-wheel'), text = sCon.querySelector('#custom-color-input'), btn = sCon.querySelector('#apply-custom-color'); wheel.oninput = e => { applyColor(e.target.value); text.value = e.target.value }; btn.onclick = () => text.value && applyColor(text.value); const disco = document.createElement('button'); disco.className = 'settings-btn settings-btn-secondary'; disco.textContent = 'Disco Mode'; let int = null; disco.onclick = () => { if (int) { clearInterval(int); int = null; disco.textContent = 'Disco Mode'; applyColor('#ffffff') } else { disco.textContent = 'Stop Disco'; int = setInterval(() => applyColor('#' + Math.floor(Math.random() * 16777215).toString(16)), 1000) } }; profileColorPicker.appendChild(disco); const vt = document.getElementById('vertical-tabs-toggle'), ss = document.getElementById('show-seconds-toggle'), se = document.getElementById('search-engine-select'); if (vt) { vt.checked = localStorage.getItem('vertical-tabs') === 'true'; if (vt.checked) document.body.classList.add('vertical-tabs'); vt.onchange = e => { const en = e.target.checked; localStorage.setItem('vertical-tabs', en); document.body.classList.toggle('vertical-tabs', en); metrics() } } if (ss) { ss.checked = localStorage.getItem('show-seconds') === 'true'; ss.onchange = e => localStorage.setItem('show-seconds', e.target.checked) } if (se) { se.value = localStorage.getItem('default-search-engine') || 'google'; se.onchange = e => { const eng = e.target.value; localStorage.setItem('default-search-engine', eng); const url = S_HOME[eng] || S_HOME.google; ipcRenderer.send('update-default-search-engine', url); if (activeTabId) ipcRenderer.invoke('navigate-to', url) } } } const formatUrl = (url) => !url || url.includes('newtab.html') || url === 'chrome://newtab' ? '' : url; ipcRenderer.on('tab-created', (e, t) => {
+const ipcRenderer = window.electron || { invoke: async () => { }, send: () => { }, on: () => { } };
+
+let tabBar, newTabBtn, clearTabsBtn, addressBar, backBtn, forwardBtn, reloadBtn, historyBtn, historySidebar, closeHistoryBtn, historyList, chromeContainer, profileBtn, profileMenu, profileListContainer, addProfileBtn, settingsBtn, settingsSidebar, closeSettingsBtn, profileColorPicker, renameModal, renameInput, renameSaveBtn, renameCancelBtn, pendingRenameProfileId = null, bookmarkBtn, bookmarksSidebar, closeBookmarksBtn, bookmarksList, downloadsBtn, downloadsSidebar, closeDownloadsBtn, downloadsList, findBar, findInput, findResults, findPrev, findNext, findClose, openExtensionsBtn, progressBarContainer, progressBar, addBookmarkBtn, bookmarksBar, bookmarkDestModal, addToBarBtn, addToNewTabBtn, addToBothBtn, cancelBookmarkBtn, checkUpdatesBtn, versionEl, updateStatusEl, metrics = () => { }, pendingBookmark = null, activeTabId = null, activeProfile = 0, tabs = [], profiles = [];
+let updaterState = { state: 'idle', message: 'Ready to check for updates.' };
+
+const SEARCH_ENGINES = [
+  { id: 'google', label: 'Google', searchUrl: 'https://www.google.com/search?q=', homeUrl: 'https://www.google.com/' },
+  { id: 'bing', label: 'Bing', searchUrl: 'https://www.bing.com/search?q=', homeUrl: 'https://www.bing.com/' },
+  { id: 'yahoo', label: 'Yahoo', searchUrl: 'https://search.yahoo.com/search?p=', homeUrl: 'https://www.yahoo.com/' },
+  { id: 'duckduckgo', label: 'DuckDuckGo', searchUrl: 'https://duckduckgo.com/?q=', homeUrl: 'https://duckduckgo.com/' },
+  { id: 'brave', label: 'Brave', searchUrl: 'https://search.brave.com/search?q=', homeUrl: 'https://search.brave.com/' },
+  { id: 'yandex', label: 'Yandex', searchUrl: 'https://yandex.com/search/?text=', homeUrl: 'https://yandex.com/' },
+  { id: 'baidu', label: 'Baidu', searchUrl: 'https://www.baidu.com/s?wd=', homeUrl: 'https://www.baidu.com/' },
+  { id: 'startpage', label: 'StartPage', searchUrl: 'https://www.startpage.com/do/search?q=', homeUrl: 'https://www.startpage.com/' },
+  { id: 'naver', label: 'Naver', searchUrl: 'https://search.naver.com/search.naver?query=', homeUrl: 'https://www.naver.com/' }
+];
+
+const S_ENG = Object.fromEntries(SEARCH_ENGINES.map(({ id, searchUrl }) => [id, searchUrl]));
+const S_HOME = Object.fromEntries(SEARCH_ENGINES.map(({ id, homeUrl }) => [id, homeUrl]));
+
+function getUpdateButtonText(state) {
+  switch (state) {
+    case 'checking':
+      return 'Checking...';
+    case 'available':
+    case 'downloading':
+      return 'Downloading...';
+    case 'downloaded':
+      return 'Restart to Update';
+    case 'update-not-available':
+      return 'Up to Date';
+    case 'installing':
+      return 'Restarting...';
+    default:
+      return 'Check for Updates';
+  }
+}
+
+function getUpdateStatusText(status) {
+  if (status && status.message) return status.message;
+  return 'Ready to check for updates.';
+}
+
+function renderUpdaterState() {
+  const state = updaterState && updaterState.state ? updaterState.state : 'idle';
+  if (checkUpdatesBtn) {
+    checkUpdatesBtn.textContent = getUpdateButtonText(state);
+    checkUpdatesBtn.disabled = ['checking', 'available', 'downloading', 'installing'].includes(state);
+  }
+  if (updateStatusEl) updateStatusEl.textContent = getUpdateStatusText(updaterState);
+}
+
+function applyColor(c) {
+  const custom = { 'emerald green': '#50c878', 'emerald': '#50c878', 'turquoise': '#40E0D0' };
+  const color = custom[c.toLowerCase()] || c;
+  const temp = document.createElement('div');
+  temp.style.color = color;
+  document.body.appendChild(temp);
+  const rgb = getComputedStyle(temp).color;
+  document.body.removeChild(temp);
+  const match = rgb.match(/\d+/g);
+  if (!match) return;
+  const [r, g, b] = match;
+  ipcRenderer.send('apply-browser-color', color);
+  localStorage.setItem('browser-theme-color', color);
+  const bright = (r * 299 + g * 587 + b * 114) / 1000;
+  const dark = bright < 128;
+  const primary = dark ? '#f4f8ff' : '#10213a';
+  const secondary = dark ? '#9bb3d1' : '#5f728c';
+  document.body.style.setProperty('--bg-color', color);
+  document.body.style.setProperty('--glass-bg', `rgba(${r},${g},${b},0.9)`);
+  document.body.style.setProperty('--text-primary', primary);
+  document.body.style.setProperty('--text-secondary', secondary);
+  document.body.style.setProperty('--text-color', primary);
+  document.body.style.setProperty('--tab-inactive-bg', dark ? color : `rgba(${r},${g},${b},0.8)`);
+  document.body.style.setProperty('--sidebar-bg', `rgba(${r},${g},${b},0.9)`);
+}
+
+function init() {
+  tabBar = document.getElementById('tab-bar');
+  newTabBtn = document.getElementById('new-tab-btn');
+  addressBar = document.getElementById('address-bar');
+  backBtn = document.getElementById('back-btn');
+  forwardBtn = document.getElementById('forward-btn');
+  reloadBtn = document.getElementById('reload-btn');
+  historyBtn = document.getElementById('history-btn');
+  historySidebar = document.getElementById('history-sidebar');
+  closeHistoryBtn = document.getElementById('close-history');
+  historyList = document.getElementById('history-list');
+  chromeContainer = document.getElementById('chrome-container');
+  profileBtn = document.getElementById('profile-btn');
+  profileMenu = document.getElementById('profile-menu');
+  profileListContainer = document.getElementById('profile-list-container');
+  addProfileBtn = document.getElementById('add-profile-btn');
+  settingsBtn = document.getElementById('settings-btn');
+  settingsSidebar = document.getElementById('settings-sidebar');
+  closeSettingsBtn = document.getElementById('close-settings');
+  profileColorPicker = document.getElementById('profile-color-picker');
+  bookmarkBtn = document.getElementById('bookmark-btn');
+  bookmarksSidebar = document.getElementById('bookmarks-sidebar');
+  closeBookmarksBtn = document.getElementById('close-bookmarks');
+  bookmarksList = document.getElementById('bookmarks-list');
+  addBookmarkBtn = document.getElementById('add-bookmark-btn');
+  progressBarContainer = document.getElementById('progress-bar-container');
+  progressBar = document.getElementById('progress-bar');
+  clearTabsBtn = document.getElementById('clear-tabs-btn');
+  openExtensionsBtn = document.getElementById('open-extensions-btn');
+  downloadsBtn = document.getElementById('downloads-btn');
+  downloadsSidebar = document.getElementById('downloads-sidebar');
+  closeDownloadsBtn = document.getElementById('close-downloads');
+  downloadsList = document.getElementById('downloads-list');
+  findBar = document.getElementById('find-bar');
+  findInput = document.getElementById('find-input');
+  findResults = document.getElementById('find-results');
+  findPrev = document.getElementById('find-prev');
+  findNext = document.getElementById('find-next');
+  findClose = document.getElementById('find-close');
+  bookmarksBar = document.getElementById('bookmarks-bar');
+  bookmarkDestModal = document.getElementById('bookmark-dest-modal');
+  addToBarBtn = document.getElementById('add-to-bar-btn');
+  addToNewTabBtn = document.getElementById('add-to-newtab-btn');
+  addToBothBtn = document.getElementById('add-to-both-btn');
+  cancelBookmarkBtn = document.getElementById('cancel-bookmark-btn');
+  renameModal = document.getElementById('rename-modal');
+  renameInput = document.getElementById('rename-input');
+  renameSaveBtn = document.getElementById('rename-save-btn');
+  renameCancelBtn = document.getElementById('rename-cancel-btn');
+  checkUpdatesBtn = document.getElementById('check-updates-btn');
+  versionEl = document.getElementById('app-version');
+  updateStatusEl = document.getElementById('update-status');
+
+  const adblockBtn = document.getElementById('adblock-btn');
+  const adblockSidebar = document.getElementById('adblock-sidebar');
+  const closeAdblockBtn = document.getElementById('close-adblock');
+  const adblockText = document.getElementById('adblock-rules');
+  const saveAdblockBtn = document.getElementById('save-adblock-rules');
+
+  ipcRenderer.invoke('update-adblock-rules', localStorage.getItem('adblock-rules') || '');
+
+  const sidebars = [historySidebar, settingsSidebar, bookmarksSidebar, downloadsSidebar, adblockSidebar].filter(Boolean);
+  const toggle = (s, v) => {
+    sidebars.forEach((p) => {
+      if (p !== s) p.classList.remove('open');
+    });
+    if (s) s.classList.toggle('open', v);
+    const hasOpen = sidebars.some((p) => p.classList.contains('open'));
+    ipcRenderer.send('toggle-browser-view', !hasOpen);
+    if (hasOpen && findBar) {
+      findBar.style.display = 'none';
+      ipcRenderer.invoke('stop-find-in-page', 'clearSelection');
+    }
+  };
+
+  if (adblockBtn) adblockBtn.onclick = () => {
+    adblockText.value = localStorage.getItem('adblock-rules') || '';
+    toggle(adblockSidebar, true);
+  };
+  if (closeAdblockBtn) closeAdblockBtn.onclick = () => toggle(adblockSidebar, false);
+  if (saveAdblockBtn) saveAdblockBtn.onclick = () => {
+    localStorage.setItem('adblock-rules', adblockText.value);
+    ipcRenderer.invoke('update-adblock-rules', adblockText.value);
+    saveAdblockBtn.textContent = 'Saved!';
+    setTimeout(() => {
+      saveAdblockBtn.textContent = 'Save & Apply Rules';
+    }, 2000);
+  };
+
+  if (checkUpdatesBtn) {
+    checkUpdatesBtn.onclick = async () => {
+      try {
+        const nextState = await ipcRenderer.invoke('check-for-updates');
+        if (nextState) updaterState = { ...updaterState, ...nextState };
+      } catch (error) {
+        updaterState = {
+          state: 'error',
+          message: error && error.message ? error.message : 'Unable to check for updates.'
+        };
+      }
+      renderUpdaterState();
+    };
+  }
+
+  renderUpdaterState();
+
+  ipcRenderer.invoke('get-updater-state').then((state) => {
+    if (!state) return;
+    updaterState = { ...updaterState, ...state };
+    renderUpdaterState();
+  });
+
+  if (versionEl) ipcRenderer.invoke('get-app-version').then((v) => {
+    versionEl.textContent = `v${v}`;
+  });
+
+  metrics = () => {
+    const chromeHeight = Math.ceil(chromeContainer.getBoundingClientRect().height);
+    const barHeight = bookmarksBar && window.getComputedStyle(bookmarksBar).display !== 'none' ? Math.ceil(bookmarksBar.getBoundingClientRect().height) : 0;
+    const top = chromeHeight + barHeight;
+    const left = document.body.classList.contains('vertical-tabs') ? 240 : 0;
+    document.documentElement.style.setProperty('--chrome-top', `${top}px`);
+    ipcRenderer.send('set-chrome-metrics', { top, left });
+  };
+
+  window.onresize = metrics;
+  setInterval(metrics, 1000);
+  metrics();
+  ipcRenderer.send('renderer-ready');
+
+  const savedColor = localStorage.getItem('browser-theme-color');
+  if (savedColor) applyColor(savedColor);
+  renderProfileList();
+  renderBookmarksBar();
+
+  addressBar.onkeydown = (e) => {
+    if (e.key === 'Enter') {
+      let url = addressBar.value.trim();
+      if (url && !url.includes('.') && !url.includes('://')) {
+        url = (S_ENG[localStorage.getItem('default-search-engine') || 'google'] || S_ENG.google) + encodeURIComponent(url);
+      }
+      ipcRenderer.invoke('navigate-to', url);
+      addressBar.blur();
+    }
+  };
+  clearTabsBtn.onclick = () => {
+    if (activeTabId) ipcRenderer.invoke('clear-other-tabs', activeTabId);
+  };
+  backBtn.onclick = () => ipcRenderer.invoke('go-back');
+  forwardBtn.onclick = () => ipcRenderer.invoke('go-forward');
+  reloadBtn.onclick = () => ipcRenderer.invoke('reload-page');
+  document.getElementById('home-btn').onclick = () => ipcRenderer.invoke('navigate-to', 'chrome://newtab');
+  newTabBtn.onclick = () => ipcRenderer.invoke('create-tab', { tabId: `p-${activeProfile}-t-${Date.now()}`, url: 'chrome://newtab' });
+  addBookmarkBtn.onclick = () => openBookmarkModal();
+
+  const saveBm = (target) => {
+    if (pendingBookmark) {
+      saveBookmark(pendingBookmark.url, pendingBookmark.title, target);
+      bookmarkDestModal.classList.remove('show');
+      pendingBookmark = null;
+    }
+  };
+
+  addToBarBtn.onclick = () => saveBm('bar');
+  addToNewTabBtn.onclick = () => saveBm('newtab');
+  addToBothBtn.onclick = () => saveBm('both');
+  cancelBookmarkBtn.onclick = () => bookmarkDestModal.classList.remove('show');
+  historyBtn.onclick = () => {
+    toggle(historySidebar, true);
+    ipcRenderer.send('fetch-and-show-history');
+  };
+  closeHistoryBtn.onclick = () => toggle(historySidebar, false);
+  ['all', 'hour', 'today', 'week'].forEach((r) => {
+    const b = document.getElementById(`clear-history-${r}`);
+    if (b) b.onclick = async () => {
+      if (confirm(`Clear ${r === 'all' ? 'all' : r} history?`)) {
+        await ipcRenderer.invoke('clear-history-range', r);
+        ipcRenderer.send('fetch-and-show-history');
+      }
+    };
+  });
+  profileBtn.onclick = (e) => {
+    e.stopPropagation();
+    const show = !profileMenu.classList.contains('show');
+    profileMenu.classList.toggle('show', show);
+    if (!show) ipcRenderer.send('toggle-browser-view', true);
+  };
+  document.onclick = () => {
+    if (profileMenu.classList.contains('show')) {
+      profileMenu.classList.remove('show');
+      ipcRenderer.send('toggle-browser-view', true);
+    }
+  };
+  addProfileBtn.onclick = async (e) => {
+    e.stopPropagation();
+    await ipcRenderer.invoke('add-new-profile');
+    profileMenu.classList.remove('show');
+    ipcRenderer.send('toggle-browser-view', true);
+  };
+  renameSaveBtn.onclick = () => {
+    const n = renameInput.value.trim();
+    if (n && pendingRenameProfileId !== null) {
+      ipcRenderer.send('rename-profile', { profileIndex: pendingRenameProfileId, newName: n });
+      renameModal.classList.remove('show');
+    }
+  };
+  renameCancelBtn.onclick = () => renameModal.classList.remove('show');
+  bookmarkBtn.onclick = () => {
+    const show = !bookmarksSidebar.classList.contains('open');
+    toggle(bookmarksSidebar, show);
+    if (show) renderBookmarks();
+  };
+  closeBookmarksBtn.onclick = () => toggle(bookmarksSidebar, false);
+  settingsBtn.onclick = () => toggle(settingsSidebar, true);
+  closeSettingsBtn.onclick = () => toggle(settingsSidebar, false);
+  openExtensionsBtn.onclick = () => {
+    settingsSidebar.classList.remove('open');
+    ipcRenderer.invoke('navigate-to', 'chrome://extensions');
+    ipcRenderer.send('toggle-browser-view', true);
+  };
+  downloadsBtn.onclick = () => toggle(downloadsSidebar, !downloadsSidebar.classList.contains('open'));
+  closeDownloadsBtn.onclick = () => toggle(downloadsSidebar, false);
+  findInput.oninput = () => {
+    const v = findInput.value.trim();
+    if (v) ipcRenderer.invoke('find-in-page', v);
+    else {
+      ipcRenderer.invoke('stop-find-in-page', 'clearSelection');
+      findResults.textContent = '0/0';
+    }
+  };
+  findInput.onkeydown = (e) => {
+    if (e.key === 'Enter') ipcRenderer.invoke('find-in-page', findInput.value.trim(), { forward: !e.shiftKey, findNext: true });
+    else if (e.key === 'Escape') {
+      findBar.style.display = 'none';
+      ipcRenderer.invoke('stop-find-in-page', 'clearSelection');
+    }
+  };
+  findNext.onclick = () => ipcRenderer.invoke('find-in-page', findInput.value.trim(), { forward: true, findNext: true });
+  findPrev.onclick = () => ipcRenderer.invoke('find-in-page', findInput.value.trim(), { forward: false, findNext: true });
+  findClose.onclick = () => {
+    findBar.style.display = 'none';
+    ipcRenderer.invoke('stop-find-in-page', 'clearSelection');
+  };
+  initSettings();
+}
+
+function initSettings() {
+  const colors = ['#e9e9f0', '#ffffff', '#f0f4f8', '#e3f2fd', '#e8f5e9', '#fff3e0', '#fce4ec', '#f3e5f5', '#202124', '#3c4043', '#E0115F'];
+  profileColorPicker.innerHTML = '';
+  const pCon = document.createElement('div');
+  pCon.className = 'color-picker';
+  colors.forEach((c) => {
+    const d = document.createElement('div');
+    d.className = 'color-option';
+    d.style.backgroundColor = c;
+    d.title = c;
+    d.onclick = () => applyColor(c);
+    pCon.appendChild(d);
+  });
+  profileColorPicker.appendChild(pCon);
+
+  const sCon = document.createElement('div');
+  sCon.className = 'settings-color-controls';
+  sCon.innerHTML = `<div class="settings-color-row"><span class="settings-label">Color Picker</span><input type="color" id="custom-color-wheel" class="settings-color-wheel" value="#ffffff"></div><div class="settings-color-row"><input type="text" id="custom-color-input" class="settings-input" placeholder="Color name or hex"><button id="apply-custom-color" class="settings-btn settings-btn-secondary">Apply Color</button></div>`;
+  profileColorPicker.appendChild(sCon);
+
+  const wheel = sCon.querySelector('#custom-color-wheel');
+  const text = sCon.querySelector('#custom-color-input');
+  const btn = sCon.querySelector('#apply-custom-color');
+  wheel.oninput = (e) => {
+    applyColor(e.target.value);
+    text.value = e.target.value;
+  };
+  btn.onclick = () => text.value && applyColor(text.value);
+
+  const disco = document.createElement('button');
+  disco.className = 'settings-btn settings-btn-secondary';
+  disco.textContent = 'Disco Mode';
+  let int = null;
+  disco.onclick = () => {
+    if (int) {
+      clearInterval(int);
+      int = null;
+      disco.textContent = 'Disco Mode';
+      applyColor('#ffffff');
+    } else {
+      disco.textContent = 'Stop Disco';
+      int = setInterval(() => applyColor('#' + Math.floor(Math.random() * 16777215).toString(16)), 1000);
+    }
+  };
+  profileColorPicker.appendChild(disco);
+
+  const vt = document.getElementById('vertical-tabs-toggle');
+  const ss = document.getElementById('show-seconds-toggle');
+  const se = document.getElementById('search-engine-select');
+  if (vt) {
+    vt.checked = localStorage.getItem('vertical-tabs') === 'true';
+    if (vt.checked) document.body.classList.add('vertical-tabs');
+    vt.onchange = (e) => {
+      const en = e.target.checked;
+      localStorage.setItem('vertical-tabs', en);
+      document.body.classList.toggle('vertical-tabs', en);
+      metrics();
+    };
+  }
+  if (ss) {
+    ss.checked = localStorage.getItem('show-seconds') === 'true';
+    ss.onchange = (e) => localStorage.setItem('show-seconds', e.target.checked);
+  }
+  if (se) {
+    se.innerHTML = SEARCH_ENGINES.map((engine) => `<option value="${engine.id}">${engine.label}</option>`).join('');
+    se.value = localStorage.getItem('default-search-engine') || 'google';
+    se.onchange = (e) => {
+      const eng = e.target.value;
+      localStorage.setItem('default-search-engine', eng);
+      const url = S_HOME[eng] || S_HOME.google;
+      ipcRenderer.send('update-default-search-engine', url);
+      if (activeTabId) ipcRenderer.invoke('navigate-to', url);
+    };
+  }
+}
+
+const formatUrl = (url) => !url || url.includes('newtab.html') || url === 'chrome://newtab' ? '' : url;
+
+ipcRenderer.on('tab-created', (e, t) => {
   const anchorTabId = t.afterTabId || null;
   addTabToUI(t, anchorTabId);
   setActiveTab(t.id);
-}); ipcRenderer.on('tab-switched', (e, { tabId, url, title }) => { if (!tabs.find((t) => t.id === tabId)) addTabToUI({ id: tabId, url: url || 'chrome://newtab', title: title || 'New Tab' }); setActiveTab(tabId); addressBar.value = formatUrl(url); updateTabTitle(tabId, title) }); ipcRenderer.on('active-tab-changed', (e, id) => setActiveTab(id)); ipcRenderer.on('view-event', (e, d) => { if (d.type === 'did-navigate' && d.tabId === activeTabId) addressBar.value = formatUrl(d.url); else if (d.type === 'title') updateTabTitle(d.tabId, d.title); else if (['did-start-loading', 'did-stop-loading'].includes(d.type) && d.tabId === activeTabId) progressBarContainer.classList.toggle('loading', d.type === 'did-start-loading') }); ipcRenderer.on('history-data-received', (e, h) => renderHistory(h)); ipcRenderer.on('keyboard-shortcut', (e, t) => { if (t === 'new-tab') newTabBtn.click(); else if (t === 'close-tab' && activeTabId) ipcRenderer.invoke('close-tab', activeTabId); else if (t === 'focus-address-bar') { addressBar.focus(); addressBar.select() } else if (t === 'show-history') historyBtn.click(); else if (t === 'find-in-page') { findBar.style.display = findBar.style.display === 'none' ? 'flex' : 'none'; if (findBar.style.display === 'flex') { findInput.focus(); findInput.select() } else ipcRenderer.invoke('stop-find-in-page', 'clearSelection') } }); ipcRenderer.on('tab-closed', (e, id) => { const el = document.querySelector(`.tab[data-id="${id}"]`); if (el) el.remove(); tabs = tabs.filter(t => t.id !== id) }); ipcRenderer.on('profile-changed', (e, { profileIndex, tabs: pTabs }) => { activeProfile = profileIndex; document.querySelectorAll('.tab').forEach(t => t.remove()); tabs = []; pTabs.forEach(t => addTabToUI(t)); renderProfileList() }); ipcRenderer.on('profile-list-updated', (e, d) => { profiles = d.profiles; renderProfileList() }); function renderProfileList() { profileListContainer.innerHTML = ''; profiles.forEach(p => { const item = document.createElement('div'); item.className = `dropdown-item ${p.id === activeProfile ? 'active' : ''}`; const n = document.createElement('span'); n.textContent = p.name; n.style.flex = '1'; const r = document.createElement('button'); r.textContent = '✎'; r.className = 'profile-rename-btn'; if (p.id === activeProfile) { const d = document.createElement('div'); d.className = 'status-dot'; item.appendChild(d) } item.appendChild(n); item.appendChild(r); item.onclick = e => { if (e.target === r) return; ipcRenderer.invoke('switch-profile', p.id); profileMenu.classList.remove('show'); ipcRenderer.send('toggle-browser-view', true) }; r.onclick = e => { e.stopPropagation(); pendingRenameProfileId = p.id; renameInput.value = p.name; renameModal.classList.add('show'); renameInput.focus() }; profileListContainer.appendChild(item) }) } function addTabToUI(t, anchorTabId = null) {
+});
+ipcRenderer.on('tab-switched', (e, { tabId, url, title }) => {
+  if (!tabs.find((t) => t.id === tabId)) addTabToUI({ id: tabId, url: url || 'chrome://newtab', title: title || 'New Tab' });
+  setActiveTab(tabId);
+  addressBar.value = formatUrl(url);
+  updateTabTitle(tabId, title);
+});
+ipcRenderer.on('active-tab-changed', (e, id) => setActiveTab(id));
+ipcRenderer.on('view-event', (e, d) => {
+  if (d.type === 'did-navigate' && d.tabId === activeTabId) addressBar.value = formatUrl(d.url);
+  else if (d.type === 'title') updateTabTitle(d.tabId, d.title);
+  else if (['did-start-loading', 'did-stop-loading'].includes(d.type) && d.tabId === activeTabId) progressBarContainer.classList.toggle('loading', d.type === 'did-start-loading');
+});
+ipcRenderer.on('history-data-received', (e, h) => renderHistory(h));
+ipcRenderer.on('keyboard-shortcut', (e, t) => {
+  if (t === 'new-tab') newTabBtn.click();
+  else if (t === 'close-tab' && activeTabId) ipcRenderer.invoke('close-tab', activeTabId);
+  else if (t === 'focus-address-bar') {
+    addressBar.focus();
+    addressBar.select();
+  } else if (t === 'show-history') historyBtn.click();
+  else if (t === 'find-in-page') {
+    findBar.style.display = findBar.style.display === 'none' ? 'flex' : 'none';
+    if (findBar.style.display === 'flex') {
+      findInput.focus();
+      findInput.select();
+    } else ipcRenderer.invoke('stop-find-in-page', 'clearSelection');
+  }
+});
+ipcRenderer.on('tab-closed', (e, id) => {
+  const el = document.querySelector(`.tab[data-id="${id}"]`);
+  if (el) el.remove();
+  tabs = tabs.filter((t) => t.id !== id);
+});
+ipcRenderer.on('profile-changed', (e, { profileIndex, tabs: pTabs }) => {
+  activeProfile = profileIndex;
+  document.querySelectorAll('.tab').forEach((t) => t.remove());
+  tabs = [];
+  pTabs.forEach((t) => addTabToUI(t));
+  renderProfileList();
+});
+ipcRenderer.on('profile-list-updated', (e, d) => {
+  profiles = d.profiles;
+  renderProfileList();
+});
+ipcRenderer.on('updater-status', (e, status) => {
+  updaterState = { ...updaterState, ...status };
+  renderUpdaterState();
+});
+
+function renderProfileList() {
+  profileListContainer.innerHTML = '';
+  profiles.forEach((p) => {
+    const item = document.createElement('div');
+    item.className = `dropdown-item ${p.id === activeProfile ? 'active' : ''}`;
+    const n = document.createElement('span');
+    n.textContent = p.name;
+    n.style.flex = '1';
+    const r = document.createElement('button');
+    r.textContent = '✎';
+    r.className = 'profile-rename-btn';
+    if (p.id === activeProfile) {
+      const d = document.createElement('div');
+      d.className = 'status-dot';
+      item.appendChild(d);
+    }
+    item.appendChild(n);
+    item.appendChild(r);
+    item.onclick = (e) => {
+      if (e.target === r) return;
+      ipcRenderer.invoke('switch-profile', p.id);
+      profileMenu.classList.remove('show');
+      ipcRenderer.send('toggle-browser-view', true);
+    };
+    r.onclick = (e) => {
+      e.stopPropagation();
+      pendingRenameProfileId = p.id;
+      renameInput.value = p.name;
+      renameModal.classList.add('show');
+      renameInput.focus();
+    };
+    profileListContainer.appendChild(item);
+  });
+}
+
+function addTabToUI(t, anchorTabId = null) {
   if (tabs.find(x => x.id === t.id)) return;
   const el = document.createElement('div');
   el.className = 'tab';

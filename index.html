@@ -1391,6 +1391,13 @@
             transform: translateY(-1px)
         }
 
+        .settings-btn:disabled {
+            cursor: default;
+            opacity: .68;
+            transform: none;
+            box-shadow: none
+        }
+
         .settings-btn-primary {
             background: var(--accent-color);
             color: #fff;
@@ -1420,6 +1427,17 @@
             letter-spacing: .06em;
             color: var(--text-secondary);
             font-weight: 600
+        }
+
+        .settings-version-copy {
+            display: flex;
+            flex-direction: column;
+            gap: 2px
+        }
+
+        #update-status {
+            font-size: 12px;
+            color: var(--text-secondary)
         }
 
         .color-picker {
@@ -1732,17 +1750,17 @@
                 <p class="settings-subtitle">Choose the engine used by the address bar for plain text queries.</p>
                 <div class="settings-row">
                     <div class="settings-label">Default search engine</div>
-                    <select id="search-engine-select">
-                        <option value="google">Google</option>
-                        <option value="bing">Bing</option>
-                    </select>
+                    <select id="search-engine-select"></select>
                 </div>
             </div>
             <div class="settings-section">
                 <h3>System</h3>
                 <p class="settings-subtitle">Check your version and open browser extension management.</p>
                 <div class="settings-row">
-                    <div class="settings-version"><strong>Orion</strong><span id="app-version"></span></div>
+                    <div class="settings-version"><strong>Orion</strong>
+                        <div class="settings-version-copy"><span id="app-version"></span><span id="update-status"
+                                aria-live="polite">Ready to check for updates.</span></div>
+                    </div>
                     <div class="settings-actions"><button id="check-updates-btn"
                             class="settings-btn settings-btn-primary">Check for Updates</button><button
                             id="open-extensions-btn" class="settings-btn settings-btn-secondary">Open

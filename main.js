@@ -34,6 +34,242 @@ const sPath = path.join(app.getPath("userData"), "browser_settings.json");
 let bHist = loadH();
 let bSett = loadS();
 
+const UPDATER_STATUS_CHANNEL = "updater-status";
+const GITHUB_UPDATE_FEED = {
+  provider: "github",
+  owner: "pika04568-sys",
+  repo: "orion",
+  releaseType: "release"
+};
+
+let updaterState = {
+  state: "idle",
+  message: "Ready to check for updates.",
+  progress: null,
+  version: null,
+  releaseName: null,
+  releaseDate: null
+};
+let updaterCheckPromise = null;
+let updaterCheckOrigin = "startup";
+let installPromptPromise = null;
+let installingUpdate = false;
+
+function getUpdaterState() {
+  return { ...updaterState };
+}
+
+function getUpdateWindow() {
+  const focused = BrowserWindow.getFocusedWindow();
+  if (focused && !focused.isDestroyed()) return focused;
+  return Object.values(windows).find((win) => win && !win.isDestroyed()) || null;
+}
+
+function broadcastUpdaterState() {
+  const payload = getUpdaterState();
+  Object.values(windows).forEach((win) => {
+    if (win && !win.isDestroyed()) win.webContents.send(UPDATER_STATUS_CHANNEL, payload);
+  });
+}
+
+function setUpdaterState(patch) {
+  updaterState = { ...updaterState, ...patch };
+  broadcastUpdaterState();
+  return getUpdaterState();
+}
+
+async function showUpdaterDialog(options) {
+  const win = getUpdateWindow();
+  return win ? dialog.showMessageBox(win, options) : dialog.showMessageBox(options);
+}
+
+function getReleaseName(info = {}) {
+  return info.releaseName || info.version || null;
+}
+
+async function promptToInstallUpdate() {
+  if (installPromptPromise || updaterState.state !== "downloaded" || installingUpdate) {
+    return getUpdaterState();
+  }
+  installPromptPromise = (async () => {
+    const releaseName = updaterState.releaseName || updaterState.version;
+    const detail = releaseName
+      ? `Orion ${releaseName} has been downloaded and is ready to install.`
+      : "A new Orion update has been downloaded and is ready to install.";
+    const { response } = await showUpdaterDialog({
+      type: "info",
+      buttons: ["Restart Now", "Later"],
+      defaultId: 0,
+      cancelId: 1,
+      title: "Update Ready",
+      message: "Restart Orion to finish updating.",
+      detail
+    });
+    if (response === 0) {
+      installingUpdate = true;
+      setUpdaterState({
+        state: "installing",
+        message: "Restarting to install update...",
+        progress: 100
+      });
+      autoUpdater.quitAndInstall();
+    }
+    return getUpdaterState();
+  })().finally(() => {
+    installPromptPromise = null;
+  });
+  return installPromptPromise;
+}
+
+function configureAutoUpdater() {
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.setFeedURL(GITHUB_UPDATE_FEED);
+
+  autoUpdater.on("checking-for-update", () => {
+    setUpdaterState({
+      state: "checking",
+      message: "Checking for updates...",
+      progress: null
+    });
+  });
+
+  autoUpdater.on("update-available", async (info) => {
+    const releaseName = getReleaseName(info);
+    setUpdaterState({
+      state: "downloading",
+      message: releaseName ? `Downloading ${releaseName}...` : "Downloading update...",
+      progress: 0,
+      version: info.version || null,
+      releaseName,
+      releaseDate: info.releaseDate || null
+    });
+    if (updaterCheckOrigin === "manual") {
+      await showUpdaterDialog({
+        type: "info",
+        buttons: ["OK"],
+        defaultId: 0,
+        title: "Update Found",
+        message: releaseName ? `Orion ${releaseName} is available.` : "A new Orion update is available.",
+        detail: "The update is downloading in the background."
+      });
+    }
+  });
+
+  autoUpdater.on("update-not-available", async () => {
+    setUpdaterState({
+      state: "update-not-available",
+      message: `You're up to date on v${app.getVersion()}.`,
+      progress: null,
+      version: app.getVersion(),
+      releaseName: null,
+      releaseDate: null
+    });
+    if (updaterCheckOrigin === "manual") {
+      await showUpdaterDialog({
+        type: "info",
+        buttons: ["OK"],
+        defaultId: 0,
+        title: "No Updates Found",
+        message: "Orion is up to date.",
+        detail: `You're running v${app.getVersion()}.`
+      });
+    }
+  });
+
+  autoUpdater.on("download-progress", (progress) => {
+    const percent = Number.isFinite(progress.percent) ? Math.round(progress.percent) : null;
+    setUpdaterState({
+      state: "downloading",
+      message: percent === null ? "Downloading update..." : `Downloading update... ${percent}%`,
+      progress: percent
+    });
+  });
+
+  autoUpdater.on("update-downloaded", async (info) => {
+    const releaseName = getReleaseName(info) || updaterState.releaseName;
+    setUpdaterState({
+      state: "downloaded",
+      message: releaseName ? `${releaseName} is ready to install.` : "Update ready to install.",
+      progress: 100,
+      version: info.version || updaterState.version,
+      releaseName,
+      releaseDate: info.releaseDate || updaterState.releaseDate
+    });
+    await promptToInstallUpdate();
+  });
+
+  autoUpdater.on("error", async (error) => {
+    const message = error && error.message ? error.message : "Unable to check for updates.";
+    setUpdaterState({
+      state: "error",
+      message,
+      progress: null
+    });
+    if (updaterCheckOrigin === "manual") {
+      await showUpdaterDialog({
+        type: "error",
+        buttons: ["OK"],
+        defaultId: 0,
+        title: "Update Error",
+        message: "Orion could not complete the update check.",
+        detail: message
+      });
+    }
+  });
+}
+
+async function checkForUpdates(source = "manual") {
+  if (!app.isPackaged) {
+    const message = "Auto-updates are only available in packaged Orion builds.";
+    setUpdaterState({
+      state: "unsupported",
+      message,
+      progress: null
+    });
+    if (source === "manual") {
+      await showUpdaterDialog({
+        type: "info",
+        buttons: ["OK"],
+        defaultId: 0,
+        title: "Updates Unavailable",
+        message: "Auto-updates do not run in development builds.",
+        detail: message
+      });
+    }
+    return getUpdaterState();
+  }
+
+  if (installingUpdate) return getUpdaterState();
+  if (updaterState.state === "downloaded") return promptToInstallUpdate();
+  if (updaterState.state === "checking" || updaterState.state === "downloading") {
+    return getUpdaterState();
+  }
+  if (updaterCheckPromise) return updaterCheckPromise;
+
+  updaterCheckOrigin = source;
+  updaterCheckPromise = autoUpdater
+    .checkForUpdates()
+    .then(() => getUpdaterState())
+    .catch((error) => {
+      if (updaterState.state !== "error") {
+        const message = error && error.message ? error.message : "Unable to check for updates.";
+        setUpdaterState({
+          state: "error",
+          message,
+          progress: null
+        });
+      }
+      return getUpdaterState();
+    })
+    .finally(() => {
+      updaterCheckPromise = null;
+      updaterCheckOrigin = "startup";
+    });
+
+  return updaterCheckPromise;
+}
+
 function loadS() {
   try {
     if (fs.existsSync(sPath)) {
@@ -644,7 +880,8 @@ ipcMain.handle("remove-extension", (e, id) => {
   sess.removeExtension(id);
 });
 ipcMain.handle("get-app-version", () => app.getVersion());
-ipcMain.handle("check-for-updates", () => autoUpdater.checkForUpdatesAndNotify());
+ipcMain.handle("get-updater-state", () => getUpdaterState());
+ipcMain.handle("check-for-updates", () => checkForUpdates("manual"));
 ipcMain.handle("update-adblock-rules", (_e, r) => {
   adRules = (r || "")
     .split("\n")
@@ -673,5 +910,6 @@ app.on("window-all-closed", () => {
 
 app.whenReady().then(() => {
   createW(0);
-  autoUpdater.checkForUpdatesAndNotify();
+  configureAutoUpdater();
+  void checkForUpdates("startup");
 });

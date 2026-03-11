@@ -12,6 +12,7 @@ const APP_INVOKE_CHANNELS = new Set([
   "create-tab",
   "find-in-page",
   "get-app-version",
+  "get-updater-state",
   "go-back",
   "go-forward",
   "load-extension",
@@ -48,6 +49,7 @@ const APP_ON_CHANNELS = new Set([
   "tab-closed",
   "tab-created",
   "tab-switched",
+  "updater-status",
   "view-event"
 ]);
 
