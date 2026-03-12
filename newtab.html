@@ -68,57 +68,26 @@
 
     .orb {
       position: absolute;
-      width: 240px;
-      height: 240px;
+      top: var(--t, auto);
+      left: var(--l, auto);
+      right: var(--r, auto);
+      bottom: var(--b, auto);
+      width: var(--w, 240px);
+      height: var(--h, 240px);
       border-radius: 50%;
       filter: blur(8px);
       opacity: 0.85;
       mix-blend-mode: screen;
+      background: var(--bg);
       animation: drift 16s ease-in-out infinite;
+      animation-delay: var(--delay);
     }
 
-    .orb.o1 {
-      top: 12%;
-      left: 8%;
-      background: radial-gradient(circle at 30% 30%, rgba(255, 77, 141, 0.9), rgba(255, 77, 141, 0.1));
-      animation-delay: -2s;
-    }
-
-    .orb.o2 {
-      bottom: 10%;
-      right: 14%;
-      width: 300px;
-      height: 300px;
-      background: radial-gradient(circle at 30% 30%, rgba(0, 194, 255, 0.9), rgba(0, 194, 255, 0.1));
-      animation-delay: -6s;
-    }
-
-    .orb.o3 {
-      top: 60%;
-      left: 55%;
-      width: 220px;
-      height: 220px;
-      background: radial-gradient(circle at 30% 30%, rgba(46, 229, 157, 0.9), rgba(46, 229, 157, 0.1));
-      animation-delay: -10s;
-    }
-
-    .orb.o4 {
-      top: 30%;
-      right: 35%;
-      width: 200px;
-      height: 200px;
-      background: radial-gradient(circle at 30% 30%, rgba(255, 209, 102, 0.95), rgba(255, 209, 102, 0.2));
-      animation-delay: -4s;
-    }
-
-    .orb.o5 {
-      bottom: 25%;
-      left: 20%;
-      width: 280px;
-      height: 280px;
-      background: radial-gradient(circle at 30% 30%, rgba(157, 80, 187, 0.85), rgba(157, 80, 187, 0.1));
-      animation-delay: -12s;
-    }
+    .orb.o1 { --t: 12%; --l: 8%; --bg: radial-gradient(circle at 30% 30%, rgba(255, 77, 141, 0.9), rgba(255, 77, 141, 0.1)); --delay: -2s; }
+    .orb.o2 { --b: 10%; --r: 14%; --w: 300px; --h: 300px; --bg: radial-gradient(circle at 30% 30%, rgba(0, 194, 255, 0.9), rgba(0, 194, 255, 0.1)); --delay: -6s; }
+    .orb.o3 { --t: 60%; --l: 55%; --w: 220px; --h: 220px; --bg: radial-gradient(circle at 30% 30%, rgba(46, 229, 157, 0.9), rgba(46, 229, 157, 0.1)); --delay: -10s; }
+    .orb.o4 { --t: 30%; --r: 35%; --w: 200px; --h: 200px; --bg: radial-gradient(circle at 30% 30%, rgba(255, 209, 102, 0.95), rgba(255, 209, 102, 0.2)); --delay: -4s; }
+    .orb.o5 { --b: 25%; --l: 20%; --w: 280px; --h: 280px; --bg: radial-gradient(circle at 30% 30%, rgba(157, 80, 187, 0.85), rgba(157, 80, 187, 0.1)); --delay: -12s; }
 
     #w {
       width: min(820px, calc(100vw - 64px));
@@ -162,58 +131,25 @@
 
     .card-orbs span {
       position: absolute;
-      width: 180px;
-      height: 180px;
+      top: var(--t, auto);
+      left: var(--l, auto);
+      right: var(--r, auto);
+      bottom: var(--b, auto);
+      width: var(--w, 180px);
+      height: var(--h, 180px);
       border-radius: 50%;
       filter: blur(12px);
       opacity: 0.65;
       mix-blend-mode: screen;
+      background: var(--bg);
+      animation: var(--anim) var(--dur) ease-in-out var(--delay, 0s) infinite;
     }
 
-    .card-orbs .c1 {
-      top: -40px;
-      left: -20px;
-      background: radial-gradient(circle at 30% 30%, rgba(255, 77, 141, 0.9), rgba(255, 77, 141, 0.1));
-      animation: float1 14s ease-in-out infinite;
-    }
-
-    .card-orbs .c2 {
-      bottom: -50px;
-      right: -10px;
-      width: 220px;
-      height: 220px;
-      background: radial-gradient(circle at 30% 30%, rgba(0, 194, 255, 0.9), rgba(0, 194, 255, 0.1));
-      animation: float2 16s ease-in-out infinite;
-    }
-
-    .card-orbs .c3 {
-      top: 40%;
-      right: 20%;
-      width: 160px;
-      height: 160px;
-      background: radial-gradient(circle at 30% 30%, rgba(46, 229, 157, 0.9), rgba(46, 229, 157, 0.1));
-      animation: float3 12s ease-in-out infinite;
-    }
-
-    .card-orbs .c4 {
-      bottom: 20%;
-      left: 30%;
-      width: 140px;
-      height: 140px;
-      background: radial-gradient(circle at 30% 30%, rgba(255, 209, 102, 0.9), rgba(255, 209, 102, 0.1));
-      animation: float2 14s ease-in-out infinite;
-      animation-delay: -2s;
-    }
-
-    .card-orbs .c5 {
-      top: 15%;
-      left: 45%;
-      width: 130px;
-      height: 130px;
-      background: radial-gradient(circle at 30% 30%, rgba(157, 80, 187, 0.8), rgba(157, 80, 187, 0.1));
-      animation: float1 15s ease-in-out infinite;
-      animation-delay: -5s;
-    }
+    .card-orbs .c1 { --t: -40px; --l: -20px; --bg: radial-gradient(circle at 30% 30%, rgba(255, 77, 141, 0.9), rgba(255, 77, 141, 0.1)); --anim: float1; --dur: 14s; }
+    .card-orbs .c2 { --b: -50px; --r: -10px; --w: 220px; --h: 220px; --bg: radial-gradient(circle at 30% 30%, rgba(0, 194, 255, 0.9), rgba(0, 194, 255, 0.1)); --anim: float2; --dur: 16s; }
+    .card-orbs .c3 { --t: 40%; --r: 20%; --w: 160px; --h: 160px; --bg: radial-gradient(circle at 30% 30%, rgba(46, 229, 157, 0.9), rgba(46, 229, 157, 0.1)); --anim: float3; --dur: 12s; }
+    .card-orbs .c4 { --b: 20%; --l: 30%; --w: 140px; --h: 140px; --bg: radial-gradient(circle at 30% 30%, rgba(255, 209, 102, 0.9), rgba(255, 209, 102, 0.1)); --anim: float2; --dur: 14s; --delay: -2s; }
+    .card-orbs .c5 { --t: 15%; --l: 45%; --w: 130px; --h: 130px; --bg: radial-gradient(circle at 30% 30%, rgba(157, 80, 187, 0.8), rgba(157, 80, 187, 0.1)); --anim: float1; --dur: 15s; --delay: -5s; }
 
     .content {
       position: relative;
@@ -296,38 +232,7 @@
       transition: transform 0.2s ease, opacity 0.2s ease;
       opacity: 0.96;
       animation: pop 0.6s ease backwards;
-    }
-
-    #g .shortcut:nth-child(1) a {
-      animation-delay: 0.05s;
-    }
-
-    #g .shortcut:nth-child(2) a {
-      animation-delay: 0.1s;
-    }
-
-    #g .shortcut:nth-child(3) a {
-      animation-delay: 0.15s;
-    }
-
-    #g .shortcut:nth-child(4) a {
-      animation-delay: 0.2s;
-    }
-
-    #g .shortcut:nth-child(5) a {
-      animation-delay: 0.25s;
-    }
-
-    #g .shortcut:nth-child(6) a {
-      animation-delay: 0.3s;
-    }
-
-    #g .shortcut:nth-child(7) a {
-      animation-delay: 0.35s;
-    }
-
-    #g .shortcut:nth-child(8) a {
-      animation-delay: 0.4s;
+      animation-delay: calc(0.05s * var(--i, 1));
     }
 
     #g .shortcut:hover a {
@@ -451,75 +356,33 @@
     }
 
     @keyframes rise {
-      from {
-        transform: translateY(18px);
-        opacity: 0;
-      }
-
-      to {
-        transform: translateY(0);
-        opacity: 1;
-      }
+      from { transform: translateY(18px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
     }
 
     @keyframes pop {
-      from {
-        transform: translateY(10px) scale(0.98);
-        opacity: 0;
-      }
-
-      to {
-        transform: translateY(0) scale(1);
-        opacity: 1;
-      }
+      from { transform: translateY(10px) scale(0.98); opacity: 0; }
+      to { transform: translateY(0) scale(1); opacity: 1; }
     }
 
     @keyframes drift {
-
-      0%,
-      100% {
-        transform: translate(0, 0);
-      }
-
-      50% {
-        transform: translate(100px, -150px) scale(1.2);
-      }
+      0%, 100% { transform: translate(0, 0); }
+      50% { transform: translate(100px, -150px) scale(1.2); }
     }
 
     @keyframes float1 {
-
-      0%,
-      100% {
-        transform: translate(0, 0) scale(1);
-      }
-
-      50% {
-        transform: translate(60px, 40px) rotate(15deg) scale(1.15);
-      }
+      0%, 100% { transform: translate(0, 0) scale(1); }
+      50% { transform: translate(60px, 40px) rotate(15deg) scale(1.15); }
     }
 
     @keyframes float2 {
-
-      0%,
-      100% {
-        transform: translate(0, 0) scale(1);
-      }
-
-      50% {
-        transform: translate(-50px, -45px) rotate(-12deg) scale(1.2);
-      }
+      0%, 100% { transform: translate(0, 0) scale(1); }
+      50% { transform: translate(-50px, -45px) rotate(-12deg) scale(1.2); }
     }
 
     @keyframes float3 {
-
-      0%,
-      100% {
-        transform: translate(0, 0) scale(1);
-      }
-
-      50% {
-        transform: translate(45px, -40px) rotate(18deg) scale(1.15);
-      }
+      0%, 100% { transform: translate(0, 0) scale(1); }
+      50% { transform: translate(45px, -40px) rotate(18deg) scale(1.15); }
     }
   </style>
 </head>
@@ -557,11 +420,7 @@
     const grid = document.getElementById('g');
 
     function shouldShowSeconds() {
-      try {
-        return localStorage.getItem('show-seconds') === 'true';
-      } catch (e) {
-        return false;
-      }
+      return localStorage.getItem('show-seconds') === 'true';
     }
 
     function updateTime() {
@@ -600,48 +459,36 @@
     ];
     const HIDDEN_DEFAULT_SHORTCUTS_KEY = 'hidden-default-newtab-shortcuts';
 
-    function escapeHtml(value) {
-      return (value || '')
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;');
+    function escape(str, forAttr) {
+      const s = (str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      return forAttr ? s.replace(/"/g, '&quot;').replace(/'/g, '&#39;') : s;
     }
 
-    function escapeAttr(value) {
-      return escapeHtml(value)
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
+    function getJson(key, fallback = []) {
+      try { return JSON.parse(localStorage.getItem(key) || '[]'); } catch { return fallback; }
     }
 
     function getHiddenDefaultShortcuts() {
-      try {
-        return JSON.parse(localStorage.getItem(HIDDEN_DEFAULT_SHORTCUTS_KEY) || '[]');
-      } catch (e) {
-        return [];
-      }
+      return getJson(HIDDEN_DEFAULT_SHORTCUTS_KEY);
     }
 
     function hideDefaultShortcut(url) {
       if (!url) return;
-      try {
-        const hidden = getHiddenDefaultShortcuts();
-        if (!hidden.includes(url)) {
-          hidden.push(url);
-          localStorage.setItem(HIDDEN_DEFAULT_SHORTCUTS_KEY, JSON.stringify(hidden));
-        }
-      } catch (e) { }
+      const hidden = getHiddenDefaultShortcuts();
+      if (!hidden.includes(url)) {
+        hidden.push(url);
+        try { localStorage.setItem(HIDDEN_DEFAULT_SHORTCUTS_KEY, JSON.stringify(hidden)); } catch (e) { }
+      }
     }
 
     function removeStoredShortcut(url, id) {
       if (!url) return;
-      try {
-        const bms = JSON.parse(localStorage.getItem('browser-bookmarks') || '[]');
-        const filtered = bms.filter((b) => {
-          if (id) return String(b.id) !== String(id);
-          return b.url !== url;
-        });
-        localStorage.setItem('browser-bookmarks', JSON.stringify(filtered));
-      } catch (e) { }
+      const bms = getJson('browser-bookmarks');
+      const filtered = bms.filter((b) => {
+        if (id) return String(b.id) !== String(id);
+        return b.url !== url;
+      });
+      try { localStorage.setItem('browser-bookmarks', JSON.stringify(filtered)); } catch (e) { }
     }
 
     function hideShortcutRemoveButtons() {
@@ -656,11 +503,7 @@
 
     function renderShortcuts() {
       if (!grid) return;
-      let shortcuts = [];
-      try {
-        const bms = JSON.parse(localStorage.getItem('browser-bookmarks') || '[]');
-        shortcuts = bms.filter((b) => b.target === 'newtab' || b.target === 'both');
-      } catch (e) { }
+      let shortcuts = getJson('browser-bookmarks').filter((b) => b.target === 'newtab' || b.target === 'both');
 
       if (shortcuts.length === 0) {
         const hiddenDefaults = getHiddenDefaultShortcuts();
@@ -670,17 +513,17 @@
       }
 
       grid.innerHTML = shortcuts
-        .map((shortcut) => {
+        .map((shortcut, i) => {
           const rawTitle = shortcut.name || shortcut.title || shortcut.url || '?';
           const shortLabel = (rawTitle[0] || '?').toUpperCase();
-          const label = escapeHtml(shortLabel);
-          const displayTitle = escapeHtml(rawTitle);
-          const urlAttr = escapeAttr(shortcut.url);
-          const ariaLabel = escapeAttr(`Remove ${rawTitle}`);
+          const label = escape(shortLabel);
+          const displayTitle = escape(rawTitle);
+          const urlAttr = escape(shortcut.url, true);
+          const ariaLabel = escape(`Remove ${rawTitle}`, true);
           const idAttr = shortcut.id ? `data-id="${shortcut.id}"` : '';
 
           return `
-            <div class="shortcut" data-url="${urlAttr}" data-default="${!!shortcut._default}" ${idAttr}>
+            <div class="shortcut" style="--i: ${i + 1}" data-url="${urlAttr}" data-default="${!!shortcut._default}" ${idAttr}>
               <a href="${urlAttr}">
                 <b>${label}</b>
                 <small>${displayTitle}</small>
@@ -690,46 +533,34 @@
           `;
         })
         .join('');
-
-      attachShortcutHandlers();
     }
 
-    function attachShortcutHandlers() {
-      if (!grid) return;
-      grid.querySelectorAll('.shortcut').forEach((shortcutEl) => {
-        const anchor = shortcutEl.querySelector('a');
-        if (anchor) {
-          anchor.addEventListener('click', (event) => {
-            event.preventDefault();
-            const targetUrl = shortcutEl.dataset.url;
-            if (targetUrl) navigate(targetUrl);
-          });
-        }
-        shortcutEl.addEventListener('contextmenu', (event) => {
-          event.preventDefault();
-          hideShortcutRemoveButtons();
-          shortcutEl.classList.add('show-remove');
-        });
-      });
-
-      grid.querySelectorAll('.remove-shortcut').forEach((button) => {
-        button.addEventListener('click', (event) => {
-          event.stopPropagation();
-          event.preventDefault();
-          const shortcutEl = button.closest('.shortcut');
+    if (grid) {
+      grid.addEventListener('click', (e) => {
+        const anchor = e.target.closest('a');
+        const removeBtn = e.target.closest('.remove-shortcut');
+        if (removeBtn) {
+          e.preventDefault();
+          e.stopPropagation();
+          const shortcutEl = removeBtn.closest('.shortcut');
           if (!shortcutEl) return;
           const targetUrl = shortcutEl.dataset.url;
-          const isDefaultShortcut = shortcutEl.dataset.default === 'true';
-          const storedId = shortcutEl.dataset.id;
-
-          if (isDefaultShortcut) {
-            hideDefaultShortcut(targetUrl);
-          } else {
-            removeStoredShortcut(targetUrl, storedId);
-          }
-
+          if (shortcutEl.dataset.default === 'true') hideDefaultShortcut(targetUrl);
+          else removeStoredShortcut(targetUrl, shortcutEl.dataset.id);
           renderShortcuts();
-        });
+        } else if (anchor) {
+          e.preventDefault();
+          const targetUrl = anchor.closest('.shortcut')?.dataset.url;
+          if (targetUrl) navigate(targetUrl);
+        }
+      });
+      grid.addEventListener('contextmenu', (e) => {
+        const shortcutEl = e.target.closest('.shortcut');
+        if (shortcutEl) {
+          e.preventDefault();
+          hideShortcutRemoveButtons();
+          shortcutEl.classList.add('show-remove');
+        }
       });
     }
 
