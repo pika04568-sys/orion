@@ -1,4 +1,5 @@
 const ipcRenderer = window.electron || { invoke: async () => { }, send: () => { }, on: () => { } };
+const appUtils = window.OrionAppUtils;
 
 let tabBar, newTabBtn, clearTabsBtn, addressBar, backBtn, forwardBtn, reloadBtn, historyBtn, historySidebar, closeHistoryBtn, historyList, chromeContainer, profileBtn, profileMenu, profileListContainer, addProfileBtn, settingsBtn, settingsSidebar, closeSettingsBtn, profileColorPicker, renameModal, renameInput, renameSaveBtn, renameCancelBtn, pendingRenameProfileId = null, bookmarkBtn, bookmarksSidebar, closeBookmarksBtn, bookmarksList, downloadsBtn, downloadsSidebar, closeDownloadsBtn, downloadsList, findBar, findInput, findResults, findPrev, findNext, findClose, openExtensionsBtn, progressBarContainer, progressBar, addBookmarkBtn, bookmarksBar, bookmarkDestModal, addToBarBtn, addToNewTabBtn, addToBothBtn, cancelBookmarkBtn, checkUpdatesBtn, versionEl, updateStatusEl, metrics = () => { }, pendingBookmark = null, activeTabId = null, activeProfile = 0, tabs = [], profiles = [];
 let updaterState = { state: 'idle', message: 'Ready to check for updates.' };
@@ -17,6 +18,20 @@ const SEARCH_ENGINES = [
 
 const S_ENG = Object.fromEntries(SEARCH_ENGINES.map(({ id, searchUrl }) => [id, searchUrl]));
 const S_HOME = Object.fromEntries(SEARCH_ENGINES.map(({ id, homeUrl }) => [id, homeUrl]));
+
+function normalizeTabUrl(url) {
+  return appUtils.normalizeInternalUrl(url, url || "");
+}
+
+function syncTabState(tabLike = {}) {
+  if (!tabLike.id) return null;
+
+  const nextTab = { id: tabLike.id };
+  if (Object.prototype.hasOwnProperty.call(tabLike, 'url')) nextTab.url = normalizeTabUrl(tabLike.url);
+  if (Object.prototype.hasOwnProperty.call(tabLike, 'title')) nextTab.title = tabLike.title;
+
+  return appUtils.upsertTabRecord(tabs, nextTab);
+}
 
 function getUpdateButtonText(state) {
   switch (state) {
@@ -289,7 +304,15 @@ function init() {
     if (show) renderBookmarks();
   };
   closeBookmarksBtn.onclick = () => toggle(bookmarksSidebar, false);
-  settingsBtn.onclick = () => toggle(settingsSidebar, true);
+  settingsBtn.onclick = () => {
+    toggle(settingsSidebar, true);
+    const hero = document.getElementById('settings-hero');
+    const opened = localStorage.getItem('settings-opened-once') === 'true';
+    if (hero) {
+      hero.style.display = opened ? 'none' : '';
+      if (!opened) localStorage.setItem('settings-opened-once', 'true');
+    }
+  };
   closeSettingsBtn.onclick = () => toggle(settingsSidebar, false);
   openExtensionsBtn.onclick = () => {
     settingsSidebar.classList.remove('open');
@@ -398,23 +421,32 @@ function initSettings() {
   }
 }
 
-const formatUrl = (url) => !url || url.includes('newtab.html') || url === 'chrome://newtab' ? '' : url;
+const formatUrl = (url) => {
+  const normalized = normalizeTabUrl(url);
+  return !normalized || normalized === 'chrome://newtab' ? '' : normalized;
+};
 
 ipcRenderer.on('tab-created', (e, t) => {
   const anchorTabId = t.afterTabId || null;
   addTabToUI(t, anchorTabId);
+  syncTabState(t);
   setActiveTab(t.id);
 });
 ipcRenderer.on('tab-switched', (e, { tabId, url, title }) => {
   if (!tabs.find((t) => t.id === tabId)) addTabToUI({ id: tabId, url: url || 'chrome://newtab', title: title || 'New Tab' });
+  syncTabState({ id: tabId, url, title });
   setActiveTab(tabId);
-  addressBar.value = formatUrl(url);
   updateTabTitle(tabId, title);
 });
 ipcRenderer.on('active-tab-changed', (e, id) => setActiveTab(id));
 ipcRenderer.on('view-event', (e, d) => {
-  if (d.type === 'did-navigate' && d.tabId === activeTabId) addressBar.value = formatUrl(d.url);
-  else if (d.type === 'title') updateTabTitle(d.tabId, d.title);
+  if (d.type === 'did-navigate') {
+    syncTabState({ id: d.tabId, url: d.url });
+    if (d.tabId === activeTabId) addressBar.value = formatUrl(d.url);
+  } else if (d.type === 'title') {
+    syncTabState({ id: d.tabId, title: d.title });
+    updateTabTitle(d.tabId, d.title);
+  }
   else if (['did-start-loading', 'did-stop-loading'].includes(d.type) && d.tabId === activeTabId) progressBarContainer.classList.toggle('loading', d.type === 'did-start-loading');
 });
 ipcRenderer.on('history-data-received', (e, h) => renderHistory(h));
@@ -490,11 +522,13 @@ function renderProfileList() {
 }
 
 function addTabToUI(t, anchorTabId = null) {
-  if (tabs.find(x => x.id === t.id)) return;
-  const el = document.createElement('div');
-  el.className = 'tab';
-  el.dataset.id = t.id;
-  el.innerHTML = `<span class='tab-title'>${t.title || 'Loading...'}</span><span class='tab-close'>&times;</span>`;
+  if (tabs.find((x) => x.id === t.id)) {
+    syncTabState(t);
+    updateTabTitle(t.id, t.title);
+    return;
+  }
+
+  const { element: el } = appUtils.createTabElement(document, t);
   el.onclick = (e) => {
     if (e.target.classList.contains('tab-close')) ipcRenderer.invoke('close-tab', t.id);
     else ipcRenderer.invoke('switch-tab', t.id);
@@ -503,8 +537,13 @@ function addTabToUI(t, anchorTabId = null) {
   if (anchorEl && anchorEl.parentElement === tabBar) tabBar.insertBefore(el, anchorEl.nextSibling);
   else tabBar.appendChild(el);
   const anchorIdx = anchorTabId ? tabs.findIndex((x) => x.id === anchorTabId) : -1;
-  if (anchorIdx >= 0) tabs.splice(anchorIdx + 1, 0, t);
-  else tabs.push(t);
+  const nextTab = {
+    id: t.id,
+    url: normalizeTabUrl(t.url || 'chrome://newtab') || 'chrome://newtab',
+    title: t.title || 'Loading...'
+  };
+  if (anchorIdx >= 0) tabs.splice(anchorIdx + 1, 0, nextTab);
+  else tabs.push(nextTab);
 }
 
 function ensureTabsVisible(ids) {
@@ -544,9 +583,9 @@ function setActiveTab(id, opts = {}) {
 
 function updateTabTitle(id, title) {
   const el = document.querySelector(`.tab[data-id="${id}"] .tab-title`);
-  if (el) el.textContent = title || 'Loading...';
-  const t = tabs.find((x) => x.id === id);
-  if (t) t.title = title;
+  const nextTitle = title || 'Loading...';
+  if (el) el.textContent = nextTitle;
+  appUtils.syncTabRecord(tabs, id, { title: nextTitle });
 }
 const getBms = () => JSON.parse(localStorage.getItem('browser-bookmarks') || '[]');
 function saveBookmark(u, t, target = 'both') {
@@ -669,9 +708,10 @@ function renderBookmarks() {
         e.stopPropagation();
         localStorage.setItem(
           'browser-bookmarks',
-          JSON.stringify(getBms().filter((x) => x.id !== b.id))
+          JSON.stringify(appUtils.removeBookmarkById(getBms(), b.id))
         );
         renderBookmarks();
+        renderBookmarksBar();
       };
     }
     bookmarksList.appendChild(el);
@@ -702,5 +742,31 @@ function updateDlUI(i) {
   }
   refreshDownloadElement(el, i);
 }
-ipcRenderer.on('find-result', (e, r) => findResults.textContent = r ? `${r.activeMatchOrdinal}/${r.matches}` : '0/0'); ipcRenderer.on('download-started', (e, i) => updateDlUI(i)); ipcRenderer.on('download-updated', (e, i) => updateDlUI(i)); function openBookmarkModal() { if (!activeTabId) return; const t = tabs.find((x) => x.id === activeTabId); if (!t) return; pendingBookmark = { url: t.url, title: t.title }; if (bookmarkDestModal) bookmarkDestModal.classList.add('show'); }
-document.addEventListener('keydown', (event) => { const target = event.target; const tagName = target && target.tagName ? target.tagName.toLowerCase() : ''; if (tagName === 'input' || tagName === 'textarea' || (target && target.isContentEditable)) return; if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLowerCase() === 'd') { event.preventDefault(); openBookmarkModal(); } }); init();
+ipcRenderer.on('find-result', (e, r) => findResults.textContent = r ? `${r.activeMatchOrdinal}/${r.matches}` : '0/0');
+ipcRenderer.on('download-started', (e, i) => updateDlUI(i));
+ipcRenderer.on('download-updated', (e, i) => updateDlUI(i));
+
+function openBookmarkModal() {
+  const bookmark = appUtils.getActiveTabBookmark(tabs, activeTabId);
+  if (!bookmark) return;
+  pendingBookmark = bookmark;
+  if (bookmarkDestModal) bookmarkDestModal.classList.add('show');
+}
+
+window.addEventListener('storage', (event) => {
+  if (event.key && event.key !== 'browser-bookmarks') return;
+  renderBookmarks();
+  renderBookmarksBar();
+});
+
+document.addEventListener('keydown', (event) => {
+  const target = event.target;
+  const tagName = target && target.tagName ? target.tagName.toLowerCase() : '';
+  if (tagName === 'input' || tagName === 'textarea' || (target && target.isContentEditable)) return;
+  if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLowerCase() === 'd') {
+    event.preventDefault();
+    openBookmarkModal();
+  }
+});
+
+init();

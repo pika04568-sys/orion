@@ -13,6 +13,8 @@ const { autoUpdater } = require("electron-updater");
 const path = require("path");
 const fs = require("fs");
 const os = require("os");
+const appUtils = require("./app-utils");
+const tabState = require("./main-tab-state");
 
 const INTERNAL_PAGES = new Map([
   ["chrome://newtab", "newtab.html"],
@@ -513,14 +515,17 @@ function createV(id, url, inc, pIdx) {
   });
 
   v.webContents.on("did-navigate", (_e, u) => {
+    const normalizedUrl = appUtils.normalizeInternalUrl(u, v.tUrl || u);
+    v.tUrl = normalizedUrl || v.tUrl;
+    const updatedTab = tabState.updateTabOnNavigate(pTabs[pIdx], id, normalizedUrl);
     if (win) {
-      win.webContents.send("view-event", { tabId: id, type: "did-navigate", url: u });
+      win.webContents.send("view-event", { tabId: id, type: "did-navigate", url: normalizedUrl });
       try {
-        const host = new URL(u).hostname;
-        addH(u, host);
+        const host = new URL(normalizedUrl).hostname;
+        addH(normalizedUrl, (updatedTab && updatedTab.title) || host);
         win.webContents.send("history-updated", getH());
       } catch (e) {
-        addH(u, u);
+        addH(normalizedUrl, normalizedUrl);
       }
     }
   });
@@ -531,9 +536,15 @@ function createV(id, url, inc, pIdx) {
     if (win) win.webContents.send("view-event", { tabId: id, type: "did-stop-loading" });
   });
   v.webContents.on("page-title-updated", (_e, t) => {
+    const currentUrl = appUtils.normalizeInternalUrl(v.webContents.getURL(), v.tUrl || "");
+    v.tUrl = currentUrl || v.tUrl;
+    const updatedTab = tabState.updateTabOnTitle(pTabs[pIdx], id, t, currentUrl);
     if (win) {
-      win.webContents.send("view-event", { tabId: id, type: "title", title: t });
-      const currentUrl = v.webContents.getURL();
+      win.webContents.send("view-event", {
+        tabId: id,
+        type: "title",
+        title: (updatedTab && updatedTab.title) || t
+      });
       if (currentUrl) {
         addH(currentUrl, t);
         win.webContents.send("history-updated", getH());
@@ -582,7 +593,7 @@ function createV(id, url, inc, pIdx) {
     return { action: "deny" };
   });
 
-  v.tUrl = url;
+  v.tUrl = appUtils.normalizeInternalUrl(url, url);
   if (isInternalUrl(url)) loadInternal(v.webContents, url);
   else if (isHttpUrl(url)) {
     v.webContents.loadURL(url).catch(() => loadInternal(v.webContents, "chrome://newtab"));
@@ -606,9 +617,14 @@ function switchT(id, pIdx) {
     } catch (e) { }
   }
   if (win && !win.isDestroyed() && s.activeView && !s.activeView.webContents.isDestroyed()) {
-    const u = s.activeView.webContents.getURL() || views[id].tUrl || "";
-    const t = s.activeView.webContents.getTitle();
-    win.webContents.send("tab-switched", { tabId: id, url: u, title: t || u });
+    const payload = tabState.buildTabSwitchPayload(
+      pTabs[pIdx],
+      id,
+      s.activeView.webContents.getURL() || views[id].tUrl || "",
+      s.activeView.webContents.getTitle()
+    );
+    if (payload.url) views[id].tUrl = payload.url;
+    win.webContents.send("tab-switched", payload);
   }
   setTimeout(() => updateB(pIdx), 100);
 }

@@ -8,6 +8,7 @@
   "author": "kenokayasu",
   "scripts": {
     "start": "electron .",
+    "test": "node --test",
     "pack": "electron-builder --dir",
     "dist": "electron-builder",
     "dist:mac": "electron-builder --mac",
@@ -60,6 +61,8 @@
     ],
     "compression": "maximum",
     "files": [
+      "app-utils.js",
+      "main-tab-state.js",
       "main.js",
       "renderer.js",
       "preload.js",

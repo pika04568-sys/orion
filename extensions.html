@@ -329,13 +329,22 @@
         </div>
     </div>
 
+    <script src="app-utils.js"></script>
     <script>
         // Use window.electron exposed by preload.js
         const { invoke } = window.electron;
+        const appUtils = window.OrionAppUtils;
 
         const loadBtn = document.getElementById('load-btn');
         const pathInput = document.getElementById('ext-path');
         const list = document.getElementById('ext-list');
+
+        async function removeExtension(id) {
+            if (confirm('Are you sure you want to remove this extension?')) {
+                await invoke('remove-extension', id);
+                refreshList();
+            }
+        }
 
         async function refreshList() {
             try {
@@ -348,18 +357,10 @@
                 }
 
                 extensions.forEach(ext => {
-                    const card = document.createElement('div');
-                    card.className = 'extension-card';
-                    card.innerHTML = `
-                        <div class="extension-header">
-                            <span class="extension-name">${ext.name}</span>
-                            <span class="extension-version">v${ext.version}</span>
-                        </div>
-                        <div class="extension-desc">${ext.description || 'No description provided.'}</div>
-                        <div class="extension-actions">
-                            <button class="remove-btn" onclick="removeExtension('${ext.id}')">Remove</button>
-                        </div>
-                    `;
+                    const { card, removeBtn } = appUtils.createExtensionCard(document, ext);
+                    removeBtn.addEventListener('click', () => {
+                        void removeExtension(ext.id);
+                    });
                     list.appendChild(card);
                 });
             } catch (err) {
@@ -367,13 +368,6 @@
                 list.innerHTML = '<div class="empty-state">Error loading extensions.</div>';
             }
         }
-
-        window.removeExtension = async (id) => {
-            if (confirm('Are you sure you want to remove this extension?')) {
-                await invoke('remove-extension', id);
-                refreshList();
-            }
-        };
 
         loadBtn.addEventListener('click', async () => {
             // Open native folder picker
