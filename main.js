@@ -28,6 +28,8 @@ let adRules = [];
 let partitions = new Set();
 let pTabs = { 0: [] };
 let pNames = { 0: "Default" };
+const INCOGNITO_PROFILE_BASE = 10000;
+let nextIncognitoProfileId = INCOGNITO_PROFILE_BASE;
 let defSearch = "chrome://newtab";
 
 const hPath = path.join(app.getPath("userData"), "browser_history.json");
@@ -402,9 +404,10 @@ function loadInternal(webContents, url) {
   return webContents.loadFile("newtab.html");
 }
 
-function createW(pIdx = 0) {
-  if (windows[pIdx]) return windows[pIdx].focus();
-  const win = new BrowserWindow({
+function createW(pIdx = 0, opts = {}) {
+  const isIncognito = !!opts.incognito;
+  if (!isIncognito && windows[pIdx]) return windows[pIdx].focus();
+  let win = new BrowserWindow({
     width: 1400,
     height: 900,
     backgroundColor: bSett.themeColor || "#e9e9f0",
@@ -420,14 +423,20 @@ function createW(pIdx = 0) {
     autoHideMenuBar: true
   });
   win.profileIndex = pIdx;
+  win.incognitoWindow = isIncognito;
   windows[pIdx] = win;
   if (!pTabs[pIdx]) pTabs[pIdx] = [];
+  pNames[pIdx] = isIncognito ? "Incognito" : (pNames[pIdx] || (pIdx === 0 ? "Default" : `Profile ${pIdx}`));
   states[pIdx] = { activeView: null, metrics: { top: 76, left: 0 }, visible: true };
   win.loadFile("index.html");
   win.on("resize", () => updateB(pIdx));
   win.on("closed", () => {
     delete windows[pIdx];
     delete states[pIdx];
+    if (isIncognito) {
+      delete pTabs[pIdx];
+      delete pNames[pIdx];
+    }
     saveH();
   });
   broadcast();
@@ -437,13 +446,16 @@ function createW(pIdx = 0) {
       await sess.loadExtension(p);
     } catch (e) { }
   });
+  return win;
 }
 
 function broadcast() {
-  const p = Object.keys(pTabs).map((i) => ({
-    id: parseInt(i, 10),
-    name: pNames[i] || `Profile ${i}`
-  }));
+  const p = Object.keys(pTabs)
+    .filter((i) => parseInt(i, 10) < INCOGNITO_PROFILE_BASE)
+    .map((i) => ({
+      id: parseInt(i, 10),
+      name: pNames[i] || `Profile ${i}`
+    }));
   Object.values(windows).forEach((w) => {
     if (w && !w.isDestroyed()) w.webContents.send("profile-list-updated", { profiles: p });
   });
@@ -471,14 +483,27 @@ function insertTabAfter(pIdx, tab, afterTabId) {
 function createT(pIdx, win) {
   const id = `p-${pIdx}-t-1`;
   const home = "chrome://newtab";
+  const isIncognito = !!(win && win.incognitoWindow);
+  const pendingUrl = win && win.pendingIncognitoUrl;
+  const initialUrl = pendingUrl || home;
   if (!pTabs[pIdx].length) {
-    pTabs[pIdx].push({ id, url: home, title: "New Tab" });
-    createV(id, home, false, pIdx);
+    pTabs[pIdx].push({
+      id,
+      url: initialUrl,
+      title: isIncognito ? "Incognito" : "New Tab",
+      incognito: isIncognito
+    });
+    createV(id, initialUrl, isIncognito, pIdx);
+    if (pendingUrl) delete win.pendingIncognitoUrl;
   }
-  win.webContents.send("profile-changed", { profileIndex: pIdx, tabs: pTabs[pIdx] });
+  win.webContents.send("profile-changed", {
+    profileIndex: pIdx,
+    tabs: pTabs[pIdx],
+    incognitoWindow: isIncognito
+  });
   switchT(pTabs[pIdx][0].id, pIdx);
   broadcast();
-  win.webContents.send("history-loaded", getH());
+  if (!isIncognito) win.webContents.send("history-loaded", getH());
 }
 
 function createV(id, url, inc, pIdx) {
@@ -520,12 +545,15 @@ function createV(id, url, inc, pIdx) {
     const updatedTab = tabState.updateTabOnNavigate(pTabs[pIdx], id, normalizedUrl);
     if (win) {
       win.webContents.send("view-event", { tabId: id, type: "did-navigate", url: normalizedUrl });
-      try {
-        const host = new URL(normalizedUrl).hostname;
-        addH(normalizedUrl, (updatedTab && updatedTab.title) || host);
-        win.webContents.send("history-updated", getH());
-      } catch (e) {
-        addH(normalizedUrl, normalizedUrl);
+      const tab = pTabs[pIdx].find((t) => t.id === id);
+      if (!tab || !tab.incognito) {
+        try {
+          const host = new URL(normalizedUrl).hostname;
+          addH(normalizedUrl, (updatedTab && updatedTab.title) || host);
+          win.webContents.send("history-updated", getH());
+        } catch (e) {
+          addH(normalizedUrl, normalizedUrl);
+        }
       }
     }
   });
@@ -545,7 +573,8 @@ function createV(id, url, inc, pIdx) {
         type: "title",
         title: (updatedTab && updatedTab.title) || t
       });
-      if (currentUrl) {
+      const tab = pTabs[pIdx].find((tabEntry) => tabEntry.id === id);
+      if ((!tab || !tab.incognito) && currentUrl) {
         addH(currentUrl, t);
         win.webContents.send("history-updated", getH());
       }
@@ -561,6 +590,12 @@ function createV(id, url, inc, pIdx) {
         new MenuItem({
           label: "Open in new tab",
           click: () => openL(p.linkURL, pIdx)
+        })
+      );
+      m.append(
+        new MenuItem({
+          label: "Open in incognito window",
+          click: () => openIncognitoWindow(p.linkURL)
         })
       );
     }
@@ -629,12 +664,17 @@ function switchT(id, pIdx) {
   setTimeout(() => updateB(pIdx), 100);
 }
 
-function openL(u, pIdx) {
+function openL(u, pIdx, inc = false) {
   const url = normalizeHttpUrl(u);
   if (!url) return;
   const id = `p-${pIdx}-t-${Date.now()}`;
-  pTabs[pIdx].push({ id, url, title: "New Tab" });
-  createV(id, url, false, pIdx);
+  pTabs[pIdx].push({
+    id,
+    url,
+    title: inc ? "Incognito" : "New Tab",
+    incognito: inc
+  });
+  createV(id, url, inc, pIdx);
   switchT(id, pIdx);
 }
 
@@ -741,6 +781,18 @@ ipcMain.handle("add-new-profile", () => {
   createW(n);
   return n;
 });
+function openIncognitoWindow(url) {
+  const pIdx = nextIncognitoProfileId++;
+  pTabs[pIdx] = [];
+  pNames[pIdx] = "Incognito";
+  const win = createW(pIdx, { incognito: true });
+  if (url && url !== "chrome://newtab") {
+    const target = normalizeHttpUrl(url) || (url.startsWith("http") ? url : `https://${url}`);
+    if (target && win && !win.isDestroyed()) win.pendingIncognitoUrl = target;
+  }
+}
+
+ipcMain.handle("open-incognito-window", (e, url) => openIncognitoWindow(url));
 ipcMain.on("rename-profile", (_e, { profileIndex, newName }) => {
   if (pNames[profileIndex]) {
     pNames[profileIndex] = newName;
@@ -752,13 +804,14 @@ ipcMain.handle("create-tab", (e, { tabId, url, inc, afterTabId }) => {
   if (!w) return;
   const pIdx = w.profileIndex;
   const u = url || "https://www.google.com/";
+  const isIncognito = !!inc;
   if (!pTabs[pIdx].find((t) => t.id === tabId)) {
-    const nt = { id: tabId, url: u, title: "New Tab" };
+    const nt = { id: tabId, url: u, title: isIncognito ? "Incognito" : "New Tab", incognito: isIncognito };
     const insertAfter = typeof afterTabId === "string" && afterTabId.length ? afterTabId : null;
     insertTabAfter(pIdx, nt, insertAfter);
     w.webContents.send("tab-created", { ...nt, afterTabId: insertAfter });
   }
-  createV(tabId, u, !!inc, pIdx);
+  createV(tabId, u, isIncognito, pIdx);
   switchT(tabId, pIdx);
 });
 ipcMain.handle("switch-tab", (e, id) => {

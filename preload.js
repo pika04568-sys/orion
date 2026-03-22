@@ -10,6 +10,7 @@ const APP_INVOKE_CHANNELS = new Set([
   "clear-other-tabs",
   "close-tab",
   "create-tab",
+  "open-incognito-window",
   "find-in-page",
   "get-app-version",
   "get-updater-state",

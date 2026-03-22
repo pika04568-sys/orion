@@ -79,7 +79,7 @@
       opacity: 0.85;
       mix-blend-mode: screen;
       background: var(--bg);
-      animation: drift 16s ease-in-out infinite;
+      animation: drift 12s ease-in-out infinite;
       animation-delay: var(--delay);
     }
 
@@ -88,6 +88,10 @@
     .orb.o3 { --t: 60%; --l: 55%; --w: 220px; --h: 220px; --bg: radial-gradient(circle at 30% 30%, rgba(46, 229, 157, 0.9), rgba(46, 229, 157, 0.1)); --delay: -10s; }
     .orb.o4 { --t: 30%; --r: 35%; --w: 200px; --h: 200px; --bg: radial-gradient(circle at 30% 30%, rgba(255, 209, 102, 0.95), rgba(255, 209, 102, 0.2)); --delay: -4s; }
     .orb.o5 { --b: 25%; --l: 20%; --w: 280px; --h: 280px; --bg: radial-gradient(circle at 30% 30%, rgba(157, 80, 187, 0.85), rgba(157, 80, 187, 0.1)); --delay: -12s; }
+    .orb.o6 { --t: 5%; --r: 60%; --w: 260px; --h: 260px; --bg: radial-gradient(circle at 30% 30%, rgba(45, 107, 255, 0.85), rgba(45, 107, 255, 0.1)); --delay: -1s; }
+    .orb.o7 { --b: 40%; --r: 5%; --w: 190px; --h: 190px; --bg: radial-gradient(circle at 30% 30%, rgba(255, 107, 107, 0.9), rgba(255, 107, 107, 0.15)); --delay: -8s; }
+    .orb.o8 { --t: 45%; --l: 15%; --w: 210px; --h: 210px; --bg: radial-gradient(circle at 30% 30%, rgba(123, 104, 238, 0.85), rgba(123, 104, 238, 0.1)); --delay: -14s; }
+    .orb.o9 { --b: 8%; --l: 45%; --w: 240px; --h: 240px; --bg: radial-gradient(circle at 30% 30%, rgba(0, 191, 165, 0.85), rgba(0, 191, 165, 0.1)); --delay: -5s; }
 
     #w {
       width: min(820px, calc(100vw - 64px));
@@ -150,6 +154,9 @@
     .card-orbs .c3 { --t: 40%; --r: 20%; --w: 160px; --h: 160px; --bg: radial-gradient(circle at 30% 30%, rgba(46, 229, 157, 0.9), rgba(46, 229, 157, 0.1)); --anim: float3; --dur: 12s; }
     .card-orbs .c4 { --b: 20%; --l: 30%; --w: 140px; --h: 140px; --bg: radial-gradient(circle at 30% 30%, rgba(255, 209, 102, 0.9), rgba(255, 209, 102, 0.1)); --anim: float2; --dur: 14s; --delay: -2s; }
     .card-orbs .c5 { --t: 15%; --l: 45%; --w: 130px; --h: 130px; --bg: radial-gradient(circle at 30% 30%, rgba(157, 80, 187, 0.8), rgba(157, 80, 187, 0.1)); --anim: float1; --dur: 15s; --delay: -5s; }
+    .card-orbs .c6 { --t: 70%; --l: -30px; --w: 150px; --h: 150px; --bg: radial-gradient(circle at 30% 30%, rgba(45, 107, 255, 0.85), rgba(45, 107, 255, 0.1)); --anim: float3; --dur: 13s; --delay: -3s; }
+    .card-orbs .c7 { --b: -30px; --l: 60%; --w: 120px; --h: 120px; --bg: radial-gradient(circle at 30% 30%, rgba(255, 107, 107, 0.85), rgba(255, 107, 107, 0.1)); --anim: float1; --dur: 11s; --delay: -7s; }
+    .card-orbs .c8 { --t: 25%; --r: -25px; --w: 170px; --h: 170px; --bg: radial-gradient(circle at 30% 30%, rgba(123, 104, 238, 0.8), rgba(123, 104, 238, 0.1)); --anim: float2; --dur: 15s; --delay: -4s; }
 
     .content {
       position: relative;
@@ -282,21 +289,21 @@
       background: linear-gradient(135deg, var(--accent-5), var(--accent-2));
     }
 
-    a:nth-child(4n + 1) b {
+    #g .shortcut:nth-child(4n + 1) b {
       background: linear-gradient(135deg, #ff4d8d, #ff9f68);
     }
 
-    a:nth-child(4n + 2) b {
+    #g .shortcut:nth-child(4n + 2) b {
       background: linear-gradient(135deg, #00c2ff, #2ee59d);
     }
 
-    a:nth-child(4n + 3) b {
+    #g .shortcut:nth-child(4n + 3) b {
       background: linear-gradient(135deg, #ffd166, #ff9f1c);
       color: #5a3410;
       text-shadow: none;
     }
 
-    a:nth-child(4n + 4) b {
+    #g .shortcut:nth-child(4n + 4) b {
       background: linear-gradient(135deg, #2d6bff, #00c2ff);
     }
 
@@ -349,6 +356,14 @@
         transition: none !important;
       }
 
+      .orb {
+        animation: drift 12s ease-in-out var(--delay) infinite !important;
+      }
+
+      .card-orbs span {
+        animation: var(--anim) var(--dur) ease-in-out var(--delay, 0s) infinite !important;
+      }
+
       .orbs,
       .card-orbs {
         transform: none !important;
@@ -366,23 +381,28 @@
     }
 
     @keyframes drift {
-      0%, 100% { transform: translate(0, 0); }
-      50% { transform: translate(100px, -150px) scale(1.2); }
+      0%, 100% { transform: translate(0, 0) scale(1); }
+      25% { transform: translate(80px, -120px) scale(1.15); }
+      50% { transform: translate(-60px, -80px) scale(1.25); }
+      75% { transform: translate(-100px, 60px) scale(1.1); }
     }
 
     @keyframes float1 {
-      0%, 100% { transform: translate(0, 0) scale(1); }
-      50% { transform: translate(60px, 40px) rotate(15deg) scale(1.15); }
+      0%, 100% { transform: translate(0, 0) scale(1) rotate(0deg); }
+      33% { transform: translate(50px, 35px) scale(1.12) rotate(12deg); }
+      66% { transform: translate(30px, -25px) scale(1.18) rotate(-8deg); }
     }
 
     @keyframes float2 {
-      0%, 100% { transform: translate(0, 0) scale(1); }
-      50% { transform: translate(-50px, -45px) rotate(-12deg) scale(1.2); }
+      0%, 100% { transform: translate(0, 0) scale(1) rotate(0deg); }
+      33% { transform: translate(-45px, -40px) scale(1.2) rotate(-15deg); }
+      66% { transform: translate(-25px, 30px) scale(1.1) rotate(10deg); }
     }
 
     @keyframes float3 {
-      0%, 100% { transform: translate(0, 0) scale(1); }
-      50% { transform: translate(45px, -40px) rotate(18deg) scale(1.15); }
+      0%, 100% { transform: translate(0, 0) scale(1) rotate(0deg); }
+      33% { transform: translate(40px, -35px) scale(1.15) rotate(18deg); }
+      66% { transform: translate(-35px, -20px) scale(1.2) rotate(-12deg); }
     }
   </style>
 </head>
@@ -394,6 +414,10 @@
     <span class="orb o3"></span>
     <span class="orb o4"></span>
     <span class="orb o5"></span>
+    <span class="orb o6"></span>
+    <span class="orb o7"></span>
+    <span class="orb o8"></span>
+    <span class="orb o9"></span>
   </div>
   <div id="w">
     <div class="card-orbs" aria-hidden="true">
@@ -402,6 +426,9 @@
       <span class="c3"></span>
       <span class="c4"></span>
       <span class="c5"></span>
+      <span class="c6"></span>
+      <span class="c7"></span>
+      <span class="c8"></span>
     </div>
     <div class="content">
       <div id="c"></div>
@@ -520,7 +547,7 @@
           const displayTitle = escape(rawTitle);
           const urlAttr = escape(shortcut.url, true);
           const ariaLabel = escape(`Remove ${rawTitle}`, true);
-          const idAttr = shortcut.id ? `data-id="${shortcut.id}"` : '';
+          const idAttr = shortcut.id ? `data-id="${escape(String(shortcut.id), true)}"` : '';
 
           return `
             <div class="shortcut" style="--i: ${i + 1}" data-url="${urlAttr}" data-default="${!!shortcut._default}" ${idAttr}>

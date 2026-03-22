@@ -90,6 +90,7 @@
 
             .nav-btn,
             #new-tab-btn,
+            #incognito-tab-btn,
             #clear-tabs-btn,
             .bookmarks-bar-item,
             #address-bar {
@@ -128,6 +129,218 @@
             .dropdown-item {
                 color: var(--text-primary)
             }
+        }
+
+        body.incognito-window {
+            background: #0a0a0a;
+            color: #e8e8e8
+        }
+
+        body.incognito-window::before {
+            opacity: 0
+        }
+
+        body.incognito-window #chrome-container,
+        body.incognito-window #tab-bar-wrapper {
+            background: linear-gradient(180deg, #0a0a0a, #111);
+            border-color: #222;
+            box-shadow: 0 10px 24px rgba(0, 0, 0, .5)
+        }
+
+        body.incognito-window .tab {
+            background: #1a1a1a;
+            border-color: #2a2a2a;
+            color: #b0b0b0;
+            box-shadow: 0 10px 26px rgba(0, 0, 0, .3)
+        }
+
+        body.incognito-window .tab:hover {
+            background: #252525;
+            border-color: #333
+        }
+
+        body.incognito-window .tab.active {
+            background: #1a1a1a;
+            color: #fff;
+            border-color: #444;
+            box-shadow: 0 14px 30px rgba(0, 0, 0, .4)
+        }
+
+        body.incognito-window .tab[data-incognito="true"] .tab-incognito-icon {
+            color: #888
+        }
+
+        body.incognito-window .tab.active .tab-incognito-icon {
+            color: rgba(255, 255, 255, .9)
+        }
+
+        body.incognito-window .tab .tab-close {
+            color: #888
+        }
+
+        body.incognito-window .tab:hover .tab-close,
+        body.incognito-window .tab.active .tab-close {
+            color: #ccc
+        }
+
+        body.incognito-window .tab .tab-close:hover {
+            background: rgba(255, 255, 255, .12);
+            border-color: #444;
+            color: #fff
+        }
+
+        body.incognito-window #new-tab-btn,
+        body.incognito-window #incognito-tab-btn,
+        body.incognito-window #clear-tabs-btn {
+            background: #1a1a1a;
+            color: #888;
+            border-color: transparent
+        }
+
+        body.incognito-window #new-tab-btn:hover,
+        body.incognito-window #incognito-tab-btn:hover,
+        body.incognito-window #clear-tabs-btn:hover {
+            background: #252525;
+            border-color: #444;
+            color: #e8e8e8
+        }
+
+        body.incognito-window .nav-btn {
+            background: #1a1a1a;
+            color: #888
+        }
+
+        body.incognito-window .nav-btn:hover {
+            background: #252525;
+            border-color: #444;
+            color: #e8e8e8
+        }
+
+        body.incognito-window #address-bar {
+            background: #1a1a1a;
+            border-color: #2a2a2a;
+            color: #e8e8e8;
+            box-shadow: inset 0 1px 2px rgba(0, 0, 0, .3)
+        }
+
+        body.incognito-window #address-bar:focus {
+            border-color: #444;
+            box-shadow: 0 0 0 3px rgba(255, 255, 255, .08);
+            background: #222
+        }
+
+        body.incognito-window #address-bar-container::before,
+        body.incognito-window #address-bar-container::after {
+            border-color: #666;
+            background: #666
+        }
+
+        body.incognito-window #bookmarks-bar {
+            background: #111;
+            border-color: #222
+        }
+
+        body.incognito-window .bookmarks-bar-item {
+            background: #1a1a1a;
+            color: #b0b0b0
+        }
+
+        body.incognito-window .bookmarks-bar-item:hover {
+            background: #252525;
+            border-color: #444;
+            color: #e8e8e8
+        }
+
+        body.incognito-window .dropdown-menu {
+            background: #1a1a1a;
+            border-color: #2a2a2a;
+            box-shadow: 0 22px 52px rgba(0, 0, 0, .5)
+        }
+
+        body.incognito-window .dropdown-item {
+            color: #e8e8e8
+        }
+
+        body.incognito-window .dropdown-item:hover {
+            background: rgba(255, 255, 255, .08)
+        }
+
+        body.incognito-window #view-container {
+            background: #0a0a0a
+        }
+
+        body.incognito-window.vertical-tabs .tab:hover {
+            background: rgba(255, 255, 255, .08)
+        }
+
+        body.incognito-window.vertical-tabs .tab.active {
+            background: #333;
+            color: #fff;
+            box-shadow: 0 6px 16px rgba(0, 0, 0, .3)
+        }
+
+        body.incognito-window.vertical-tabs #tab-bar-wrapper {
+            background: linear-gradient(180deg, #0a0a0a, #111) !important;
+            border-color: #222
+        }
+
+        body.incognito-window #history-sidebar,
+        body.incognito-window #settings-sidebar,
+        body.incognito-window #bookmarks-sidebar,
+        body.incognito-window #downloads-sidebar {
+            background: #111;
+            border-color: #222
+        }
+
+        body.incognito-window #find-bar {
+            background: #1a1a1a;
+            border-color: #2a2a2a
+        }
+
+        body.incognito-window .modal-content,
+        body.incognito-window .history-item,
+        body.incognito-window .bookmark-item,
+        body.incognito-window .download-item {
+            background: #1a1a1a;
+            border-color: #2a2a2a;
+            color: #e8e8e8
+        }
+
+        body.incognito-window #add-bookmark-btn {
+            color: #888
+        }
+
+        body.incognito-window #add-bookmark-btn:hover {
+            color: #e8e8e8;
+            background: rgba(255, 255, 255, .08)
+        }
+
+        body.incognito-window .profile-menu-wrap .nav-btn,
+        body.incognito-window #profile-btn {
+            background: #1a1a1a;
+            color: #888
+        }
+
+        body.incognito-window .profile-menu-wrap .nav-btn:hover,
+        body.incognito-window #profile-btn:hover {
+            background: #252525;
+            color: #e8e8e8
+        }
+
+        body.incognito-window .history-header,
+        body.incognito-window .settings-hero,
+        body.incognito-window .settings-section {
+            color: #e8e8e8
+        }
+
+        body.incognito-window .panel-close-btn {
+            background: rgba(255, 255, 255, .08);
+            color: #888
+        }
+
+        body.incognito-window .panel-close-btn:hover {
+            background: rgba(255, 255, 255, .14);
+            color: #e8e8e8
         }
 
         * {
@@ -305,10 +518,34 @@
             border-color: rgba(15, 107, 255, .24)
         }
 
+        .tab-title-wrap {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            min-width: 0
+        }
+
         .tab .tab-title {
             flex: 1;
             overflow: hidden;
             text-overflow: ellipsis
+        }
+
+        .tab-incognito-icon {
+            flex: 0 0 auto;
+            display: flex;
+            align-items: center;
+            color: var(--text-secondary);
+            opacity: .9
+        }
+
+        .tab[data-incognito="true"] .tab-incognito-icon {
+            color: var(--accent-color)
+        }
+
+        body.vertical-tabs .tab.active .tab-incognito-icon {
+            color: rgba(255, 255, 255, .95)
         }
 
         .tab .tab-close {
@@ -350,6 +587,7 @@
         }
 
         #new-tab-btn,
+        #incognito-tab-btn,
         #clear-tabs-btn {
             padding: 6px 10px;
             border-radius: 10px;
@@ -363,6 +601,7 @@
         }
 
         #new-tab-btn:hover,
+        #incognito-tab-btn:hover,
         #clear-tabs-btn:hover {
             transform: translateY(-1px);
             border-color: rgba(15, 107, 255, .28);
@@ -707,10 +946,10 @@
             position: fixed;
             left: 0;
             right: 0;
-            top: var(--chrome-top);
+            top: 0;
             bottom: 0;
             width: 100vw;
-            height: calc(100vh - var(--chrome-top));
+            height: 100vh;
             background:
                 radial-gradient(circle at 85% -20%, var(--panel-glow), transparent 56%),
                 radial-gradient(circle at -20% 85%, rgba(56, 189, 248, .08), transparent 52%),
@@ -1577,6 +1816,10 @@
                         stroke="currentColor" stroke-width="2">
                         <line x1="12" y1="5" x2="12" y2="19"></line>
                         <line x1="5" y1="12" x2="19" y2="12"></line>
+                    </svg></div>
+                <div id="incognito-tab-btn" title="New Incognito Tab (⌘⇧N)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="2">
+                        <path d="M12 3a6 6 0 0 0-6 6v1H4v2h2v8h12v-8h2v-2h-2V9a6 6 0 0 0-6-6z"></path>
                     </svg></div>
                 <div id="clear-tabs-btn" title="Close Others"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"
                         stroke="currentColor" stroke-width="2">

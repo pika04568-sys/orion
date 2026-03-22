@@ -331,8 +331,8 @@
 
     <script src="app-utils.js"></script>
     <script>
-        // Use window.electron exposed by preload.js
-        const { invoke } = window.electron;
+        const electron = window.electron || { invoke: async () => ({ success: false, error: "Not running in Electron." }) };
+        const invoke = (channel, ...args) => electron.invoke(channel, ...args);
         const appUtils = window.OrionAppUtils;
 
         const loadBtn = document.getElementById('load-btn');

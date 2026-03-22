@@ -1,7 +1,7 @@
 const ipcRenderer = window.electron || { invoke: async () => { }, send: () => { }, on: () => { } };
 const appUtils = window.OrionAppUtils;
 
-let tabBar, newTabBtn, clearTabsBtn, addressBar, backBtn, forwardBtn, reloadBtn, historyBtn, historySidebar, closeHistoryBtn, historyList, chromeContainer, profileBtn, profileMenu, profileListContainer, addProfileBtn, settingsBtn, settingsSidebar, closeSettingsBtn, profileColorPicker, renameModal, renameInput, renameSaveBtn, renameCancelBtn, pendingRenameProfileId = null, bookmarkBtn, bookmarksSidebar, closeBookmarksBtn, bookmarksList, downloadsBtn, downloadsSidebar, closeDownloadsBtn, downloadsList, findBar, findInput, findResults, findPrev, findNext, findClose, openExtensionsBtn, progressBarContainer, progressBar, addBookmarkBtn, bookmarksBar, bookmarkDestModal, addToBarBtn, addToNewTabBtn, addToBothBtn, cancelBookmarkBtn, checkUpdatesBtn, versionEl, updateStatusEl, metrics = () => { }, pendingBookmark = null, activeTabId = null, activeProfile = 0, tabs = [], profiles = [];
+let tabBar, newTabBtn, clearTabsBtn, addressBar, backBtn, forwardBtn, reloadBtn, historyBtn, historySidebar, closeHistoryBtn, historyList, chromeContainer, profileBtn, profileMenu, profileListContainer, addProfileBtn, settingsBtn, settingsSidebar, closeSettingsBtn, profileColorPicker, renameModal, renameInput, renameSaveBtn, renameCancelBtn, pendingRenameProfileId = null, bookmarkBtn, bookmarksSidebar, closeBookmarksBtn, bookmarksList, downloadsBtn, downloadsSidebar, closeDownloadsBtn, downloadsList, findBar, findInput, findResults, findPrev, findNext, findClose, openExtensionsBtn, progressBarContainer, progressBar, addBookmarkBtn, bookmarksBar, bookmarkDestModal, addToBarBtn, addToNewTabBtn, addToBothBtn, cancelBookmarkBtn, checkUpdatesBtn, versionEl, updateStatusEl, metrics = () => { }, pendingBookmark = null, activeTabId = null, activeProfile = 0, isIncognitoWindow = false, tabs = [], profiles = [];
 let updaterState = { state: 'idle', message: 'Ready to check for updates.' };
 
 const SEARCH_ENGINES = [
@@ -29,6 +29,7 @@ function syncTabState(tabLike = {}) {
   const nextTab = { id: tabLike.id };
   if (Object.prototype.hasOwnProperty.call(tabLike, 'url')) nextTab.url = normalizeTabUrl(tabLike.url);
   if (Object.prototype.hasOwnProperty.call(tabLike, 'title')) nextTab.title = tabLike.title;
+  if (Object.prototype.hasOwnProperty.call(tabLike, 'incognito')) nextTab.incognito = tabLike.incognito;
 
   return appUtils.upsertTabRecord(tabs, nextTab);
 }
@@ -243,7 +244,13 @@ function init() {
   forwardBtn.onclick = () => ipcRenderer.invoke('go-forward');
   reloadBtn.onclick = () => ipcRenderer.invoke('reload-page');
   document.getElementById('home-btn').onclick = () => ipcRenderer.invoke('navigate-to', 'chrome://newtab');
-  newTabBtn.onclick = () => ipcRenderer.invoke('create-tab', { tabId: `p-${activeProfile}-t-${Date.now()}`, url: 'chrome://newtab' });
+  newTabBtn.onclick = () => ipcRenderer.invoke('create-tab', {
+    tabId: `p-${activeProfile}-t-${Date.now()}`,
+    url: 'chrome://newtab',
+    inc: isIncognitoWindow
+  });
+  const incognitoTabBtn = document.getElementById('incognito-tab-btn');
+  if (incognitoTabBtn) incognitoTabBtn.onclick = () => ipcRenderer.invoke('open-incognito-window', 'chrome://newtab');
   addBookmarkBtn.onclick = () => openBookmarkModal();
 
   const saveBm = (target) => {
@@ -432,9 +439,9 @@ ipcRenderer.on('tab-created', (e, t) => {
   syncTabState(t);
   setActiveTab(t.id);
 });
-ipcRenderer.on('tab-switched', (e, { tabId, url, title }) => {
-  if (!tabs.find((t) => t.id === tabId)) addTabToUI({ id: tabId, url: url || 'chrome://newtab', title: title || 'New Tab' });
-  syncTabState({ id: tabId, url, title });
+ipcRenderer.on('tab-switched', (e, { tabId, url, title, incognito }) => {
+  if (!tabs.find((t) => t.id === tabId)) addTabToUI({ id: tabId, url: url || 'chrome://newtab', title: title || 'New Tab', incognito: !!incognito });
+  syncTabState({ id: tabId, url, title, incognito });
   setActiveTab(tabId);
   updateTabTitle(tabId, title);
 });
@@ -452,7 +459,10 @@ ipcRenderer.on('view-event', (e, d) => {
 ipcRenderer.on('history-data-received', (e, h) => renderHistory(h));
 ipcRenderer.on('keyboard-shortcut', (e, t) => {
   if (t === 'new-tab') newTabBtn.click();
-  else if (t === 'close-tab' && activeTabId) ipcRenderer.invoke('close-tab', activeTabId);
+  else if (t === 'new-incognito-tab') {
+    const btn = document.getElementById('incognito-tab-btn');
+    if (btn) btn.click();
+  } else if (t === 'close-tab' && activeTabId) ipcRenderer.invoke('close-tab', activeTabId);
   else if (t === 'focus-address-bar') {
     addressBar.focus();
     addressBar.select();
@@ -470,8 +480,10 @@ ipcRenderer.on('tab-closed', (e, id) => {
   if (el) el.remove();
   tabs = tabs.filter((t) => t.id !== id);
 });
-ipcRenderer.on('profile-changed', (e, { profileIndex, tabs: pTabs }) => {
+ipcRenderer.on('profile-changed', (e, { profileIndex, tabs: pTabs, incognitoWindow }) => {
   activeProfile = profileIndex;
+  isIncognitoWindow = !!incognitoWindow;
+  document.body.classList.toggle('incognito-window', isIncognitoWindow);
   document.querySelectorAll('.tab').forEach((t) => t.remove());
   tabs = [];
   pTabs.forEach((t) => addTabToUI(t));
@@ -540,7 +552,8 @@ function addTabToUI(t, anchorTabId = null) {
   const nextTab = {
     id: t.id,
     url: normalizeTabUrl(t.url || 'chrome://newtab') || 'chrome://newtab',
-    title: t.title || 'Loading...'
+    title: t.title || 'Loading...',
+    incognito: !!t.incognito
   };
   if (anchorIdx >= 0) tabs.splice(anchorIdx + 1, 0, nextTab);
   else tabs.push(nextTab);
@@ -766,6 +779,10 @@ document.addEventListener('keydown', (event) => {
   if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLowerCase() === 'd') {
     event.preventDefault();
     openBookmarkModal();
+  }
+  if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === 'n') {
+    event.preventDefault();
+    ipcRenderer.invoke('open-incognito-window', 'chrome://newtab');
   }
 });
 

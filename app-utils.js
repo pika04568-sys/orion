@@ -43,6 +43,10 @@
       tab.title = patch.title || tab.title || "Loading...";
     }
 
+    if (Object.prototype.hasOwnProperty.call(patch, "incognito")) {
+      tab.incognito = !!patch.incognito;
+    }
+
     return tab;
   }
 
@@ -54,7 +58,8 @@
       tab = {
         id: tabLike.id,
         url: normalizeInternalUrl(tabLike.url, "chrome://newtab") || "chrome://newtab",
-        title: tabLike.title || "Loading..."
+        title: tabLike.title || "Loading...",
+        incognito: !!tabLike.incognito
       };
       tabList.push(tab);
       return tab;
@@ -84,16 +89,27 @@
     const element = doc.createElement("div");
     element.className = "tab";
     element.dataset.id = tab.id || "";
+    if (tab.incognito) element.dataset.incognito = "true";
 
+    const titleWrap = doc.createElement("span");
+    titleWrap.className = "tab-title-wrap";
+    if (tab.incognito) {
+      const icon = doc.createElement("span");
+      icon.className = "tab-incognito-icon";
+      icon.setAttribute("aria-hidden", "true");
+      icon.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3a6 6 0 0 0-6 6v1H4v2h2v8h12v-8h2v-2h-2V9a6 6 0 0 0-6-6z"/></svg>';
+      titleWrap.appendChild(icon);
+    }
     const titleEl = doc.createElement("span");
     titleEl.className = "tab-title";
     titleEl.textContent = tab.title || "Loading...";
+    titleWrap.appendChild(titleEl);
 
     const closeEl = doc.createElement("span");
     closeEl.className = "tab-close";
     closeEl.textContent = "\u00d7";
 
-    element.appendChild(titleEl);
+    element.appendChild(titleWrap);
     element.appendChild(closeEl);
 
     return { element, titleEl, closeEl };

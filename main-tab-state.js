@@ -33,7 +33,8 @@ function buildTabSwitchPayload(profileTabs, tabId, rawUrl, rawTitle) {
   return {
     tabId,
     url: (updatedTab && updatedTab.url) || normalizedUrl,
-    title: (updatedTab && updatedTab.title) || title
+    title: (updatedTab && updatedTab.title) || title,
+    incognito: !!(currentTab && currentTab.incognito)
   };
 }
 
