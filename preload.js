@@ -7,6 +7,7 @@ const APP_INVOKE_CHANNELS = new Set([
   "add-new-profile",
   "check-for-updates",
   "clear-history-range",
+  "delete-history-item",
   "clear-other-tabs",
   "close-tab",
   "create-tab",

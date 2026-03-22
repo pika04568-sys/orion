@@ -725,6 +725,17 @@ function clearHistoryRange(range) {
   saveH();
 }
 
+function deleteHistoryItem(idOrMatch) {
+  if (typeof idOrMatch === "string") {
+    bHist.visits = bHist.visits.filter((v) => v.id !== idOrMatch);
+  } else if (idOrMatch && idOrMatch.url != null && idOrMatch.timestamp != null) {
+    bHist.visits = bHist.visits.filter(
+      (v) => !(String(v.url) === String(idOrMatch.url) && Number(v.timestamp) === Number(idOrMatch.timestamp))
+    );
+  }
+  saveH();
+}
+
 ipcMain.on("set-chrome-metrics", (e, m) => {
   const w = BrowserWindow.fromWebContents(e.sender);
   if (!w) return;
@@ -890,6 +901,7 @@ ipcMain.handle("switch-profile", (e, pIdx) => {
   else createW(pIdx);
 });
 ipcMain.handle("clear-history-range", (_e, range) => clearHistoryRange(range));
+ipcMain.handle("delete-history-item", (_e, id) => deleteHistoryItem(id));
 ipcMain.handle("find-in-page", (e, t, o = {}) => {
   const w = BrowserWindow.fromWebContents(e.sender);
   if (!w) return;

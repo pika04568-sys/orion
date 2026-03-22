@@ -647,14 +647,25 @@ function buildHistoryEntry(entry) {
   urlEl.textContent = entry.url;
   info.appendChild(title);
   info.appendChild(urlEl);
-  el.append(icon, info);
+  const removeBtn = document.createElement('button');
+  removeBtn.className = 'remove-history-btn';
+  removeBtn.textContent = '×';
+  removeBtn.setAttribute('aria-label', 'Remove from history');
+  el.append(icon, info, removeBtn);
   return el;
 }
 function renderHistory(h) {
   historyList.innerHTML = '';
   h.forEach((i) => {
     const el = buildHistoryEntry(i);
-    el.onclick = () => {
+    const removeBtn = el.querySelector('.remove-history-btn');
+    removeBtn.onclick = async (e) => {
+      e.stopPropagation();
+      await ipcRenderer.invoke('delete-history-item', i.id || { url: i.url, timestamp: i.timestamp });
+      ipcRenderer.send('fetch-and-show-history');
+    };
+    el.onclick = (e) => {
+      if (e.target.closest('.remove-history-btn')) return;
       ipcRenderer.invoke('navigate-to', i.url);
       historySidebar.classList.remove('open');
       ipcRenderer.send('toggle-browser-view', true);

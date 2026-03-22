@@ -1346,10 +1346,25 @@
             transition: transform .2s, border-color .2s, background-color .2s
         }
 
-        .remove-bm:hover {
+        .remove-bm:hover,
+        .remove-history-btn:hover {
             transform: translateY(-1px);
             border-color: rgba(239, 68, 68, .35);
             background: rgba(239, 68, 68, .14)
+        }
+
+        .remove-history-btn {
+            margin-left: auto;
+            width: 30px;
+            height: 30px;
+            border: 1px solid transparent;
+            border-radius: 9px;
+            background: rgba(239, 68, 68, .08);
+            color: #ef4444;
+            font-size: 18px;
+            line-height: 1;
+            cursor: pointer;
+            transition: transform .2s, border-color .2s, background-color .2s
         }
 
         .modal {
