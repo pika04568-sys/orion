@@ -1,59 +1,78 @@
-# Orion Browser
+Orion Browser
 
 A lightweight desktop browser built with Electron. Orion offers a clean interface with essential features for everyday browsing.
 
-## Features
+🚀 Quick Start (For Users)
 
-- **Tabs** — Multiple tabs with optional vertical tab layout
-- **Bookmarks** — Save and organize favorites with a bookmark bar
-- **History** — Browse and search browsing history
-- **Downloads** — Track and manage downloads
-- **Adblock** — Custom block rules to remove ads and trackers
-- **Extensions** — Chrome extension support via `chrome://extensions`
-- **Themes** — Customize accent colors, vertical tabs, and more
-- **Search** — Choose your default search engine (Google, DuckDuckGo, Brave, etc.)
-- **Auto-updates** — Built-in update checker
+If you just want to use the browser, you do not need Node.js or npm. Simply download the pre-built binaries:
 
-## Installation
+Windows (.exe)
 
-### Pre-built Windows (.exe)
+Installer: Orion Setup x.x.x.exe (Standard installation)
 
-Orion is packaged for Windows. Download the latest release and run:
+Portable: Orion x.x.x.exe (Run directly without installing)
 
-- **Installer** — `Orion Setup x.x.x.exe` (NSIS installer)
-- **Portable** — `Orion x.x.x.exe` (no install required)
+🛠️ Development (For Contributors)
 
-## Development
+The commands below are only necessary if you are looking to modify the source code or build the application from scratch.
 
-```bash
+Prerequisites
+
+Node.js (LTS recommended)
+
+npm (comes with Node.js)
+
+Setup & Local Run
+
+To test changes without packaging the app:
+
+# Install dependencies
 npm install
+
+# Run the app in development mode
 npm start
-```
 
-## Building
 
-```bash
-# Build for current platform
-npm run dist
+📦 Building the Executable
 
-# Windows (NSIS installer + portable .exe)
+To package the source code into a redistributable format (like a .exe or .dmg):
+
+# Windows (Generates NSIS installer + portable .exe)
 npm run dist:win
 
-# macOS (DMG)
+# macOS (Generates DMG)
 npm run dist:mac
 
-# Unpacked build (no installer)
-npm run pack
-```
+# Linux (AppImage / deb)
+npm run dist:linux
 
-Outputs go to the `dist/` directory.
 
-## Credits
+All packaged files will be located in the dist/ directory.
 
-- Initial build by **qwen**
-- Further development by **Antigravity** and **Codex**
-- Author: [kenokayasu](https://github.com/kenokayasu)
+✨ Features
 
-## License
+Tabs — Multiple tabs with optional vertical tab layout.
 
-Feel free to edit and improve the code. Contributions are welcome.
+Bookmarks — Save and organize favorites with a bookmark bar.
+
+History — Browse and search browsing history.
+
+Downloads — Track and manage downloads.
+
+Adblock — Custom block rules to remove ads and trackers.
+
+Extensions — Chrome extension support via chrome://extensions.
+
+Themes — Customize accent colors and UI layouts.
+
+Search — Toggle between Google, DuckDuckGo, Brave, and more.
+
+🤝 Credits
+
+Initial build by Qwen
+
+Further development by Antigravity and Codex
+
+📄 License
+
+This project is open-source. Feel free to edit, improve, and submit pull requests.
