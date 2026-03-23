@@ -71,7 +71,7 @@ Search — Toggle between Google, DuckDuckGo, Brave, and more.
 
 Initial build by Qwen
 
-Further development by Antigravity and Codex
+Further development by Antigravity, Codex and Cursor
 
 📄 License
 
