@@ -77,6 +77,17 @@ function getWindowsIconPath() {
   return fs.existsSync(iconPath) ? iconPath : null;
 }
 
+function getAppHtmlPath(file) {
+  return path.join(__dirname, file);
+}
+
+function showHtmlLoadError(file, error) {
+  const details = error && error.message ? error.message : String(error || "Unknown error");
+  const message = `Orion could not load ${file}.\n\n${details}`;
+  console.error(message);
+  dialog.showErrorBox("Orion failed to start", message);
+}
+
 function getUpdaterState() {
   return { ...updaterState };
 }
@@ -433,8 +444,10 @@ function normalizeHttpUrl(raw) {
 
 function loadInternal(webContents, url) {
   const file = INTERNAL_PAGES.get(url);
-  if (file) return webContents.loadFile(file);
-  return webContents.loadFile("newtab.html");
+  const targetFile = file || "newtab.html";
+  return webContents.loadFile(getAppHtmlPath(targetFile)).catch((error) => {
+    showHtmlLoadError(targetFile, error);
+  });
 }
 
 function createW(pIdx = 0, opts = {}) {
@@ -464,7 +477,10 @@ function createW(pIdx = 0, opts = {}) {
   if (!pTabs[pIdx]) pTabs[pIdx] = [];
   pNames[pIdx] = isIncognito ? getDefaultProfileName(pIdx, { incognito: true }) : (pNames[pIdx] || getDefaultProfileName(pIdx));
   states[pIdx] = { activeView: null, metrics: { top: 76, left: 0 }, visible: true };
-  win.loadFile("index.html");
+  win.loadFile(getAppHtmlPath("index.html")).catch((error) => {
+    showHtmlLoadError("index.html", error);
+    if (!win.isDestroyed()) win.destroy();
+  });
   win.on("resize", () => updateB(pIdx));
   win.on("closed", () => {
     delete windows[pIdx];

@@ -366,3 +366,4 @@ build_log.txt
 .DS_Store
 dist/builder-debug.yml
 /dist
+test/orion-regressions.test.js
