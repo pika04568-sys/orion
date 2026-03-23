@@ -124,7 +124,8 @@ test("main-process tab records update before tab switch payloads are emitted", (
   assert.deepEqual(payload, {
     tabId: "tab-1",
     url: "https://final.example",
-    title: "Final Title"
+    title: "Final Title",
+    incognito: false
   });
   assert.equal(profileTabs[0].url, "https://final.example");
   assert.equal(profileTabs[0].title, "Final Title");
