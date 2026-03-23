@@ -368,3 +368,5 @@ dist/builder-debug.yml
 /dist
 test/orion-regressions.test.js
 test/orion-regressions.test.js
+test/orion-regressions.test.js
+/test
