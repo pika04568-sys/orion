@@ -59,6 +59,13 @@ let updaterCheckOrigin = "startup";
 let installPromptPromise = null;
 let installingUpdate = false;
 
+function getWindowsIconPath() {
+  const packagedPath = path.join(process.resourcesPath, "assets", "orion.ico");
+  const devPath = path.join(__dirname, "assets", "orion.ico");
+  const iconPath = app.isPackaged ? packagedPath : devPath;
+  return fs.existsSync(iconPath) ? iconPath : null;
+}
+
 function getUpdaterState() {
   return { ...updaterState };
 }
@@ -411,6 +418,7 @@ function createW(pIdx = 0, opts = {}) {
     width: 1400,
     height: 900,
     backgroundColor: bSett.themeColor || "#e9e9f0",
+    icon: process.platform === "win32" ? getWindowsIconPath() || undefined : undefined,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,

@@ -4,7 +4,7 @@
   "description": "My Electron application description",
   "keywords": [],
   "main": "./main.js",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "kenokayasu",
   "scripts": {
     "start": "electron .",
@@ -20,6 +20,12 @@
     "directories": {
       "output": "dist"
     },
+    "extraResources": [
+      {
+        "from": "assets/orion.ico",
+        "to": "assets/orion.ico"
+      }
+    ],
     "mac": {
       "category": "public.app-category.productivity",
       "target": [
@@ -27,6 +33,7 @@
       ]
     },
     "win": {
+      "icon": "assets/orion.ico",
       "target": [
         "nsis",
         "portable"
