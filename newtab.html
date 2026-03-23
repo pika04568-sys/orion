@@ -440,11 +440,38 @@
     </div>
   </div>
 
+  <script src="localization.js"></script>
   <script>
+    const localization = window.OrionLocalization;
     const clock = document.getElementById('c');
     const dateE = document.getElementById('d');
     const search = document.getElementById('i');
     const grid = document.getElementById('g');
+    let currentLocale = localization.resolveLocale(localStorage.getItem('orion-locale'));
+
+    const t = (key, vars = {}) => localization.t(currentLocale, key, vars);
+
+    function applyTranslations() {
+      document.documentElement.lang = currentLocale;
+      document.title = t('newtab.pageTitle');
+      search.setAttribute('placeholder', t('newtab.searchPlaceholder'));
+    }
+
+    async function syncLocale() {
+      try {
+        const response = window.electron && window.electron.invoke
+          ? await window.electron.invoke('get-language-settings')
+          : null;
+        const locale = localization.sanitizeLocale(response && response.locale);
+        if (locale) {
+          currentLocale = locale;
+          try { localStorage.setItem('orion-locale', locale); } catch (e) { }
+        }
+      } catch (e) { }
+      applyTranslations();
+      updateTime();
+      renderShortcuts();
+    }
 
     function shouldShowSeconds() {
       return localStorage.getItem('show-seconds') === 'true';
@@ -454,15 +481,23 @@
       const now = new Date();
       const timeOpts = { hour: '2-digit', minute: '2-digit', hour12: false };
       if (shouldShowSeconds()) timeOpts.second = '2-digit';
-      clock.textContent = now.toLocaleTimeString([], timeOpts);
-      dateE.textContent = now.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
+      const intlLocale = localization.getIntlLocale(currentLocale);
+      clock.textContent = now.toLocaleTimeString(intlLocale, timeOpts);
+      dateE.textContent = now.toLocaleDateString(intlLocale, { weekday: 'long', month: 'long', day: 'numeric' });
     }
 
     setInterval(updateTime, 1000);
+    applyTranslations();
     updateTime();
 
     window.addEventListener('storage', (e) => {
       if (e.key === 'show-seconds') updateTime();
+      if (e.key === 'orion-locale' && localization.sanitizeLocale(e.newValue)) {
+        currentLocale = localization.resolveLocale(e.newValue);
+        applyTranslations();
+        updateTime();
+        renderShortcuts();
+      }
     });
 
     search.addEventListener('keydown', (e) => {
@@ -546,7 +581,7 @@
           const label = escape(shortLabel);
           const displayTitle = escape(rawTitle);
           const urlAttr = escape(shortcut.url, true);
-          const ariaLabel = escape(`Remove ${rawTitle}`, true);
+          const ariaLabel = escape(t('newtab.removeShortcut', { name: rawTitle }), true);
           const idAttr = shortcut.id ? `data-id="${escape(String(shortcut.id), true)}"` : '';
 
           return `
@@ -600,6 +635,7 @@
     }
 
     renderShortcuts();
+    syncLocale();
 
     // Parallax on wrappers so orb keyframe animations keep running smoothly.
     const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;

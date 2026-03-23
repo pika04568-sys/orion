@@ -69,6 +69,7 @@
     "compression": "maximum",
     "files": [
       "app-utils.js",
+      "localization.js",
       "main-tab-state.js",
       "main.js",
       "renderer.js",

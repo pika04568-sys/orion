@@ -115,7 +115,7 @@
     return { element, titleEl, closeEl };
   }
 
-  function createExtensionCard(doc, extension = {}) {
+  function createExtensionCard(doc, extension = {}, labels = {}) {
     const card = doc.createElement("div");
     card.className = "extension-card";
 
@@ -124,7 +124,7 @@
 
     const nameEl = doc.createElement("span");
     nameEl.className = "extension-name";
-    nameEl.textContent = extension.name || "Unknown extension";
+    nameEl.textContent = extension.name || labels.unknown || "Unknown extension";
 
     const versionEl = doc.createElement("span");
     versionEl.className = "extension-version";
@@ -135,7 +135,7 @@
 
     const descriptionEl = doc.createElement("div");
     descriptionEl.className = "extension-desc";
-    descriptionEl.textContent = extension.description || "No description provided.";
+    descriptionEl.textContent = extension.description || labels.noDescription || "No description provided.";
 
     const actions = doc.createElement("div");
     actions.className = "extension-actions";
@@ -143,7 +143,7 @@
     const removeBtn = doc.createElement("button");
     removeBtn.type = "button";
     removeBtn.className = "remove-btn";
-    removeBtn.textContent = "Remove";
+    removeBtn.textContent = labels.remove || "Remove";
 
     actions.appendChild(removeBtn);
     card.appendChild(header);

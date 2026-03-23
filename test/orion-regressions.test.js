@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const appUtils = require("../app-utils");
+const localization = require("../localization");
 const tabState = require("../main-tab-state");
 const { FakeDocument } = require("../test-support/fake-dom");
 
@@ -67,6 +68,37 @@ test("extension cards render names and descriptions as plain text", () => {
   assert.equal(versionEl.textContent, "v1.2.3");
   assert.equal(descriptionEl.textContent, injectedDescription);
   assert.equal(removeBtn.textContent, "Remove");
+});
+
+test("extension cards support translated fallback labels", () => {
+  const document = new FakeDocument();
+
+  const { nameEl, descriptionEl, removeBtn } = appUtils.createExtensionCard(document, {}, {
+    remove: "Supprimer",
+    unknown: "Extension inconnue",
+    noDescription: "Aucune description."
+  });
+
+  assert.equal(nameEl.textContent, "Extension inconnue");
+  assert.equal(descriptionEl.textContent, "Aucune description.");
+  assert.equal(removeBtn.textContent, "Supprimer");
+});
+
+test("localization resolves supported locales and falls back to English", () => {
+  assert.equal(localization.sanitizeLocale("fr"), "fr");
+  assert.equal(localization.sanitizeLocale("pt"), null);
+  assert.equal(localization.resolveLocale("ja"), "ja");
+  assert.equal(localization.resolveLocale("pt"), "en");
+  assert.equal(localization.t("de", "settings.checkUpdates"), "Nach Updates suchen");
+  assert.equal(localization.t("xx", "settings.checkUpdates"), "Check for Updates");
+});
+
+test("generated profile names are recognized across locales", () => {
+  assert.equal(localization.getProfileName("en", 0), "Default");
+  assert.equal(localization.getProfileName("fr", 2), "Profil 2");
+  assert.equal(localization.isGeneratedProfileName("Profil 2", 2), true);
+  assert.equal(localization.isGeneratedProfileName("デフォルト", 0), true);
+  assert.equal(localization.isGeneratedProfileName("Custom Work", 1), false);
 });
 
 test("main-process tab records update before tab switch payloads are emitted", () => {

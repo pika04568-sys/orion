@@ -11,6 +11,7 @@ const APP_INVOKE_CHANNELS = new Set([
   "clear-other-tabs",
   "close-tab",
   "create-tab",
+  "get-language-settings",
   "open-incognito-window",
   "find-in-page",
   "get-app-version",
@@ -20,6 +21,7 @@ const APP_INVOKE_CHANNELS = new Set([
   "load-extension",
   "navigate-to",
   "reload-page",
+  "set-language",
   "select-extension-folder",
   "stop-find-in-page",
   "switch-profile",
@@ -56,10 +58,12 @@ const APP_ON_CHANNELS = new Set([
 ]);
 
 const INTERNAL_INVOKE_CHANNELS = new Set([
+  "get-language-settings",
   "get-extensions",
   "load-extension",
   "navigate-to",
   "remove-extension",
+  "set-language",
   "select-extension-folder"
 ]);
 

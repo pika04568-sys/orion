@@ -301,18 +301,18 @@
     <div class="page-shell">
         <div class="header">
             <div>
-                <p class="eyebrow">Extensions</p>
-                <h1>Manage Installed Extensions</h1>
+                <p class="eyebrow" id="ext-eyebrow">Extensions</p>
+                <h1 id="ext-header">Manage Installed Extensions</h1>
             </div>
-            <div class="header-badge">Unpacked Mode</div>
+            <div class="header-badge" id="ext-badge">Unpacked Mode</div>
         </div>
 
         <div class="panel load-section">
-            <h2>Load Unpacked Extension</h2>
+            <h2 id="ext-load-title">Load Unpacked Extension</h2>
             <p>
-                To install an extension, download it, unzip it, and paste the full folder path below.
+                <span id="ext-load-body">To install an extension, download it, unzip it, and paste the full folder path below.</span>
                 <br>
-                (e.g., /Users/username/Downloads/my-extension)
+                <span id="ext-load-example">(e.g., /Users/username/Downloads/my-extension)</span>
             </p>
             <div class="input-group">
                 <input type="text" id="ext-path" placeholder="absolute/path/to/extension/folder">
@@ -322,25 +322,58 @@
 
         <div class="panel list-section">
             <div class="list-header">
-                <h2>Installed Extensions</h2>
-                <p class="list-note">Loaded from local folders in this browser profile.</p>
+                <h2 id="ext-installed-title">Installed Extensions</h2>
+                <p class="list-note" id="ext-installed-note">Loaded from local folders in this browser profile.</p>
             </div>
             <div id="ext-list" class="extension-list"></div>
         </div>
     </div>
 
+    <script src="localization.js"></script>
     <script src="app-utils.js"></script>
     <script>
         const electron = window.electron || { invoke: async () => ({ success: false, error: "Not running in Electron." }) };
         const invoke = (channel, ...args) => electron.invoke(channel, ...args);
         const appUtils = window.OrionAppUtils;
+        const localization = window.OrionLocalization;
 
         const loadBtn = document.getElementById('load-btn');
         const pathInput = document.getElementById('ext-path');
         const list = document.getElementById('ext-list');
+        let currentLocale = localization.resolveLocale(localStorage.getItem('orion-locale'));
+
+        const t = (key, vars = {}) => localization.t(currentLocale, key, vars);
+
+        function applyTranslations() {
+            document.documentElement.lang = currentLocale;
+            document.title = t('extension.pageTitle');
+            document.getElementById('ext-eyebrow').textContent = t('extension.eyebrow');
+            document.getElementById('ext-header').textContent = t('extension.header');
+            document.getElementById('ext-badge').textContent = t('extension.badge');
+            document.getElementById('ext-load-title').textContent = t('extension.loadTitle');
+            document.getElementById('ext-load-body').textContent = t('extension.loadBody');
+            document.getElementById('ext-load-example').textContent = t('extension.loadExample');
+            document.getElementById('ext-installed-title').textContent = t('extension.installedTitle');
+            document.getElementById('ext-installed-note').textContent = t('extension.installedNote');
+            pathInput.setAttribute('placeholder', t('extension.pathPlaceholder'));
+            loadBtn.textContent = loadBtn.disabled ? t('download.loading') : t('extension.loadButton');
+        }
+
+        async function syncLocale() {
+            try {
+                const response = await invoke('get-language-settings');
+                const locale = localization.sanitizeLocale(response && response.locale);
+                if (locale) {
+                    currentLocale = locale;
+                    try { localStorage.setItem('orion-locale', locale); } catch (e) { }
+                }
+            } catch (e) { }
+            applyTranslations();
+            refreshList();
+        }
 
         async function removeExtension(id) {
-            if (confirm('Are you sure you want to remove this extension?')) {
+            if (confirm(t('extension.removeConfirm'))) {
                 await invoke('remove-extension', id);
                 refreshList();
             }
@@ -352,12 +385,16 @@
                 list.innerHTML = '';
 
                 if (!extensions || extensions.length === 0) {
-                    list.innerHTML = '<div class="empty-state">No extensions installed.</div>';
+                    list.innerHTML = `<div class="empty-state">${t('extension.empty')}</div>`;
                     return;
                 }
 
                 extensions.forEach(ext => {
-                    const { card, removeBtn } = appUtils.createExtensionCard(document, ext);
+                    const { card, removeBtn } = appUtils.createExtensionCard(document, ext, {
+                        remove: t('extension.remove'),
+                        unknown: t('extension.unknown'),
+                        noDescription: t('extension.noDescription')
+                    });
                     removeBtn.addEventListener('click', () => {
                         void removeExtension(ext.id);
                     });
@@ -365,7 +402,7 @@
                 });
             } catch (err) {
                 console.error('Failed to refresh extension list:', err);
-                list.innerHTML = '<div class="empty-state">Error loading extensions.</div>';
+                list.innerHTML = `<div class="empty-state">${t('extension.error')}</div>`;
             }
         }
 
@@ -376,27 +413,37 @@
 
             pathInput.value = path;
             loadBtn.disabled = true;
-            loadBtn.textContent = 'Loading...';
+            loadBtn.textContent = t('download.loading');
 
             try {
                 const result = await invoke('load-extension', path);
                 if (result.success) {
-                    alert('Extension loaded successfully!');
+                    alert(t('extension.success'));
                     pathInput.value = '';
                     refreshList();
                 } else {
-                    alert('Failed to load extension: ' + result.error);
+                    alert(t('extension.loadFailure', { error: result.error }));
                 }
             } catch (err) {
-                alert('Error invoking extension load: ' + err.message);
+                alert(t('extension.invokeFailure', { error: err.message }));
             } finally {
                 loadBtn.disabled = false;
-                loadBtn.textContent = 'Load Extension';
+                loadBtn.textContent = t('extension.loadButton');
+            }
+        });
+
+        window.addEventListener('storage', (event) => {
+            if (event.key === 'orion-locale' && localization.sanitizeLocale(event.newValue)) {
+                currentLocale = localization.resolveLocale(event.newValue);
+                applyTranslations();
+                refreshList();
             }
         });
 
         // Initial load
+        applyTranslations();
         refreshList();
+        syncLocale();
     </script>
 </body>
 

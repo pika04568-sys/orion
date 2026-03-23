@@ -14,6 +14,7 @@ const path = require("path");
 const fs = require("fs");
 const os = require("os");
 const appUtils = require("./app-utils");
+const localization = require("./localization");
 const tabState = require("./main-tab-state");
 
 const INTERNAL_PAGES = new Map([
@@ -27,7 +28,7 @@ let states = {};
 let adRules = [];
 let partitions = new Set();
 let pTabs = { 0: [] };
-let pNames = { 0: "Default" };
+let pNames = { 0: localization.getProfileName(localization.DEFAULT_LOCALE, 0) };
 const INCOGNITO_PROFILE_BASE = 10000;
 let nextIncognitoProfileId = INCOGNITO_PROFILE_BASE;
 let defSearch = "chrome://newtab";
@@ -58,6 +59,16 @@ let updaterCheckPromise = null;
 let updaterCheckOrigin = "startup";
 let installPromptPromise = null;
 let installingUpdate = false;
+
+function getCurrentLocale() {
+  return localization.sanitizeLocale(bSett && bSett.locale);
+}
+
+function getDefaultProfileName(index, opts = {}) {
+  const locale = getCurrentLocale() || localization.DEFAULT_LOCALE;
+  if (opts.incognito) return localization.getIncognitoProfileName(locale);
+  return localization.getProfileName(locale, index);
+}
 
 function getWindowsIconPath() {
   const packagedPath = path.join(process.resourcesPath, "assets", "orion.ico");
@@ -286,10 +297,11 @@ function loadS() {
     if (fs.existsSync(sPath)) {
       const s = JSON.parse(fs.readFileSync(sPath, "utf8"));
       if (!s.profileExtensions) s.profileExtensions = {};
+      s.locale = localization.sanitizeLocale(s.locale);
       return s;
     }
   } catch (e) { }
-  return { themeColor: "#e9e9f0", profileExtensions: {} };
+  return { themeColor: "#e9e9f0", profileExtensions: {}, locale: null };
 }
 
 function saveS() {
@@ -450,7 +462,7 @@ function createW(pIdx = 0, opts = {}) {
   win.incognitoWindow = isIncognito;
   windows[pIdx] = win;
   if (!pTabs[pIdx]) pTabs[pIdx] = [];
-  pNames[pIdx] = isIncognito ? "Incognito" : (pNames[pIdx] || (pIdx === 0 ? "Default" : `Profile ${pIdx}`));
+  pNames[pIdx] = isIncognito ? getDefaultProfileName(pIdx, { incognito: true }) : (pNames[pIdx] || getDefaultProfileName(pIdx));
   states[pIdx] = { activeView: null, metrics: { top: 76, left: 0 }, visible: true };
   win.loadFile("index.html");
   win.on("resize", () => updateB(pIdx));
@@ -478,7 +490,7 @@ function broadcast() {
     .filter((i) => parseInt(i, 10) < INCOGNITO_PROFILE_BASE)
     .map((i) => ({
       id: parseInt(i, 10),
-      name: pNames[i] || `Profile ${i}`
+      name: pNames[i] || getDefaultProfileName(parseInt(i, 10))
     }));
   Object.values(windows).forEach((w) => {
     if (w && !w.isDestroyed()) w.webContents.send("profile-list-updated", { profiles: p });
@@ -510,11 +522,12 @@ function createT(pIdx, win) {
   const isIncognito = !!(win && win.incognitoWindow);
   const pendingUrl = win && win.pendingIncognitoUrl;
   const initialUrl = pendingUrl || home;
+  const locale = getCurrentLocale() || localization.DEFAULT_LOCALE;
   if (!pTabs[pIdx].length) {
     pTabs[pIdx].push({
       id,
       url: initialUrl,
-      title: isIncognito ? "Incognito" : "New Tab",
+      title: isIncognito ? localization.getIncognitoProfileName(locale) : localization.t(locale, "app.newTab"),
       incognito: isIncognito
     });
     createV(id, initialUrl, isIncognito, pIdx);
@@ -694,10 +707,11 @@ function openL(u, pIdx, inc = false) {
   const url = normalizeHttpUrl(u);
   if (!url) return;
   const id = `p-${pIdx}-t-${Date.now()}`;
+  const locale = getCurrentLocale() || localization.DEFAULT_LOCALE;
   pTabs[pIdx].push({
     id,
     url,
-    title: inc ? "Incognito" : "New Tab",
+    title: inc ? localization.getIncognitoProfileName(locale) : localization.t(locale, "app.newTab"),
     incognito: inc
   });
   createV(id, url, inc, pIdx);
@@ -720,7 +734,11 @@ function closeTab(pIdx, id, win) {
     if (pTabs[pIdx].length) switchT(pTabs[pIdx][0].id, pIdx);
     else {
       const nid = `p-${pIdx}-t-${Date.now()}`;
-      pTabs[pIdx].push({ id: nid, url: "chrome://newtab", title: "New Tab" });
+      pTabs[pIdx].push({
+        id: nid,
+        url: "chrome://newtab",
+        title: localization.t(getCurrentLocale() || localization.DEFAULT_LOCALE, "app.newTab")
+      });
       createV(nid, "chrome://newtab", false, pIdx);
       switchT(nid, pIdx);
     }
@@ -823,14 +841,14 @@ ipcMain.handle("add-new-profile", (e) => {
   let n = 0;
   while (pTabs[n]) n++;
   pTabs[n] = [];
-  pNames[n] = `Profile ${n}`;
+  pNames[n] = getDefaultProfileName(n);
   createW(n);
   return n;
 });
 function openIncognitoWindow(url) {
   const pIdx = nextIncognitoProfileId++;
   pTabs[pIdx] = [];
-  pNames[pIdx] = "Incognito";
+  pNames[pIdx] = getDefaultProfileName(pIdx, { incognito: true });
   const win = createW(pIdx, { incognito: true });
   if (url && url !== "chrome://newtab") {
     const target = normalizeHttpUrl(url) || (url.startsWith("http") ? url : `https://${url}`);
@@ -856,8 +874,14 @@ ipcMain.handle("create-tab", (e, { tabId, url, inc, afterTabId }) => {
   const pIdx = w.profileIndex;
   const u = url || "https://www.google.com/";
   const isIncognito = !!inc;
+  const locale = getCurrentLocale() || localization.DEFAULT_LOCALE;
   if (!pTabs[pIdx].find((t) => t.id === tabId)) {
-    const nt = { id: tabId, url: u, title: isIncognito ? "Incognito" : "New Tab", incognito: isIncognito };
+    const nt = {
+      id: tabId,
+      url: u,
+      title: isIncognito ? localization.getIncognitoProfileName(locale) : localization.t(locale, "app.newTab"),
+      incognito: isIncognito
+    };
     const insertAfter = typeof afterTabId === "string" && afterTabId.length ? afterTabId : null;
     insertTabAfter(pIdx, nt, insertAfter);
     w.webContents.send("tab-created", { ...nt, afterTabId: insertAfter });
@@ -1027,6 +1051,18 @@ ipcMain.handle("get-app-version", (e) => {
 ipcMain.handle("get-updater-state", (e) => {
   if (!isTrustedSender(e.sender)) return null;
   return getUpdaterState();
+});
+ipcMain.handle("get-language-settings", (e) => {
+  if (!isTrustedSender(e.sender)) return { locale: null };
+  return { locale: getCurrentLocale() };
+});
+ipcMain.handle("set-language", (e, locale) => {
+  if (!isTrustedSender(e.sender)) return { locale: getCurrentLocale() };
+  const nextLocale = localization.sanitizeLocale(locale);
+  if (!nextLocale) return { locale: getCurrentLocale() };
+  bSett.locale = nextLocale;
+  saveS();
+  return { locale: nextLocale };
 });
 ipcMain.handle("check-for-updates", (e) => {
   if (!isTrustedSender(e.sender)) return null;

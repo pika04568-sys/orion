@@ -1735,6 +1735,103 @@
             padding: 4px
         }
 
+        body.onboarding-active {
+            overflow: hidden
+        }
+
+        #startup-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 4000;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+            background:
+                radial-gradient(circle at 12% 10%, rgba(15, 107, 255, .2), transparent 38%),
+                radial-gradient(circle at 88% 8%, rgba(56, 189, 248, .18), transparent 38%),
+                radial-gradient(circle at 50% 100%, rgba(14, 165, 233, .12), transparent 46%),
+                rgba(239, 244, 251, .94);
+            backdrop-filter: blur(18px)
+        }
+
+        #startup-overlay.show {
+            display: flex
+        }
+
+        .startup-card {
+            width: min(760px, calc(100vw - 32px));
+            border-radius: 30px;
+            border: 1px solid rgba(255, 255, 255, .8);
+            background:
+                radial-gradient(circle at top left, rgba(15, 107, 255, .16), transparent 36%),
+                linear-gradient(160deg, rgba(255, 255, 255, .96), rgba(255, 255, 255, .82));
+            box-shadow: 0 28px 90px rgba(9, 26, 52, .2);
+            padding: 38px 34px;
+            text-align: center
+        }
+
+        .startup-kicker {
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: .14em;
+            text-transform: uppercase;
+            color: var(--accent-color);
+            margin-bottom: 10px
+        }
+
+        .startup-card h1 {
+            font-size: clamp(2rem, 4vw, 3.2rem);
+            line-height: 1.05;
+            margin-bottom: 12px
+        }
+
+        .startup-card p {
+            margin: 0 auto;
+            max-width: 580px;
+            color: var(--text-secondary);
+            font-size: 15px;
+            line-height: 1.6
+        }
+
+        .startup-note {
+            margin-top: 14px;
+            font-size: 13px
+        }
+
+        .language-choice-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 12px;
+            margin-top: 28px
+        }
+
+        .language-choice-btn {
+            min-height: 58px;
+            border-radius: 16px;
+            border: 1px solid var(--border-color);
+            background: rgba(255, 255, 255, .78);
+            color: var(--text-primary);
+            font-family: inherit;
+            font-size: 16px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: transform .2s, border-color .2s, box-shadow .2s, background-color .2s
+        }
+
+        .language-choice-btn:hover {
+            transform: translateY(-1px);
+            border-color: rgba(15, 107, 255, .34);
+            box-shadow: 0 14px 28px rgba(9, 26, 52, .12)
+        }
+
+        .language-choice-btn.active {
+            border-color: transparent;
+            background: linear-gradient(135deg, var(--accent-color), #38bdf8);
+            color: #fff;
+            box-shadow: 0 16px 30px rgba(15, 107, 255, .24)
+        }
+
         @media (max-width:900px) {
 
             #toolbar {
@@ -1806,6 +1903,10 @@
             #bookmark-dest-modal .modal-content {
                 width: min(360px, calc(100vw - 24px))
             }
+
+            .startup-card {
+                padding: 28px 20px
+            }
         }
 
         @media (max-width:720px) {
@@ -1823,20 +1924,29 @@
 </head>
 
 <body>
+    <div id="startup-overlay" aria-live="polite">
+        <div class="startup-card">
+            <div class="startup-kicker" data-i18n="onboarding.kicker">Welcome</div>
+            <h1 data-i18n="onboarding.title">Choose your language</h1>
+            <p data-i18n="onboarding.subtitle">Pick the language Orion should use. You can change it later in Settings.</p>
+            <div id="startup-language-picker" class="language-choice-grid"></div>
+            <p class="startup-note" data-i18n="onboarding.persist">Your choice is saved for this device and usually survives reinstalling the app.</p>
+        </div>
+    </div>
     <div id="chrome-container">
         <div id="tab-bar-wrapper">
             <div id="tab-bar"></div>
             <div class="tab-actions">
-                <div id="new-tab-btn" title="New Tab"><svg width="20" height="20" viewBox="0 0 24 24" fill="none"
+                <div id="new-tab-btn" title="New Tab" data-i18n-title="toolbar.newTab"><svg width="20" height="20" viewBox="0 0 24 24" fill="none"
                         stroke="currentColor" stroke-width="2">
                         <line x1="12" y1="5" x2="12" y2="19"></line>
                         <line x1="5" y1="12" x2="19" y2="12"></line>
                     </svg></div>
-                <div id="incognito-tab-btn" title="New Incognito Tab (⌘⇧N)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none"
+                <div id="incognito-tab-btn" title="New Incognito Tab (⌘⇧N)" data-i18n-title="toolbar.newIncognitoTab"><svg width="20" height="20" viewBox="0 0 24 24" fill="none"
                         stroke="currentColor" stroke-width="2">
                         <path d="M12 3a6 6 0 0 0-6 6v1H4v2h2v8h12v-8h2v-2h-2V9a6 6 0 0 0-6-6z"></path>
                     </svg></div>
-                <div id="clear-tabs-btn" title="Close Others"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+                <div id="clear-tabs-btn" title="Close Others" data-i18n-title="toolbar.closeOthers"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"
                         stroke="currentColor" stroke-width="2">
                         <path d="M18 6L6 18M6 6l12 12M3 6h18"></path>
                     </svg></div>
@@ -1858,7 +1968,7 @@
                         <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
                         <polyline points="9 22 9 12 15 12 15 22"></polyline>
                     </svg></button></div>
-            <div id="address-bar-container"><input type="text" id="address-bar" placeholder="Search or enter URL">
+            <div id="address-bar-container"><input type="text" id="address-bar" placeholder="Search or enter URL" data-i18n-placeholder="address.placeholder">
                 <div id="progress-bar-container">
                     <div id="progress-bar"></div>
                 </div><button id="add-bookmark-btn" class="nav-btn"><svg width="16" height="16" viewBox="0 0 24 24"
@@ -1900,7 +2010,7 @@
                     <div id="profile-menu" class="dropdown-menu">
                         <div id="profile-list-container"></div>
                         <div class="divider"></div>
-                        <div id="add-profile-btn" class="dropdown-item">Add New Profile</div>
+                        <div id="add-profile-btn" class="dropdown-item" data-i18n="profile.addNew">Add New Profile</div>
                     </div>
                 </div>
             </div>
@@ -1909,7 +2019,7 @@
     <div id="bookmarks-bar"></div>
     <div id="view-container">
         <div id="find-bar" style="display:none">
-            <input type="text" id="find-input" placeholder="Find..."><span id="find-results">0/0</span><button
+            <input type="text" id="find-input" placeholder="Find..." data-i18n-placeholder="find.placeholder"><span id="find-results">0/0</span><button
                 id="find-prev" class="nav-btn">↑</button><button id="find-next" class="nav-btn">↓</button><button
                 id="find-close" class="nav-btn">×</button>
         </div>
@@ -1917,111 +2027,116 @@
     <div id="history-sidebar">
         <div class="history-header panel-header">
             <div class="panel-title-wrap">
-                <h2>History</h2>
+                <h2 data-i18n="history.title">History</h2>
             </div>
             <div class="clear-history-section"><button id="clear-history-hour"
-                    class="clear-history-btn">Hour</button><button id="clear-history-today"
-                    class="clear-history-btn">Today</button><button id="clear-history-week"
-                    class="clear-history-btn">Week</button><button id="clear-history-all"
-                    class="clear-history-btn danger">Clear All</button></div><button id="close-history"
-                class="nav-btn panel-close-btn" aria-label="Close history panel">×</button>
+                    class="clear-history-btn" data-i18n="history.range.hour">Hour</button><button id="clear-history-today"
+                    class="clear-history-btn" data-i18n="history.range.today">Today</button><button id="clear-history-week"
+                    class="clear-history-btn" data-i18n="history.range.week">Week</button><button id="clear-history-all"
+                    class="clear-history-btn danger" data-i18n="history.range.all">Clear All</button></div><button id="close-history"
+                class="nav-btn panel-close-btn" aria-label="Close history panel" data-i18n-aria-label="history.close">×</button>
         </div>
         <div id="history-list"></div>
     </div>
     <div id="bookmarks-sidebar">
         <div class="history-header panel-header">
             <div class="panel-title-wrap">
-                <h2>Bookmarks</h2>
+                <h2 data-i18n="bookmarks.title">Bookmarks</h2>
             </div><button id="close-bookmarks" class="nav-btn panel-close-btn"
-                aria-label="Close bookmarks panel">×</button>
+                aria-label="Close bookmarks panel" data-i18n-aria-label="bookmarks.close">×</button>
         </div>
         <div id="bookmarks-list"></div>
     </div>
     <div id="downloads-sidebar">
         <div class="history-header panel-header">
             <div class="panel-title-wrap">
-                <h2>Downloads</h2>
+                <h2 data-i18n="downloads.title">Downloads</h2>
             </div><button id="close-downloads" class="nav-btn panel-close-btn"
-                aria-label="Close downloads panel">×</button>
+                aria-label="Close downloads panel" data-i18n-aria-label="downloads.close">×</button>
         </div>
         <div id="downloads-list"></div>
     </div>
     <div id="adblock-sidebar">
         <div class="history-header panel-header">
             <div class="panel-title-wrap">
-                <div class="panel-kicker">Privacy</div>
-                <h2>Adblock</h2>
-            </div><button id="close-adblock" class="nav-btn panel-close-btn" aria-label="Close adblock panel">×</button>
+                <div class="panel-kicker" data-i18n="adblock.kicker">Privacy</div>
+                <h2 data-i18n="adblock.title">Adblock</h2>
+            </div><button id="close-adblock" class="nav-btn panel-close-btn" aria-label="Close adblock panel" data-i18n-aria-label="adblock.close">×</button>
         </div>
         <div class="adblock-layout">
             <div class="adblock-card">
                 <div class="adblock-intro">
-                    <p>Create custom block rules to remove ads, popups, and known trackers. Add one rule per line and
-                        apply instantly.</p><span class="adblock-badge">One rule per line</span>
+                    <p data-i18n="adblock.description">Create custom block rules to remove ads, popups, and known trackers. Add one rule per line and
+                        apply instantly.</p><span class="adblock-badge" data-i18n="adblock.badge">One rule per line</span>
                 </div><textarea id="adblock-rules"
-                    placeholder="||ads.example.com^\n||tracker.example.net^\n! comment lines start with !"></textarea>
-                <div class="adblock-help">Tip: lines starting with "!" are comments. Inline comments are allowed after
+                    placeholder="||ads.example.com^\n||tracker.example.net^\n! comment lines start with !" data-i18n-placeholder="adblock.placeholder"></textarea>
+                <div class="adblock-help" data-i18n="adblock.tip">Tip: lines starting with "!" are comments. Inline comments are allowed after
                     a rule.</div>
                 <div class="adblock-sample">
                     <code>||ads.example.com^</code><code>@@||trusted-site.com^</code><code>! note</code></div>
-                <div class="adblock-actions"><button id="save-adblock-rules">Save &amp; Apply Rules</button></div>
+                <div class="adblock-actions"><button id="save-adblock-rules" data-i18n="adblock.save">Save &amp; Apply Rules</button></div>
             </div>
         </div>
     </div>
     <div id="settings-sidebar">
         <div class="history-header panel-header">
             <div class="panel-title-wrap">
-                <div class="panel-kicker">Browser Controls</div>
-                <h2>Settings</h2>
+                <div class="panel-kicker" data-i18n="settings.kicker">Browser Controls</div>
+                <h2 data-i18n="settings.title">Settings</h2>
             </div><button id="close-settings" class="nav-btn panel-close-btn"
-                aria-label="Close settings panel">×</button>
+                aria-label="Close settings panel" data-i18n-aria-label="settings.close">×</button>
         </div>
         <div class="settings-content">
             <div class="settings-hero" id="settings-hero">
-                <div class="settings-kicker">Personalization</div>
-                <h3>Make Orion yours</h3>
-                <p>Customize the look and behavior of your browser in one place. Changes apply immediately.</p>
+                <div class="settings-kicker" data-i18n="settings.heroKicker">Personalization</div>
+                <h3 data-i18n="settings.heroTitle">Make Orion yours</h3>
+                <p data-i18n="settings.heroBody">Customize the look and behavior of your browser in one place. Changes apply immediately.</p>
             </div>
             <div class="settings-section">
-                <h3>Theme</h3>
-                <p class="settings-subtitle">Pick an accent and tune layout preferences.</p>
+                <h3 data-i18n="settings.themeTitle">Theme</h3>
+                <p class="settings-subtitle" data-i18n="settings.themeSubtitle">Pick an accent and tune layout preferences.</p>
                 <div class="color-picker" id="profile-color-picker"></div>
                 <div class="settings-stack">
                     <label class="setting-toggle">
                         <div>
-                            <div class="label-main">Vertical Tabs</div>
-                            <div class="label-sub">Dock tabs on the left side</div>
+                            <div class="label-main" data-i18n="settings.verticalTabs">Vertical Tabs</div>
+                            <div class="label-sub" data-i18n="settings.verticalTabsSub">Dock tabs on the left side</div>
                         </div>
                         <input type="checkbox" id="vertical-tabs-toggle">
                     </label>
                     <label class="setting-toggle">
                         <div>
-                            <div class="label-main">Show Seconds</div>
-                            <div class="label-sub">Display seconds in time widgets</div>
+                            <div class="label-main" data-i18n="settings.showSeconds">Show Seconds</div>
+                            <div class="label-sub" data-i18n="settings.showSecondsSub">Display seconds in time widgets</div>
                         </div>
                         <input type="checkbox" id="show-seconds-toggle">
                     </label>
                 </div>
             </div>
             <div class="settings-section">
-                <h3>Search</h3>
-                <p class="settings-subtitle">Choose the engine used by the address bar for plain text queries.</p>
+                <h3 data-i18n="settings.languageTitle">Language</h3>
+                <p class="settings-subtitle" data-i18n="settings.languageSubtitle">Choose the language used for Orion's interface.</p>
+                <div id="settings-language-picker" class="language-choice-grid"></div>
+            </div>
+            <div class="settings-section">
+                <h3 data-i18n="settings.searchTitle">Search</h3>
+                <p class="settings-subtitle" data-i18n="settings.searchSubtitle">Choose the engine used by the address bar for plain text queries.</p>
                 <div class="settings-row">
-                    <div class="settings-label">Default search engine</div>
+                    <div class="settings-label" data-i18n="settings.searchLabel">Default search engine</div>
                     <select id="search-engine-select"></select>
                 </div>
             </div>
             <div class="settings-section">
-                <h3>System</h3>
-                <p class="settings-subtitle">Check your version and open browser extension management.</p>
+                <h3 data-i18n="settings.systemTitle">System</h3>
+                <p class="settings-subtitle" data-i18n="settings.systemSubtitle">Check your version and open browser extension management.</p>
                 <div class="settings-row">
                     <div class="settings-version"><strong>Orion</strong>
                         <div class="settings-version-copy"><span id="app-version"></span><span id="update-status"
                                 aria-live="polite">Ready to check for updates.</span></div>
                     </div>
                     <div class="settings-actions"><button id="check-updates-btn"
-                            class="settings-btn settings-btn-primary">Check for Updates</button><button
-                            id="open-extensions-btn" class="settings-btn settings-btn-secondary">Open
+                            class="settings-btn settings-btn-primary" data-i18n="settings.checkUpdates">Check for Updates</button><button
+                            id="open-extensions-btn" class="settings-btn settings-btn-secondary" data-i18n="settings.openExtensions">Open
                             Extensions</button>
                     </div>
                 </div>
@@ -2030,17 +2145,18 @@
     </div>
     <div id="rename-modal" class="modal">
         <div class="modal-content">
-            <h3>Rename</h3><input id="rename-input">
-            <div class="modal-actions"><button id="rename-cancel-btn">Cancel</button><button
-                    id="rename-save-btn">Save</button></div>
+            <h3 data-i18n="modal.rename">Rename</h3><input id="rename-input">
+            <div class="modal-actions"><button id="rename-cancel-btn" data-i18n="modal.cancel">Cancel</button><button
+                    id="rename-save-btn" data-i18n="modal.save">Save</button></div>
         </div>
     </div>
     <div id="bookmark-dest-modal" class="modal">
         <div class="modal-content">
-            <h3>Bookmark</h3><button id="add-to-bar-btn">Bar</button><button id="add-to-newtab-btn">New
-                Tab</button><button id="add-to-both-btn">Both</button><button id="cancel-bookmark-btn">Cancel</button>
+            <h3 data-i18n="modal.bookmark">Bookmark</h3><button id="add-to-bar-btn" data-i18n="bookmark.bar">Bar</button><button id="add-to-newtab-btn" data-i18n="bookmark.newTab">New
+                Tab</button><button id="add-to-both-btn" data-i18n="bookmark.both">Both</button><button id="cancel-bookmark-btn" data-i18n="modal.cancel">Cancel</button>
         </div>
     </div>
+    <script src="localization.js"></script>
     <script src="app-utils.js"></script>
     <script src="renderer.js"></script>
 </body>
