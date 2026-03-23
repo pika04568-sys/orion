@@ -370,6 +370,20 @@ function updateB(pIdx) {
   });
 }
 
+const TRUSTED_PAGE_FILES = new Set(["index.html", "newtab.html", "extensions.html"]);
+
+function isTrustedSender(webContents) {
+  if (!webContents || webContents.isDestroyed()) return false;
+  try {
+    const url = new URL(webContents.getURL());
+    if (url.protocol !== "file:") return false;
+    const file = url.pathname.split("/").pop().toLowerCase();
+    return TRUSTED_PAGE_FILES.has(file);
+  } catch (e) {
+    return false;
+  }
+}
+
 function isInternalUrl(url) {
   return INTERNAL_PAGES.has(url);
 }
@@ -424,7 +438,9 @@ function createW(pIdx = 0, opts = {}) {
       contextIsolation: true,
       sandbox: true,
       webSecurity: true,
+      webviewTag: false,
       safeDialogs: true,
+      allowRunningInsecureContent: false,
       preload: path.join(__dirname, "preload.js"),
       partition: `persist:profile-${pIdx}`
     },
@@ -522,7 +538,9 @@ function createV(id, url, inc, pIdx) {
     nodeIntegration: false,
     sandbox: true,
     webSecurity: true,
+    webviewTag: false,
     safeDialogs: true,
+    allowRunningInsecureContent: false,
     preload: path.join(__dirname, "preload.js"),
     partition: inc ? `incognito-${Date.now()}` : `persist:profile-${pIdx}`
   };
@@ -745,6 +763,7 @@ function deleteHistoryItem(idOrMatch) {
 }
 
 ipcMain.on("set-chrome-metrics", (e, m) => {
+  if (!isTrustedSender(e.sender)) return;
   const w = BrowserWindow.fromWebContents(e.sender);
   if (!w) return;
   const s = states[w.profileIndex];
@@ -755,14 +774,19 @@ ipcMain.on("set-chrome-metrics", (e, m) => {
   }
 });
 ipcMain.on("renderer-ready", (e) => {
+  if (!isTrustedSender(e.sender)) return;
   const w = e.sender.getOwnerBrowserWindow();
   if (w) {
     createT(w.profileIndex, w);
     broadcast();
   }
 });
-ipcMain.on("fetch-and-show-history", (e, q) => e.reply("history-data-received", getH(q)));
+ipcMain.on("fetch-and-show-history", (e, q) => {
+  if (!isTrustedSender(e.sender)) return;
+  e.reply("history-data-received", getH(q));
+});
 ipcMain.on("apply-browser-color", (e, c) => {
+  if (!isTrustedSender(e.sender)) return;
   const w = BrowserWindow.fromWebContents(e.sender);
   if (w) {
     w.setBackgroundColor(c);
@@ -770,10 +794,12 @@ ipcMain.on("apply-browser-color", (e, c) => {
     saveS();
   }
 });
-ipcMain.on("update-default-search-engine", (_e, u) => {
+ipcMain.on("update-default-search-engine", (e, u) => {
+  if (!isTrustedSender(e.sender)) return;
   defSearch = u;
 });
 ipcMain.on("toggle-browser-view", (e, v) => {
+  if (!isTrustedSender(e.sender)) return;
   const w = BrowserWindow.fromWebContents(e.sender);
   if (!w) return;
   const s = states[w.profileIndex];
@@ -792,7 +818,8 @@ ipcMain.on("toggle-browser-view", (e, v) => {
     } catch (e) { }
   }
 });
-ipcMain.handle("add-new-profile", () => {
+ipcMain.handle("add-new-profile", (e) => {
+  if (!isTrustedSender(e.sender)) return null;
   let n = 0;
   while (pTabs[n]) n++;
   pTabs[n] = [];
@@ -811,14 +838,19 @@ function openIncognitoWindow(url) {
   }
 }
 
-ipcMain.handle("open-incognito-window", (e, url) => openIncognitoWindow(url));
-ipcMain.on("rename-profile", (_e, { profileIndex, newName }) => {
+ipcMain.handle("open-incognito-window", (e, url) => {
+  if (!isTrustedSender(e.sender)) return;
+  openIncognitoWindow(url);
+});
+ipcMain.on("rename-profile", (e, { profileIndex, newName }) => {
+  if (!isTrustedSender(e.sender)) return;
   if (pNames[profileIndex]) {
     pNames[profileIndex] = newName;
     broadcast();
   }
 });
 ipcMain.handle("create-tab", (e, { tabId, url, inc, afterTabId }) => {
+  if (!isTrustedSender(e.sender)) return;
   const w = BrowserWindow.fromWebContents(e.sender);
   if (!w) return;
   const pIdx = w.profileIndex;
@@ -834,18 +866,22 @@ ipcMain.handle("create-tab", (e, { tabId, url, inc, afterTabId }) => {
   switchT(tabId, pIdx);
 });
 ipcMain.handle("switch-tab", (e, id) => {
+  if (!isTrustedSender(e.sender)) return;
   const w = BrowserWindow.fromWebContents(e.sender);
   if (w) switchT(id, w.profileIndex);
 });
 ipcMain.handle("close-tab", (e, id) => {
+  if (!isTrustedSender(e.sender)) return;
   const w = BrowserWindow.fromWebContents(e.sender);
   if (w) closeTab(w.profileIndex, id, w);
 });
 ipcMain.handle("clear-other-tabs", (e, keepId) => {
+  if (!isTrustedSender(e.sender)) return;
   const w = BrowserWindow.fromWebContents(e.sender);
   if (w) clearOtherTabs(w.profileIndex, keepId, w);
 });
 ipcMain.handle("navigate-to", (e, u) => {
+  if (!isTrustedSender(e.sender)) return;
   const w = BrowserWindow.fromWebContents(e.sender);
   if (!w) return;
   const s = states[w.profileIndex];
@@ -886,12 +922,14 @@ ipcMain.handle("navigate-to", (e, u) => {
   return loadInternal(s.activeView.webContents, "chrome://newtab");
 });
 ipcMain.handle("go-back", (e) => {
+  if (!isTrustedSender(e.sender)) return;
   const w = BrowserWindow.fromWebContents(e.sender);
   if (!w) return;
   const s = states[w.profileIndex];
   if (s && s.activeView && s.activeView.webContents.canGoBack()) s.activeView.webContents.goBack();
 });
 ipcMain.handle("go-forward", (e) => {
+  if (!isTrustedSender(e.sender)) return;
   const w = BrowserWindow.fromWebContents(e.sender);
   if (!w) return;
   const s = states[w.profileIndex];
@@ -899,35 +937,47 @@ ipcMain.handle("go-forward", (e) => {
     s.activeView.webContents.goForward();
 });
 ipcMain.handle("reload-page", (e) => {
+  if (!isTrustedSender(e.sender)) return;
   const w = BrowserWindow.fromWebContents(e.sender);
   if (!w) return;
   const s = states[w.profileIndex];
   if (s && s.activeView) s.activeView.webContents.reload();
 });
 ipcMain.handle("switch-profile", (e, pIdx) => {
+  if (!isTrustedSender(e.sender)) return;
   if (windows[pIdx]) windows[pIdx].focus();
   else createW(pIdx);
 });
-ipcMain.handle("clear-history-range", (_e, range) => clearHistoryRange(range));
-ipcMain.handle("delete-history-item", (_e, id) => deleteHistoryItem(id));
+ipcMain.handle("clear-history-range", (e, range) => {
+  if (!isTrustedSender(e.sender)) return;
+  clearHistoryRange(range);
+});
+ipcMain.handle("delete-history-item", (e, id) => {
+  if (!isTrustedSender(e.sender)) return;
+  deleteHistoryItem(id);
+});
 ipcMain.handle("find-in-page", (e, t, o = {}) => {
+  if (!isTrustedSender(e.sender)) return;
   const w = BrowserWindow.fromWebContents(e.sender);
   if (!w) return;
   const s = states[w.profileIndex];
   if (s && s.activeView && t) s.activeView.webContents.findInPage(t, o);
 });
 ipcMain.handle("stop-find-in-page", (e, a) => {
+  if (!isTrustedSender(e.sender)) return;
   const w = BrowserWindow.fromWebContents(e.sender);
   if (!w) return;
   const s = states[w.profileIndex];
   if (s && s.activeView) s.activeView.webContents.stopFindInPage(a || "clearSelection");
 });
-ipcMain.handle("select-extension-folder", async (e) =>
-  dialog
+ipcMain.handle("select-extension-folder", async (e) => {
+  if (!isTrustedSender(e.sender)) return null;
+  return dialog
     .showOpenDialog(BrowserWindow.fromWebContents(e.sender), { properties: ["openDirectory"] })
-    .then((r) => (r.canceled ? null : r.filePaths[0]))
-);
+    .then((r) => (r.canceled ? null : r.filePaths[0]));
+});
 ipcMain.handle("load-extension", async (e, p) => {
+  if (!isTrustedSender(e.sender)) return { success: false, error: "Untrusted sender." };
   const w = BrowserWindow.fromWebContents(e.sender);
   if (!w) return { success: false, error: "No window." };
   const pIdx = w.profileIndex;
@@ -947,6 +997,7 @@ ipcMain.handle("load-extension", async (e, p) => {
   }
 });
 ipcMain.handle("get-extensions", (e) => {
+  if (!isTrustedSender(e.sender)) return [];
   const w = BrowserWindow.fromWebContents(e.sender) || e.sender.getOwnerBrowserWindow();
   const pIdx = w ? w.profileIndex : 0;
   const sess = session.fromPartition(`persist:profile-${pIdx}`);
@@ -958,6 +1009,7 @@ ipcMain.handle("get-extensions", (e) => {
   }));
 });
 ipcMain.handle("remove-extension", (e, id) => {
+  if (!isTrustedSender(e.sender)) return;
   const w = BrowserWindow.fromWebContents(e.sender) || e.sender.getOwnerBrowserWindow();
   const pIdx = w ? w.profileIndex : 0;
   const sess = session.fromPartition(`persist:profile-${pIdx}`);
@@ -968,10 +1020,20 @@ ipcMain.handle("remove-extension", (e, id) => {
   }
   sess.removeExtension(id);
 });
-ipcMain.handle("get-app-version", () => app.getVersion());
-ipcMain.handle("get-updater-state", () => getUpdaterState());
-ipcMain.handle("check-for-updates", () => checkForUpdates("manual"));
-ipcMain.handle("update-adblock-rules", (_e, r) => {
+ipcMain.handle("get-app-version", (e) => {
+  if (!isTrustedSender(e.sender)) return null;
+  return app.getVersion();
+});
+ipcMain.handle("get-updater-state", (e) => {
+  if (!isTrustedSender(e.sender)) return null;
+  return getUpdaterState();
+});
+ipcMain.handle("check-for-updates", (e) => {
+  if (!isTrustedSender(e.sender)) return null;
+  return checkForUpdates("manual");
+});
+ipcMain.handle("update-adblock-rules", (e, r) => {
+  if (!isTrustedSender(e.sender)) return;
   adRules = (r || "")
     .split("\n")
     .map((line) => line.trim())
