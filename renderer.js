@@ -954,6 +954,7 @@ document.addEventListener('keydown', (event) => {
 
 async function bootstrap() {
   init();
+  ensureRendererStarted();
 
   try {
     const response = await ipcRenderer.invoke('get-language-settings');
@@ -965,7 +966,6 @@ async function bootstrap() {
       } catch (_error) { }
       applyTranslations();
       hideStartupOverlay();
-      ensureRendererStarted();
       return;
     }
   } catch (_error) { }

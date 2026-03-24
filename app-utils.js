@@ -10,18 +10,33 @@
     "extensions.html": "chrome://extensions"
   });
 
-  function getInternalAlias(url) {
+  function getLocalPageFileName(url) {
     if (!url || typeof url !== "string") return null;
-    if (url.startsWith("chrome://")) return url;
 
     try {
       const parsed = new URL(url);
       if (parsed.protocol !== "file:") return null;
-      const file = parsed.pathname.split("/").pop().toLowerCase();
-      return INTERNAL_PAGE_ALIASES[file] || null;
+
+      const decodedPath = decodeURIComponent(parsed.pathname || "").replace(/\\/g, "/");
+      const file = decodedPath.split("/").filter(Boolean).pop();
+      return file ? file.toLowerCase() : null;
     } catch (error) {
       return null;
     }
+  }
+
+  function isTrustedLocalPage(url, trustedFiles) {
+    if (!trustedFiles || typeof trustedFiles.has !== "function") return false;
+    const file = getLocalPageFileName(url);
+    return !!file && trustedFiles.has(file);
+  }
+
+  function getInternalAlias(url) {
+    if (!url || typeof url !== "string") return null;
+    if (url.startsWith("chrome://")) return url;
+
+    const file = getLocalPageFileName(url);
+    return file ? INTERNAL_PAGE_ALIASES[file] || null : null;
   }
 
   function normalizeInternalUrl(url, fallbackUrl = "") {
@@ -158,7 +173,9 @@
     createExtensionCard,
     createTabElement,
     getActiveTabBookmark,
+    getLocalPageFileName,
     normalizeInternalUrl,
+    isTrustedLocalPage,
     removeBookmarkById,
     syncTabRecord,
     upsertTabRecord

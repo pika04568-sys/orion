@@ -1,4 +1,5 @@
 const { contextBridge, ipcRenderer } = require("electron");
+const appUtils = require("./app-utils");
 
 const APP_FILES = new Set(["index.html"]);
 const INTERNAL_FILES = new Set(["newtab.html", "extensions.html"]);
@@ -68,13 +69,7 @@ const INTERNAL_INVOKE_CHANNELS = new Set([
 ]);
 
 function getPageFile() {
-  try {
-    const url = new URL(window.location.href);
-    if (url.protocol !== "file:") return null;
-    return url.pathname.split("/").pop().toLowerCase();
-  } catch (e) {
-    return null;
-  }
+  return appUtils.getLocalPageFileName(window.location.href);
 }
 
 function buildApi(allowedInvoke, allowedSend, allowedOn) {

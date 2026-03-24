@@ -397,14 +397,7 @@ const TRUSTED_PAGE_FILES = new Set(["index.html", "newtab.html", "extensions.htm
 
 function isTrustedSender(webContents) {
   if (!webContents || webContents.isDestroyed()) return false;
-  try {
-    const url = new URL(webContents.getURL());
-    if (url.protocol !== "file:") return false;
-    const file = url.pathname.split("/").pop().toLowerCase();
-    return TRUSTED_PAGE_FILES.has(file);
-  } catch (e) {
-    return false;
-  }
+  return appUtils.isTrustedLocalPage(webContents.getURL(), TRUSTED_PAGE_FILES);
 }
 
 function isInternalUrl(url) {
@@ -412,16 +405,10 @@ function isInternalUrl(url) {
 }
 
 function isInternalPageUrl(url) {
-  if (!url) return false;
-  try {
-    const parsed = new URL(url);
-    if (parsed.protocol !== "file:") return false;
-    const file = parsed.pathname.split("/").pop().toLowerCase();
-    return file === "newtab.html" || file === "extensions.html";
-  } catch (e) {
-    return false;
-  }
+  return appUtils.isTrustedLocalPage(url, INTERNAL_PAGES_FILE_SET);
 }
+
+const INTERNAL_PAGES_FILE_SET = new Set(["newtab.html", "extensions.html"]);
 
 function isHttpUrl(url) {
   try {
@@ -796,9 +783,15 @@ function deleteHistoryItem(idOrMatch) {
   saveH();
 }
 
+function getSenderWindow(sender) {
+  if (!sender) return null;
+  if (typeof sender.isDestroyed === "function" && sender.isDestroyed()) return null;
+  return BrowserWindow.fromWebContents(sender) || sender.getOwnerBrowserWindow() || null;
+}
+
 ipcMain.on("set-chrome-metrics", (e, m) => {
   if (!isTrustedSender(e.sender)) return;
-  const w = BrowserWindow.fromWebContents(e.sender);
+  const w = getSenderWindow(e.sender);
   if (!w) return;
   const s = states[w.profileIndex];
   if (m && s) {
@@ -821,7 +814,7 @@ ipcMain.on("fetch-and-show-history", (e, q) => {
 });
 ipcMain.on("apply-browser-color", (e, c) => {
   if (!isTrustedSender(e.sender)) return;
-  const w = BrowserWindow.fromWebContents(e.sender);
+  const w = getSenderWindow(e.sender);
   if (w) {
     w.setBackgroundColor(c);
     bSett.themeColor = c;
@@ -834,7 +827,7 @@ ipcMain.on("update-default-search-engine", (e, u) => {
 });
 ipcMain.on("toggle-browser-view", (e, v) => {
   if (!isTrustedSender(e.sender)) return;
-  const w = BrowserWindow.fromWebContents(e.sender);
+  const w = getSenderWindow(e.sender);
   if (!w) return;
   const s = states[w.profileIndex];
   if (!s) return;
@@ -885,7 +878,7 @@ ipcMain.on("rename-profile", (e, { profileIndex, newName }) => {
 });
 ipcMain.handle("create-tab", (e, { tabId, url, inc, afterTabId }) => {
   if (!isTrustedSender(e.sender)) return;
-  const w = BrowserWindow.fromWebContents(e.sender);
+  const w = getSenderWindow(e.sender);
   if (!w) return;
   const pIdx = w.profileIndex;
   const u = url || "https://www.google.com/";
@@ -907,22 +900,22 @@ ipcMain.handle("create-tab", (e, { tabId, url, inc, afterTabId }) => {
 });
 ipcMain.handle("switch-tab", (e, id) => {
   if (!isTrustedSender(e.sender)) return;
-  const w = BrowserWindow.fromWebContents(e.sender);
+  const w = getSenderWindow(e.sender);
   if (w) switchT(id, w.profileIndex);
 });
 ipcMain.handle("close-tab", (e, id) => {
   if (!isTrustedSender(e.sender)) return;
-  const w = BrowserWindow.fromWebContents(e.sender);
+  const w = getSenderWindow(e.sender);
   if (w) closeTab(w.profileIndex, id, w);
 });
 ipcMain.handle("clear-other-tabs", (e, keepId) => {
   if (!isTrustedSender(e.sender)) return;
-  const w = BrowserWindow.fromWebContents(e.sender);
+  const w = getSenderWindow(e.sender);
   if (w) clearOtherTabs(w.profileIndex, keepId, w);
 });
 ipcMain.handle("navigate-to", (e, u) => {
   if (!isTrustedSender(e.sender)) return;
-  const w = BrowserWindow.fromWebContents(e.sender);
+  const w = getSenderWindow(e.sender);
   if (!w) return;
   const s = states[w.profileIndex];
   if (!s || !s.activeView) return;
@@ -963,14 +956,14 @@ ipcMain.handle("navigate-to", (e, u) => {
 });
 ipcMain.handle("go-back", (e) => {
   if (!isTrustedSender(e.sender)) return;
-  const w = BrowserWindow.fromWebContents(e.sender);
+  const w = getSenderWindow(e.sender);
   if (!w) return;
   const s = states[w.profileIndex];
   if (s && s.activeView && s.activeView.webContents.canGoBack()) s.activeView.webContents.goBack();
 });
 ipcMain.handle("go-forward", (e) => {
   if (!isTrustedSender(e.sender)) return;
-  const w = BrowserWindow.fromWebContents(e.sender);
+  const w = getSenderWindow(e.sender);
   if (!w) return;
   const s = states[w.profileIndex];
   if (s && s.activeView && s.activeView.webContents.canGoForward())
@@ -978,7 +971,7 @@ ipcMain.handle("go-forward", (e) => {
 });
 ipcMain.handle("reload-page", (e) => {
   if (!isTrustedSender(e.sender)) return;
-  const w = BrowserWindow.fromWebContents(e.sender);
+  const w = getSenderWindow(e.sender);
   if (!w) return;
   const s = states[w.profileIndex];
   if (s && s.activeView) s.activeView.webContents.reload();
@@ -998,14 +991,14 @@ ipcMain.handle("delete-history-item", (e, id) => {
 });
 ipcMain.handle("find-in-page", (e, t, o = {}) => {
   if (!isTrustedSender(e.sender)) return;
-  const w = BrowserWindow.fromWebContents(e.sender);
+  const w = getSenderWindow(e.sender);
   if (!w) return;
   const s = states[w.profileIndex];
   if (s && s.activeView && t) s.activeView.webContents.findInPage(t, o);
 });
 ipcMain.handle("stop-find-in-page", (e, a) => {
   if (!isTrustedSender(e.sender)) return;
-  const w = BrowserWindow.fromWebContents(e.sender);
+  const w = getSenderWindow(e.sender);
   if (!w) return;
   const s = states[w.profileIndex];
   if (s && s.activeView) s.activeView.webContents.stopFindInPage(a || "clearSelection");
@@ -1013,12 +1006,12 @@ ipcMain.handle("stop-find-in-page", (e, a) => {
 ipcMain.handle("select-extension-folder", async (e) => {
   if (!isTrustedSender(e.sender)) return null;
   return dialog
-    .showOpenDialog(BrowserWindow.fromWebContents(e.sender), { properties: ["openDirectory"] })
+    .showOpenDialog(getSenderWindow(e.sender), { properties: ["openDirectory"] })
     .then((r) => (r.canceled ? null : r.filePaths[0]));
 });
 ipcMain.handle("load-extension", async (e, p) => {
   if (!isTrustedSender(e.sender)) return { success: false, error: "Untrusted sender." };
-  const w = BrowserWindow.fromWebContents(e.sender);
+  const w = getSenderWindow(e.sender);
   if (!w) return { success: false, error: "No window." };
   const pIdx = w.profileIndex;
   if (!p || !path.isAbsolute(p) || !fs.existsSync(p))
@@ -1038,7 +1031,7 @@ ipcMain.handle("load-extension", async (e, p) => {
 });
 ipcMain.handle("get-extensions", (e) => {
   if (!isTrustedSender(e.sender)) return [];
-  const w = BrowserWindow.fromWebContents(e.sender) || e.sender.getOwnerBrowserWindow();
+  const w = getSenderWindow(e.sender);
   const pIdx = w ? w.profileIndex : 0;
   const sess = session.fromPartition(`persist:profile-${pIdx}`);
   return sess.getAllExtensions().map((ext) => ({
@@ -1050,7 +1043,7 @@ ipcMain.handle("get-extensions", (e) => {
 });
 ipcMain.handle("remove-extension", (e, id) => {
   if (!isTrustedSender(e.sender)) return;
-  const w = BrowserWindow.fromWebContents(e.sender) || e.sender.getOwnerBrowserWindow();
+  const w = getSenderWindow(e.sender);
   const pIdx = w ? w.profileIndex : 0;
   const sess = session.fromPartition(`persist:profile-${pIdx}`);
   const ext = sess.getExtension(id);
