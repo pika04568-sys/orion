@@ -678,13 +678,17 @@ function createW(pIdx = 0, opts = {}) {
   return win;
 }
 
-function broadcast() {
-  const p = Object.keys(pTabs)
+function getProfileListSnapshot() {
+  return Object.keys(pTabs)
     .filter((i) => parseInt(i, 10) < INCOGNITO_PROFILE_BASE)
     .map((i) => ({
       id: parseInt(i, 10),
       name: pNames[i] || getDefaultProfileName(parseInt(i, 10))
     }));
+}
+
+function broadcast() {
+  const p = getProfileListSnapshot();
   Object.values(windows).forEach((w) => {
     if (w && !w.isDestroyed()) w.webContents.send("profile-list-updated", { profiles: p });
   });
@@ -710,6 +714,7 @@ function insertTabAfter(pIdx, tab, afterTabId) {
 }
 
 function createT(pIdx, win) {
+  if (!pTabs[pIdx]) pTabs[pIdx] = [];
   const id = `p-${pIdx}-t-1`;
   const home = "chrome://newtab";
   const isIncognito = !!(win && win.incognitoWindow);
@@ -734,6 +739,42 @@ function createT(pIdx, win) {
   switchT(pTabs[pIdx][0].id, pIdx);
   broadcast();
   if (!isIncognito) win.webContents.send("history-loaded", getH());
+}
+
+function getWindowTabSnapshot(pIdx) {
+  const locale = getCurrentLocale() || localization.DEFAULT_LOCALE;
+  return getProfileTabList(pIdx).map((tab, index) => {
+    const fallbackTitle = tab && tab.incognito
+      ? localization.getIncognitoProfileName(locale)
+      : localization.t(locale, "app.newTab");
+    return {
+      id: tab.id || `p-${pIdx}-t-${index + 1}`,
+      url: appUtils.normalizeInternalUrl(tab.url || "chrome://newtab", "chrome://newtab") || "chrome://newtab",
+      title: tab.title || fallbackTitle,
+      incognito: !!tab.incognito
+    };
+  });
+}
+
+function ensureWindowBootstrapState(win) {
+  if (!win || win.isDestroyed()) return null;
+  const pIdx = win.profileIndex;
+  if (!pTabs[pIdx]) pTabs[pIdx] = [];
+  if (!states[pIdx]) {
+    states[pIdx] = { activeView: null, metrics: { top: 76, left: 0 }, visible: true };
+  }
+
+  if (!pTabs[pIdx].length) createT(pIdx, win);
+  const tabList = getProfileTabList(pIdx);
+  if (tabList.length && !getActiveT(pIdx)) switchT(tabList[0].id, pIdx);
+
+  return {
+    profileIndex: pIdx,
+    incognitoWindow: !!win.incognitoWindow,
+    profiles: getProfileListSnapshot(),
+    tabs: getWindowTabSnapshot(pIdx),
+    activeTabId: getActiveT(pIdx) || (tabList[0] && tabList[0].id) || null
+  };
 }
 
 function createV(id, url, inc, pIdx) {
@@ -995,11 +1036,17 @@ ipcMain.on("set-chrome-metrics", (e, m) => {
 });
 ipcMain.on("renderer-ready", (e) => {
   if (!isTrustedSender(e.sender)) return;
-  const w = e.sender.getOwnerBrowserWindow();
+  const w = getSenderWindow(e.sender);
   if (w) {
     createT(w.profileIndex, w);
     broadcast();
   }
+});
+ipcMain.handle("get-window-bootstrap-state", (e) => {
+  if (!isTrustedSender(e.sender)) return null;
+  const w = getSenderWindow(e.sender);
+  if (!w) return null;
+  return ensureWindowBootstrapState(w);
 });
 ipcMain.on("fetch-and-show-history", (e, q) => {
   if (!isTrustedSender(e.sender)) return;

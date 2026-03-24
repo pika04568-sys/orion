@@ -65,6 +65,7 @@ test("internal Orion file URLs normalize to chrome aliases across platforms", ()
 test("index shell channels allow renderer IPC and events", () => {
   assert.equal(appUtils.canUseElectronChannel("index.html", "send", "renderer-ready"), true);
   assert.equal(appUtils.canUseElectronChannel("index.html", "invoke", "create-tab"), true);
+  assert.equal(appUtils.canUseElectronChannel("index.html", "invoke", "get-window-bootstrap-state"), true);
   assert.equal(appUtils.canUseElectronChannel("index.html", "invoke", "navigate-to"), true);
   assert.equal(appUtils.canUseElectronChannel("index.html", "on", "tab-created"), true);
 });
@@ -72,6 +73,7 @@ test("index shell channels allow renderer IPC and events", () => {
 test("internal pages keep restricted invoke access", () => {
   assert.equal(appUtils.canUseElectronChannel("newtab.html", "invoke", "navigate-to"), true);
   assert.equal(appUtils.canUseElectronChannel("newtab.html", "invoke", "get-language-settings"), true);
+  assert.equal(appUtils.canUseElectronChannel("newtab.html", "invoke", "get-window-bootstrap-state"), false);
   assert.equal(appUtils.canUseElectronChannel("newtab.html", "send", "renderer-ready"), false);
   assert.equal(appUtils.canUseElectronChannel("extensions.html", "invoke", "load-extension"), true);
   assert.equal(appUtils.canUseElectronChannel("extensions.html", "on", "tab-created"), false);
@@ -79,6 +81,7 @@ test("internal pages keep restricted invoke access", () => {
 
 test("unknown pages do not get privileged channel access", () => {
   assert.equal(appUtils.canUseElectronChannel("https://example.com", "invoke", "navigate-to"), false);
+  assert.equal(appUtils.canUseElectronChannel("unknown.html", "invoke", "get-window-bootstrap-state"), false);
   assert.equal(appUtils.canUseElectronChannel("unknown.html", "send", "renderer-ready"), false);
   assert.deepEqual(appUtils.getElectronPageChannels("unknown.html"), {
     invoke: [],

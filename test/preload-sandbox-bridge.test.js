@@ -65,18 +65,21 @@ test("preload only requires electron in sandbox bridge", () => {
   assert.deepEqual(runtime.requireCalls, ["electron"]);
 });
 
-test("index page allows renderer-ready send and navigate invoke", () => {
+test("index page allows renderer-ready send and startup/navigation invokes", () => {
   const runtime = runPreload("file:///Users/kenokayasu/Documents/MyBrowser/index.html");
   const { api } = runtime;
 
   const invokeResult = api.invoke("navigate-to", "https://example.com");
+  const bootstrapInvokeResult = api.invoke("get-window-bootstrap-state");
   api.send("renderer-ready");
   const unsubscribe = api.on("tab-created", () => {});
   unsubscribe();
 
   assert.equal(invokeResult, "invoke-result");
-  assert.equal(runtime.invokeCalls.length, 1);
+  assert.equal(bootstrapInvokeResult, "invoke-result");
+  assert.equal(runtime.invokeCalls.length, 2);
   assert.deepEqual(runtime.invokeCalls[0], ["navigate-to", "https://example.com"]);
+  assert.deepEqual(runtime.invokeCalls[1], ["get-window-bootstrap-state"]);
   assert.equal(runtime.sendCalls.length, 1);
   assert.deepEqual(runtime.sendCalls[0], ["renderer-ready"]);
   assert.equal(runtime.onCalls.length, 1);
@@ -92,11 +95,13 @@ test("newtab page allows invoke but blocks send/on privileges", () => {
   const { api } = runtime;
 
   const invokeResult = api.invoke("navigate-to", "example query");
+  const blockedBootstrap = api.invoke("get-window-bootstrap-state");
   api.send("renderer-ready");
   const unsubscribe = api.on("tab-created", () => {});
   unsubscribe();
 
   assert.equal(invokeResult, "invoke-result");
+  assert.equal(blockedBootstrap, undefined);
   assert.equal(runtime.invokeCalls.length, 1);
   assert.deepEqual(runtime.invokeCalls[0], ["navigate-to", "example query"]);
   assert.equal(runtime.sendCalls.length, 0);
@@ -109,11 +114,13 @@ test("non-file pages block all privileged channels", () => {
   const { api } = runtime;
 
   const invokeResult = api.invoke("navigate-to", "https://openai.com");
+  const blockedBootstrap = api.invoke("get-window-bootstrap-state");
   api.send("renderer-ready");
   const unsubscribe = api.on("tab-created", () => {});
   unsubscribe();
 
   assert.equal(invokeResult, undefined);
+  assert.equal(blockedBootstrap, undefined);
   assert.equal(runtime.invokeCalls.length, 0);
   assert.equal(runtime.sendCalls.length, 0);
   assert.equal(runtime.onCalls.length, 0);

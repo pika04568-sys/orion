@@ -9,6 +9,7 @@ const APP_INVOKE_CHANNELS = Object.freeze([
   "close-tab",
   "create-tab",
   "get-language-settings",
+  "get-window-bootstrap-state",
   "open-incognito-window",
   "find-in-page",
   "get-app-version",

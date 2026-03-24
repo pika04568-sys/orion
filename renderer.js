@@ -161,6 +161,50 @@ function syncTabState(tabLike = {}) {
   return appUtils.upsertTabRecord(tabs, nextTab);
 }
 
+function normalizeBootstrapTab(tabLike = {}) {
+  if (!tabLike || !tabLike.id) return null;
+  return {
+    id: tabLike.id,
+    url: normalizeTabUrl(tabLike.url || 'chrome://newtab') || 'chrome://newtab',
+    title: tabLike.title || t('app.newTab'),
+    incognito: !!tabLike.incognito
+  };
+}
+
+function hydrateFromBootstrapState(snapshot) {
+  if (!snapshot || typeof snapshot !== 'object') return;
+
+  if (typeof snapshot.profileIndex === 'number') activeProfile = snapshot.profileIndex;
+  isIncognitoWindow = !!snapshot.incognitoWindow;
+  document.body.classList.toggle('incognito-window', isIncognitoWindow);
+
+  if (Array.isArray(snapshot.profiles)) {
+    profiles = snapshot.profiles
+      .map((profile) => ({
+        id: Number(profile.id),
+        name: profile && profile.name ? profile.name : ''
+      }))
+      .filter((profile) => Number.isFinite(profile.id));
+    renderProfileList();
+  }
+
+  const bootstrapTabs = Array.isArray(snapshot.tabs)
+    ? snapshot.tabs.map(normalizeBootstrapTab).filter(Boolean)
+    : [];
+  if (bootstrapTabs.length) {
+    document.querySelectorAll('.tab').forEach((tab) => tab.remove());
+    tabs = [];
+    bootstrapTabs.forEach((tabLike) => addTabToUI(tabLike));
+
+    const fallbackActiveId = bootstrapTabs[0].id;
+    let nextActiveId = typeof snapshot.activeTabId === 'string' ? snapshot.activeTabId : fallbackActiveId;
+    if (!tabs.find((tab) => tab.id === nextActiveId)) nextActiveId = fallbackActiveId;
+    setActiveTab(nextActiveId);
+  } else if (addressBar) {
+    addressBar.value = '';
+  }
+}
+
 function getUpdateButtonText(state) {
   switch (state) {
     case 'checking':
@@ -973,6 +1017,10 @@ document.addEventListener('keydown', (event) => {
 async function bootstrap() {
   init();
   ensureRendererStarted();
+  try {
+    const snapshot = await ipcRenderer.invoke('get-window-bootstrap-state');
+    hydrateFromBootstrapState(snapshot);
+  } catch (_error) { }
 
   let persistedLocale = null;
   try {
