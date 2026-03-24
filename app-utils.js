@@ -9,6 +9,88 @@
     "newtab.html": "chrome://newtab",
     "extensions.html": "chrome://extensions"
   });
+  const APP_INVOKE_CHANNELS = Object.freeze([
+    "add-new-profile",
+    "check-for-updates",
+    "clear-history-range",
+    "delete-history-item",
+    "clear-other-tabs",
+    "close-tab",
+    "create-tab",
+    "get-language-settings",
+    "open-incognito-window",
+    "find-in-page",
+    "get-app-version",
+    "get-updater-state",
+    "go-back",
+    "go-forward",
+    "load-extension",
+    "navigate-to",
+    "reload-page",
+    "set-language",
+    "select-extension-folder",
+    "stop-find-in-page",
+    "switch-profile",
+    "switch-tab",
+    "update-adblock-rules"
+  ]);
+  const APP_SEND_CHANNELS = Object.freeze([
+    "apply-browser-color",
+    "fetch-and-show-history",
+    "renderer-ready",
+    "set-chrome-metrics",
+    "toggle-browser-view",
+    "update-default-search-engine",
+    "rename-profile"
+  ]);
+  const APP_ON_CHANNELS = Object.freeze([
+    "active-tab-changed",
+    "download-started",
+    "download-updated",
+    "find-result",
+    "history-data-received",
+    "history-loaded",
+    "history-updated",
+    "keyboard-shortcut",
+    "profile-changed",
+    "profile-list-updated",
+    "tab-closed",
+    "tab-created",
+    "tab-switched",
+    "updater-status",
+    "view-event"
+  ]);
+  const INTERNAL_INVOKE_CHANNELS = Object.freeze([
+    "get-language-settings",
+    "get-extensions",
+    "load-extension",
+    "navigate-to",
+    "remove-extension",
+    "set-language",
+    "select-extension-folder"
+  ]);
+  const EMPTY_CHANNELS = Object.freeze({
+    invoke: Object.freeze([]),
+    send: Object.freeze([]),
+    on: Object.freeze([])
+  });
+  const ELECTRON_PAGE_CHANNELS = Object.freeze({
+    "index.html": Object.freeze({
+      invoke: APP_INVOKE_CHANNELS,
+      send: APP_SEND_CHANNELS,
+      on: APP_ON_CHANNELS
+    }),
+    "newtab.html": Object.freeze({
+      invoke: INTERNAL_INVOKE_CHANNELS,
+      send: EMPTY_CHANNELS.send,
+      on: EMPTY_CHANNELS.on
+    }),
+    "extensions.html": Object.freeze({
+      invoke: INTERNAL_INVOKE_CHANNELS,
+      send: EMPTY_CHANNELS.send,
+      on: EMPTY_CHANNELS.on
+    })
+  });
 
   function getLocalPageFileName(url) {
     if (!url || typeof url !== "string") return null;
@@ -42,6 +124,46 @@
   function normalizeInternalUrl(url, fallbackUrl = "") {
     if (!url || typeof url !== "string") return fallbackUrl || "";
     return getInternalAlias(url) || url;
+  }
+
+  function getElectronPageChannels(fileName) {
+    if (!fileName || typeof fileName !== "string") return EMPTY_CHANNELS;
+    return ELECTRON_PAGE_CHANNELS[fileName.toLowerCase()] || EMPTY_CHANNELS;
+  }
+
+  function canUseElectronChannel(fileName, method, channel) {
+    if (!channel || typeof channel !== "string") return false;
+    const channels = getElectronPageChannels(fileName);
+    const allowed = channels && channels[method];
+    return Array.isArray(allowed) ? allowed.includes(channel) : false;
+  }
+
+  function resolveRendererBootstrapState(options = {}) {
+    const sanitizeLocale =
+      typeof options.sanitizeLocale === "function" ? options.sanitizeLocale : (value) => value || null;
+    const persistedLocale = sanitizeLocale(options.persistedLocale);
+    if (persistedLocale) {
+      return {
+        locale: persistedLocale,
+        showOnboarding: false,
+        source: "settings"
+      };
+    }
+
+    const storedLocale = sanitizeLocale(options.storedLocale);
+    if (storedLocale) {
+      return {
+        locale: storedLocale,
+        showOnboarding: false,
+        source: "local-storage"
+      };
+    }
+
+    return {
+      locale: options.defaultLocale || "en",
+      showOnboarding: true,
+      source: "default"
+    };
   }
 
   function syncTabRecord(tabList, tabId, patch = {}) {
@@ -169,11 +291,19 @@
   }
 
   return {
+    APP_INVOKE_CHANNELS,
+    APP_ON_CHANNELS,
+    APP_SEND_CHANNELS,
+    INTERNAL_INVOKE_CHANNELS,
+    ELECTRON_PAGE_CHANNELS,
+    canUseElectronChannel,
     INTERNAL_PAGE_ALIASES,
     createExtensionCard,
     createTabElement,
+    getElectronPageChannels,
     getActiveTabBookmark,
     getLocalPageFileName,
+    resolveRendererBootstrapState,
     normalizeInternalUrl,
     isTrustedLocalPage,
     removeBookmarkById,

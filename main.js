@@ -409,6 +409,32 @@ function updateB(pIdx) {
   });
 }
 
+function reloadActiveView(pIdx, options = {}) {
+  const s = states[pIdx];
+  if (!s || !s.activeView || s.activeView.webContents.isDestroyed()) return false;
+  if (options.ignoreCache) s.activeView.webContents.reloadIgnoringCache();
+  else s.activeView.webContents.reload();
+  return true;
+}
+
+function isReloadInput(input = {}) {
+  if (input.type !== "keyDown") return false;
+  const key = typeof input.key === "string" ? input.key.toLowerCase() : "";
+  if (key === "f5") return true;
+  return (input.control || input.meta) && key === "r";
+}
+
+function attachReloadShortcutHandler(webContents, getProfileIndex) {
+  if (!webContents || typeof webContents.on !== "function") return;
+  webContents.on("before-input-event", (event, input) => {
+    if (!isReloadInput(input)) return;
+    event.preventDefault();
+    const pIdx = typeof getProfileIndex === "function" ? getProfileIndex() : null;
+    if (pIdx === null || typeof pIdx === "undefined") return;
+    reloadActiveView(pIdx, { ignoreCache: !!input.shift });
+  });
+}
+
 const TRUSTED_PAGE_FILES = new Set(["index.html", "newtab.html", "extensions.html"]);
 
 function isTrustedSender(webContents) {
@@ -482,6 +508,7 @@ function createW(pIdx = 0, opts = {}) {
   win.profileIndex = pIdx;
   win.incognitoWindow = isIncognito;
   windows[pIdx] = win;
+  attachReloadShortcutHandler(win.webContents, () => win.profileIndex);
   if (!pTabs[pIdx]) pTabs[pIdx] = [];
   pNames[pIdx] = isIncognito ? getDefaultProfileName(pIdx, { incognito: true }) : (pNames[pIdx] || getDefaultProfileName(pIdx));
   states[pIdx] = { activeView: null, metrics: { top: 76, left: 0 }, visible: true };
@@ -583,6 +610,7 @@ function createV(id, url, inc, pIdx) {
   };
   ad(webP.partition);
   const v = new WebContentsView({ webPreferences: webP });
+  attachReloadShortcutHandler(v.webContents, () => pIdx);
   v.webContents.setUserAgent(
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
   );
@@ -676,7 +704,12 @@ function createV(id, url, inc, pIdx) {
         click: () => v.webContents.goForward()
       })
     );
-    m.append(new MenuItem({ label: "Reload", click: () => v.webContents.reload() }));
+    m.append(
+      new MenuItem({
+        label: "Reload",
+        click: () => reloadActiveView(pIdx)
+      })
+    );
     m.append(new MenuItem({ type: "separator" }));
     m.append(
       new MenuItem({
@@ -994,8 +1027,7 @@ ipcMain.handle("reload-page", (e) => {
   if (!isTrustedSender(e.sender)) return;
   const w = getSenderWindow(e.sender);
   if (!w) return;
-  const s = states[w.profileIndex];
-  if (s && s.activeView) s.activeView.webContents.reload();
+  reloadActiveView(w.profileIndex);
 });
 ipcMain.handle("switch-profile", (e, pIdx) => {
   if (!isTrustedSender(e.sender)) return;

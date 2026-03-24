@@ -1,106 +1,30 @@
 const { contextBridge, ipcRenderer } = require("electron");
 const appUtils = require("./app-utils");
 
-const APP_FILES = new Set(["index.html"]);
-const INTERNAL_FILES = new Set(["newtab.html", "extensions.html"]);
-
-const APP_INVOKE_CHANNELS = new Set([
-  "add-new-profile",
-  "check-for-updates",
-  "clear-history-range",
-  "delete-history-item",
-  "clear-other-tabs",
-  "close-tab",
-  "create-tab",
-  "get-language-settings",
-  "open-incognito-window",
-  "find-in-page",
-  "get-app-version",
-  "get-updater-state",
-  "go-back",
-  "go-forward",
-  "load-extension",
-  "navigate-to",
-  "reload-page",
-  "set-language",
-  "select-extension-folder",
-  "stop-find-in-page",
-  "switch-profile",
-  "switch-tab",
-  "update-adblock-rules"
-]);
-
-const APP_SEND_CHANNELS = new Set([
-  "apply-browser-color",
-  "fetch-and-show-history",
-  "renderer-ready",
-  "set-chrome-metrics",
-  "toggle-browser-view",
-  "update-default-search-engine",
-  "rename-profile"
-]);
-
-const APP_ON_CHANNELS = new Set([
-  "active-tab-changed",
-  "download-started",
-  "download-updated",
-  "find-result",
-  "history-data-received",
-  "history-loaded",
-  "history-updated",
-  "keyboard-shortcut",
-  "profile-changed",
-  "profile-list-updated",
-  "tab-closed",
-  "tab-created",
-  "tab-switched",
-  "updater-status",
-  "view-event"
-]);
-
-const INTERNAL_INVOKE_CHANNELS = new Set([
-  "get-language-settings",
-  "get-extensions",
-  "load-extension",
-  "navigate-to",
-  "remove-extension",
-  "set-language",
-  "select-extension-folder"
-]);
-
 function getPageFile() {
   return appUtils.getLocalPageFileName(window.location.href);
 }
 
-function buildApi(allowedInvoke, allowedSend, allowedOn) {
-  return {
+function canUseChannel(method, channel) {
+  return appUtils.canUseElectronChannel(getPageFile(), method, channel);
+}
+
+contextBridge.exposeInMainWorld(
+  "electron",
+  Object.freeze({
     invoke: (channel, ...args) => {
-      if (!allowedInvoke || !allowedInvoke.has(channel)) return undefined;
+      if (!canUseChannel("invoke", channel)) return undefined;
       return ipcRenderer.invoke(channel, ...args);
     },
     send: (channel, ...args) => {
-      if (!allowedSend || !allowedSend.has(channel)) return;
+      if (!canUseChannel("send", channel)) return;
       ipcRenderer.send(channel, ...args);
     },
     on: (channel, listener) => {
-      if (!allowedOn || !allowedOn.has(channel)) return () => {};
-      // Mirror Electron's ipcRenderer.on signature: (event, ...args).
+      if (!canUseChannel("on", channel)) return () => {};
       const subscription = (event, ...args) => listener(event, ...args);
       ipcRenderer.on(channel, subscription);
       return () => ipcRenderer.removeListener(channel, subscription);
     }
-  };
-}
-
-const fileName = getPageFile();
-if (APP_FILES.has(fileName)) {
-  contextBridge.exposeInMainWorld(
-    "electron",
-    Object.freeze(buildApi(APP_INVOKE_CHANNELS, APP_SEND_CHANNELS, APP_ON_CHANNELS))
-  );
-} else if (INTERNAL_FILES.has(fileName)) {
-  contextBridge.exposeInMainWorld(
-    "electron",
-    Object.freeze(buildApi(INTERNAL_INVOKE_CHANNELS, null, null))
-  );
-}
+  })
+);

@@ -115,6 +115,14 @@ function ensureRendererStarted() {
   ipcRenderer.send('renderer-ready');
 }
 
+function getStoredLocale() {
+  try {
+    return localization.sanitizeLocale(localStorage.getItem('orion-locale'));
+  } catch (_error) {
+    return null;
+  }
+}
+
 async function changeLanguage(locale, options = {}) {
   const nextLocale = localization.sanitizeLocale(locale);
   if (!nextLocale) return;
@@ -956,23 +964,28 @@ async function bootstrap() {
   init();
   ensureRendererStarted();
 
+  let persistedLocale = null;
   try {
     const response = await ipcRenderer.invoke('get-language-settings');
-    const locale = localization.sanitizeLocale(response && response.locale);
-    if (locale) {
-      setLocale(locale);
-      try {
-        localStorage.setItem('orion-locale', locale);
-      } catch (_error) { }
-      applyTranslations();
-      hideStartupOverlay();
-      return;
-    }
+    persistedLocale = localization.sanitizeLocale(response && response.locale);
   } catch (_error) { }
 
-  setLocale(localization.DEFAULT_LOCALE);
+  const bootstrapState = appUtils.resolveRendererBootstrapState({
+    persistedLocale,
+    storedLocale: getStoredLocale(),
+    defaultLocale: localization.DEFAULT_LOCALE,
+    sanitizeLocale: localization.sanitizeLocale
+  });
+
+  setLocale(bootstrapState.locale);
+  if (!bootstrapState.showOnboarding) {
+    try {
+      localStorage.setItem('orion-locale', bootstrapState.locale);
+    } catch (_error) { }
+  }
   applyTranslations();
-  showStartupOverlay();
+  if (bootstrapState.showOnboarding) showStartupOverlay();
+  else hideStartupOverlay();
 }
 
 bootstrap();
