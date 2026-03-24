@@ -8,9 +8,9 @@ If you just want to use the browser, you do not need Node.js or npm. Simply down
 
 Windows (.exe)
 
-Installer: Orion Setup x.x.x.exe (Standard installation)
+Installer: Orion Setup x.x.x x64.exe or Orion Setup x.x.x arm64.exe (match your Windows architecture)
 
-Portable: Orion x.x.x.exe (Run directly without installing)
+Portable: Orion x.x.x x64.exe or Orion x.x.x arm64.exe (run directly without installing)
 
 🛠️ Development (For Contributors)
 
@@ -37,7 +37,7 @@ npm start
 
 To package the source code into a redistributable format (like a .exe or .dmg):
 
-# Windows (Generates NSIS installer + portable .exe)
+# Windows (Generates separate NSIS installer + portable .exe builds for x64 and arm64)
 npm run dist:win
 
 # macOS (Generates DMG)

@@ -18,6 +18,7 @@ const APP_INVOKE_CHANNELS = Object.freeze([
   "load-extension",
   "navigate-to",
   "reload-page",
+  "reopen-closed-tab",
   "set-language",
   "select-extension-folder",
   "stop-find-in-page",

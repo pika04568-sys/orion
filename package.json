@@ -12,7 +12,7 @@
     "pack": "electron-builder --dir",
     "dist": "electron-builder",
     "dist:mac": "electron-builder --mac",
-    "dist:win": "electron-builder --win"
+    "dist:win": "electron-builder --win --x64 --arm64"
   },
   "build": {
     "appId": "com.orion.browser",
@@ -40,13 +40,31 @@
     "win": {
       "icon": "assets/orion.ico",
       "target": [
-        "nsis",
-        "portable"
+        {
+          "target": "nsis",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
       ]
     },
     "nsis": {
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "buildUniversalInstaller": false,
+      "artifactName": "${productName} Setup ${version} ${arch}.${ext}"
+    },
+    "portable": {
+      "buildUniversalInstaller": false,
+      "artifactName": "${productName} ${version} ${arch}.${ext}"
     },
     "dmg": {
       "contents": [

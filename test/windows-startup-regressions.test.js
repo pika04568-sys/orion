@@ -128,3 +128,53 @@ test("renderer bootstrap shows onboarding only when no valid locale exists", () 
     source: "default"
   });
 });
+
+test("browser shortcut resolver maps common navigation shortcuts", () => {
+  assert.equal(
+    appUtils.resolveBrowserShortcutAction({ type: "keyDown", control: true, key: "l" }),
+    "focus-address-bar"
+  );
+  assert.equal(
+    appUtils.resolveBrowserShortcutAction({ type: "keyDown", control: true, shift: true, key: "n" }),
+    "new-incognito-tab"
+  );
+  assert.equal(
+    appUtils.resolveBrowserShortcutAction({ type: "keyDown", alt: true, key: "ArrowLeft" }),
+    "go-back"
+  );
+  assert.equal(
+    appUtils.resolveBrowserShortcutAction({ type: "keyDown", control: true, key: "PageDown" }),
+    "switch-tab-next"
+  );
+  assert.equal(
+    appUtils.resolveBrowserShortcutAction({ type: "keyDown", control: true, shift: true, key: "PageUp" }),
+    "switch-tab-previous"
+  );
+});
+
+test("browser shortcut resolver maps tab, reload, and panel shortcuts", () => {
+  assert.equal(
+    appUtils.resolveBrowserShortcutAction({ type: "keyDown", control: true, key: "1" }),
+    "switch-tab-1"
+  );
+  assert.equal(
+    appUtils.resolveBrowserShortcutAction({ type: "keyDown", control: true, shift: true, key: "t" }),
+    "reopen-closed-tab"
+  );
+  assert.equal(
+    appUtils.resolveBrowserShortcutAction({ type: "keyDown", control: true, key: "r" }),
+    "reload-page"
+  );
+  assert.equal(
+    appUtils.resolveBrowserShortcutAction({ type: "keyDown", control: true, shift: true, key: "r" }),
+    "hard-reload-page"
+  );
+  assert.equal(
+    appUtils.resolveBrowserShortcutAction({ type: "keyDown", control: true, key: "," }),
+    "show-settings"
+  );
+  assert.equal(
+    appUtils.resolveBrowserShortcutAction({ type: "keyDown", control: true, key: "d" }),
+    "bookmark-page"
+  );
+});

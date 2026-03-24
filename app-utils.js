@@ -27,6 +27,7 @@
     "load-extension",
     "navigate-to",
     "reload-page",
+    "reopen-closed-tab",
     "set-language",
     "select-extension-folder",
     "stop-find-in-page",
@@ -124,6 +125,51 @@
   function normalizeInternalUrl(url, fallbackUrl = "") {
     if (!url || typeof url !== "string") return fallbackUrl || "";
     return getInternalAlias(url) || url;
+  }
+
+  function resolveBrowserShortcutAction(input = {}) {
+    if (!input || input.type !== "keyDown") return null;
+
+    const key = typeof input.key === "string" ? input.key.toLowerCase() : "";
+    const code = typeof input.code === "string" ? input.code.toLowerCase() : "";
+    const primary = !!(input.control || input.meta);
+    const shift = !!input.shift;
+    const alt = !!input.alt;
+
+    const getDigit = () => {
+      if (/^[1-9]$/.test(key)) return key;
+      const digitMatch = code.match(/^(digit|numpad)([1-9])$/);
+      return digitMatch ? digitMatch[2] : null;
+    };
+
+    if (!primary && alt && (key === "arrowleft" || code === "arrowleft")) return "go-back";
+    if (!primary && alt && (key === "arrowright" || code === "arrowright")) return "go-forward";
+
+    if (primary && !alt && !shift && (key === "l" || key === "k")) return "focus-address-bar";
+    if (primary && !alt && !shift && key === "t") return "new-tab";
+    if (primary && shift && key === "n") return "new-incognito-tab";
+    if (primary && !alt && !shift && key === "w") return "close-tab";
+    if (primary && shift && key === "t") return "reopen-closed-tab";
+    if (primary && !alt && !shift && key === "d") return "bookmark-page";
+    if (primary && !alt && !shift && key === "f") return "find-in-page";
+    if (primary && !alt && !shift && key === "h") return "show-history";
+    if (primary && !alt && !shift && key === "j") return "show-downloads";
+    if (primary && !alt && key === "b") return "show-bookmarks";
+    if (primary && !alt && !shift && (key === "," || code === "comma")) return "show-settings";
+    if (primary && !alt && shift && (key === "r" || code === "f5")) return "hard-reload-page";
+    if (primary && !alt && (key === "r" || code === "f5")) return "reload-page";
+
+    if (primary && !alt && (key === "tab" || code === "tab" || key === "pagedown" || code === "pagedown")) {
+      return shift ? "switch-tab-previous" : "switch-tab-next";
+    }
+    if (primary && !alt && (key === "pageup" || code === "pageup")) return "switch-tab-previous";
+    if (primary && !alt && (key === "[" || code === "bracketleft")) return "switch-tab-previous";
+    if (primary && !alt && (key === "]" || code === "bracketright")) return "switch-tab-next";
+
+    const digit = getDigit();
+    if (primary && !alt && digit) return `switch-tab-${digit}`;
+
+    return null;
   }
 
   function getElectronPageChannels(fileName) {
@@ -304,6 +350,7 @@
     getActiveTabBookmark,
     getLocalPageFileName,
     resolveRendererBootstrapState,
+    resolveBrowserShortcutAction,
     normalizeInternalUrl,
     isTrustedLocalPage,
     removeBookmarkById,

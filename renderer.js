@@ -619,10 +619,20 @@ ipcRenderer.on('keyboard-shortcut', (e, t) => {
     const btn = document.getElementById('incognito-tab-btn');
     if (btn) btn.click();
   } else if (t === 'close-tab' && activeTabId) ipcRenderer.invoke('close-tab', activeTabId);
+  else if (t === 'reopen-closed-tab') ipcRenderer.invoke('reopen-closed-tab');
   else if (t === 'focus-address-bar') {
     addressBar.focus();
     addressBar.select();
   } else if (t === 'show-history') historyBtn.click();
+  else if (t === 'show-downloads') downloadsBtn.click();
+  else if (t === 'show-bookmarks') bookmarkBtn.click();
+  else if (t === 'show-settings') settingsBtn.click();
+  else if (t === 'show-adblock') {
+    const btn = document.getElementById('adblock-btn');
+    if (btn) btn.click();
+  } else if (t === 'bookmark-page') {
+    openBookmarkModal();
+  }
   else if (t === 'find-in-page') {
     findBar.style.display = findBar.style.display === 'none' ? 'flex' : 'none';
     if (findBar.style.display === 'flex') {

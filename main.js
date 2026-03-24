@@ -26,6 +26,7 @@ const INTERNAL_PAGES = new Map([
 let windows = {};
 let views = {};
 let states = {};
+let recentlyClosedTabs = {};
 let adRules = [];
 let partitions = new Set();
 let pTabs = { 0: [] };
@@ -417,21 +418,162 @@ function reloadActiveView(pIdx, options = {}) {
   return true;
 }
 
-function isReloadInput(input = {}) {
-  if (input.type !== "keyDown") return false;
-  const key = typeof input.key === "string" ? input.key.toLowerCase() : "";
-  if (key === "f5") return true;
-  return (input.control || input.meta) && key === "r";
+function getProfileTabList(pIdx) {
+  if (!pTabs[pIdx]) pTabs[pIdx] = [];
+  return pTabs[pIdx];
 }
 
-function attachReloadShortcutHandler(webContents, getProfileIndex) {
+function getDefaultTabTitle(pIdx, opts = {}) {
+  const locale = getCurrentLocale() || localization.DEFAULT_LOCALE;
+  if (opts.incognito) return localization.getIncognitoProfileName(locale);
+  return localization.t(locale, "app.newTab");
+}
+
+function rememberClosedTab(pIdx, tab) {
+  if (!tab || !tab.url) return;
+  if (!recentlyClosedTabs[pIdx]) recentlyClosedTabs[pIdx] = [];
+  recentlyClosedTabs[pIdx].unshift({
+    url: appUtils.normalizeInternalUrl(tab.url, tab.url),
+    title: tab.title || tab.url,
+    incognito: !!tab.incognito
+  });
+  if (recentlyClosedTabs[pIdx].length > 20) recentlyClosedTabs[pIdx].length = 20;
+}
+
+function openTabInProfile(pIdx, tabLike = {}, options = {}) {
+  const win = options.win || windows[pIdx];
+  const tabList = getProfileTabList(pIdx);
+  if (!win || win.isDestroyed()) return null;
+
+  const tabId = tabLike.id || `p-${pIdx}-t-${Date.now()}`;
+  const existing = tabList.find((entry) => entry && entry.id === tabId);
+  if (existing) {
+    switchT(tabId, pIdx);
+    return existing;
+  }
+
+  const nextUrl = appUtils.normalizeInternalUrl(tabLike.url || "chrome://newtab", "chrome://newtab") || "chrome://newtab";
+  const nextTab = {
+    id: tabId,
+    url: nextUrl,
+    title: tabLike.title || getDefaultTabTitle(pIdx, { incognito: !!tabLike.incognito }),
+    incognito: !!tabLike.incognito
+  };
+  const afterTabId = typeof options.afterTabId === "string" && options.afterTabId ? options.afterTabId : null;
+  insertTabAfter(pIdx, nextTab, afterTabId);
+  if (options.notify !== false) {
+    win.webContents.send("tab-created", { ...nextTab, afterTabId });
+  }
+  createV(tabId, nextUrl, nextTab.incognito, pIdx);
+  switchT(tabId, pIdx);
+  return nextTab;
+}
+
+function switchToRelativeTab(pIdx, delta) {
+  const tabList = getProfileTabList(pIdx);
+  if (!tabList.length) return false;
+  const activeId = getActiveT(pIdx);
+  const activeIndex = tabList.findIndex((tab) => tab && tab.id === activeId);
+  const baseIndex = activeIndex >= 0 ? activeIndex : 0;
+  const nextIndex = (baseIndex + delta + tabList.length) % tabList.length;
+  const nextTab = tabList[nextIndex];
+  if (!nextTab) return false;
+  switchT(nextTab.id, pIdx);
+  return true;
+}
+
+function switchToTabByNumber(pIdx, tabNumber) {
+  const tabList = getProfileTabList(pIdx);
+  if (!tabList.length) return false;
+  const index = tabNumber >= 9 ? tabList.length - 1 : tabNumber - 1;
+  const nextTab = tabList[index];
+  if (!nextTab) return false;
+  switchT(nextTab.id, pIdx);
+  return true;
+}
+
+function reopenClosedTab(pIdx) {
+  const closedTabs = recentlyClosedTabs[pIdx];
+  const restored = closedTabs && closedTabs.shift();
+  if (!restored) return false;
+  const win = windows[pIdx];
+  if (!win || win.isDestroyed()) return false;
+  return !!openTabInProfile(pIdx, restored, {
+    win,
+    afterTabId: getActiveT(pIdx)
+  });
+}
+
+function dispatchBrowserShortcutAction(pIdx, action) {
+  const win = windows[pIdx];
+  if (!win || win.isDestroyed()) return false;
+
+  switch (action) {
+    case "new-tab":
+      openTabInProfile(pIdx, {
+        url: "chrome://newtab",
+        incognito: !!win.incognitoWindow
+      }, { win });
+      return true;
+    case "new-incognito-tab":
+      openIncognitoWindow("chrome://newtab");
+      return true;
+    case "close-tab": {
+      const activeTabId = getActiveT(pIdx);
+      if (!activeTabId) return false;
+      closeTab(pIdx, activeTabId, win);
+      return true;
+    }
+    case "reopen-closed-tab":
+      return reopenClosedTab(pIdx);
+    case "focus-address-bar":
+    case "find-in-page":
+    case "show-history":
+    case "show-downloads":
+    case "show-bookmarks":
+    case "show-settings":
+    case "bookmark-page":
+      win.webContents.send("keyboard-shortcut", action);
+      return true;
+    case "reload-page":
+      return reloadActiveView(pIdx, { ignoreCache: false });
+    case "hard-reload-page":
+      return reloadActiveView(pIdx, { ignoreCache: true });
+    case "go-back": {
+      const s = states[pIdx];
+      if (s && s.activeView && s.activeView.webContents.canGoBack()) {
+        s.activeView.webContents.goBack();
+      }
+      return true;
+    }
+    case "go-forward": {
+      const s = states[pIdx];
+      if (s && s.activeView && s.activeView.webContents.canGoForward()) {
+        s.activeView.webContents.goForward();
+      }
+      return true;
+    }
+    case "switch-tab-next":
+      return switchToRelativeTab(pIdx, 1);
+    case "switch-tab-previous":
+      return switchToRelativeTab(pIdx, -1);
+    default: {
+      const match = typeof action === "string" ? action.match(/^switch-tab-(\d)$/) : null;
+      if (!match) return false;
+      return switchToTabByNumber(pIdx, Number(match[1]));
+    }
+  }
+}
+
+function attachBrowserShortcutHandler(webContents, getProfileIndex) {
   if (!webContents || typeof webContents.on !== "function") return;
   webContents.on("before-input-event", (event, input) => {
-    if (!isReloadInput(input)) return;
-    event.preventDefault();
+    const action = appUtils.resolveBrowserShortcutAction(input);
+    if (!action) return;
     const pIdx = typeof getProfileIndex === "function" ? getProfileIndex() : null;
     if (pIdx === null || typeof pIdx === "undefined") return;
-    reloadActiveView(pIdx, { ignoreCache: !!input.shift });
+    event.preventDefault();
+    dispatchBrowserShortcutAction(pIdx, action);
   });
 }
 
@@ -508,7 +650,7 @@ function createW(pIdx = 0, opts = {}) {
   win.profileIndex = pIdx;
   win.incognitoWindow = isIncognito;
   windows[pIdx] = win;
-  attachReloadShortcutHandler(win.webContents, () => win.profileIndex);
+  attachBrowserShortcutHandler(win.webContents, () => win.profileIndex);
   if (!pTabs[pIdx]) pTabs[pIdx] = [];
   pNames[pIdx] = isIncognito ? getDefaultProfileName(pIdx, { incognito: true }) : (pNames[pIdx] || getDefaultProfileName(pIdx));
   states[pIdx] = { activeView: null, metrics: { top: 76, left: 0 }, visible: true };
@@ -610,7 +752,7 @@ function createV(id, url, inc, pIdx) {
   };
   ad(webP.partition);
   const v = new WebContentsView({ webPreferences: webP });
-  attachReloadShortcutHandler(v.webContents, () => pIdx);
+  attachBrowserShortcutHandler(v.webContents, () => pIdx);
   v.webContents.setUserAgent(
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
   );
@@ -763,22 +905,19 @@ function switchT(id, pIdx) {
 function openL(u, pIdx, inc = false) {
   const url = normalizeHttpUrl(u);
   if (!url) return;
-  const id = `p-${pIdx}-t-${Date.now()}`;
-  const locale = getCurrentLocale() || localization.DEFAULT_LOCALE;
-  pTabs[pIdx].push({
-    id,
-    url,
-    title: inc ? localization.getIncognitoProfileName(locale) : localization.t(locale, "app.newTab"),
-    incognito: inc
-  });
-  createV(id, url, inc, pIdx);
-  switchT(id, pIdx);
+  openTabInProfile(pIdx, { url, incognito: inc }, { win: windows[pIdx] });
 }
 
 function closeTab(pIdx, id, win) {
   const w = win || windows[pIdx];
   const s = states[pIdx];
   if (!views[id] || !w) return;
+  const closingTab = pTabs[pIdx].find((t) => t.id === id);
+  rememberClosedTab(pIdx, {
+    url: views[id].tUrl || (closingTab && closingTab.url) || views[id].webContents.getURL(),
+    title: views[id].webContents.getTitle() || (closingTab && closingTab.title) || "",
+    incognito: closingTab ? closingTab.incognito : false
+  });
   const wasA = s.activeView === views[id];
   try {
     w.contentView.removeChildView(views[id]);
@@ -937,20 +1076,14 @@ ipcMain.handle("create-tab", (e, { tabId, url, inc, afterTabId }) => {
   const pIdx = w.profileIndex;
   const u = url || "https://www.google.com/";
   const isIncognito = !!inc;
-  const locale = getCurrentLocale() || localization.DEFAULT_LOCALE;
-  if (!pTabs[pIdx].find((t) => t.id === tabId)) {
-    const nt = {
-      id: tabId,
-      url: u,
-      title: isIncognito ? localization.getIncognitoProfileName(locale) : localization.t(locale, "app.newTab"),
-      incognito: isIncognito
-    };
-    const insertAfter = typeof afterTabId === "string" && afterTabId.length ? afterTabId : null;
-    insertTabAfter(pIdx, nt, insertAfter);
-    w.webContents.send("tab-created", { ...nt, afterTabId: insertAfter });
-  }
-  createV(tabId, u, isIncognito, pIdx);
-  switchT(tabId, pIdx);
+  openTabInProfile(pIdx, {
+    id: tabId,
+    url: u,
+    incognito: isIncognito
+  }, {
+    win: w,
+    afterTabId: typeof afterTabId === "string" && afterTabId.length ? afterTabId : null
+  });
 });
 ipcMain.handle("switch-tab", (e, id) => {
   if (!isTrustedSender(e.sender)) return;
@@ -961,6 +1094,12 @@ ipcMain.handle("close-tab", (e, id) => {
   if (!isTrustedSender(e.sender)) return;
   const w = getSenderWindow(e.sender);
   if (w) closeTab(w.profileIndex, id, w);
+});
+ipcMain.handle("reopen-closed-tab", (e) => {
+  if (!isTrustedSender(e.sender)) return false;
+  const w = getSenderWindow(e.sender);
+  if (!w) return false;
+  return reopenClosedTab(w.profileIndex);
 });
 ipcMain.handle("clear-other-tabs", (e, keepId) => {
   if (!isTrustedSender(e.sender)) return;
