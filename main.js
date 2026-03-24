@@ -1,6 +1,7 @@
 const {
   app,
   BrowserWindow,
+  nativeImage,
   WebContentsView,
   ipcMain,
   globalShortcut,
@@ -75,6 +76,21 @@ function getWindowsIconPath() {
   const devPath = path.join(__dirname, "assets", "orion.ico");
   const iconPath = app.isPackaged ? packagedPath : devPath;
   return fs.existsSync(iconPath) ? iconPath : null;
+}
+
+function getMacIconPath() {
+  const packagedPath = path.join(process.resourcesPath, "assets", "orion-mac.png");
+  const devPath = path.join(__dirname, "assets", "orion-mac.png");
+  const iconPath = app.isPackaged ? packagedPath : devPath;
+  return fs.existsSync(iconPath) ? iconPath : null;
+}
+
+function setMacDockIcon() {
+  if (process.platform !== "darwin" || !app.dock) return;
+  const iconPath = getMacIconPath();
+  if (!iconPath) return;
+  const icon = nativeImage.createFromPath(iconPath);
+  if (!icon.isEmpty()) app.dock.setIcon(icon);
 }
 
 function getAppHtmlPath(file) {
@@ -1105,6 +1121,7 @@ app.on("window-all-closed", () => {
 });
 
 app.whenReady().then(() => {
+  setMacDockIcon();
   createW(0);
   configureAutoUpdater();
   setTimeout(() => {

@@ -24,6 +24,10 @@
       {
         "from": "assets/orion.ico",
         "to": "assets/orion.ico"
+      },
+      {
+        "from": "assets/orion-mac.png",
+        "to": "assets/orion-mac.png"
       }
     ],
     "mac": {
