@@ -460,7 +460,12 @@ function createW(pIdx = 0, opts = {}) {
     width: 1400,
     height: 900,
     backgroundColor: bSett.themeColor || "#e9e9f0",
-    icon: process.platform === "win32" ? getWindowsIconPath() || undefined : undefined,
+    icon:
+      process.platform === "win32"
+        ? getWindowsIconPath() || undefined
+        : process.platform === "darwin"
+          ? getMacIconPath() || undefined
+          : undefined,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
