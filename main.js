@@ -1107,5 +1107,7 @@ app.on("window-all-closed", () => {
 app.whenReady().then(() => {
   createW(0);
   configureAutoUpdater();
-  void checkForUpdates("startup");
+  setTimeout(() => {
+    void checkForUpdates("startup");
+  }, 5000);
 });
