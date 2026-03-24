@@ -502,16 +502,20 @@
 
     search.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
+        e.preventDefault();
         const query = search.value.trim();
-        if (query) {
-          if (window.electron && window.electron.invoke) {
-            window.electron.invoke('navigate-to', query);
-          } else {
-            window.location.href = 'https://www.google.com/search?q=' + encodeURIComponent(query);
-          }
-        }
+        if (query) navigate(query);
       }
     });
+
+    const searchForm = document.getElementById('sf');
+    if (searchForm) {
+      searchForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const query = search.value.trim();
+        if (query) navigate(query);
+      });
+    }
 
     const defaultShortcuts = [
       { name: 'Google', url: 'https://google.com', icon: 'G' },
@@ -628,7 +632,7 @@
 
     function navigate(url) {
       if (window.electron && window.electron.invoke) {
-        window.electron.invoke('navigate-to', url);
+        return window.electron.invoke('navigate-to', url);
       } else {
         window.location.href = url;
       }
