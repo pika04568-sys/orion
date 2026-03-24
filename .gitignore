@@ -373,3 +373,4 @@ test/orion-regressions.test.js
 output/pdf/orion-app-summary.pdf
 tmp/pdfs/orion-app-summary-page-1.png
 scripts/generate_macos_icon.py
+.codex/environments/environment.toml
