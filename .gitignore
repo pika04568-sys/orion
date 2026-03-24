@@ -369,7 +369,6 @@ dist/builder-debug.yml
 test/orion-regressions.test.js
 test/orion-regressions.test.js
 test/orion-regressions.test.js
-/test
 output/pdf/orion-app-summary.pdf
 tmp/pdfs/orion-app-summary-page-1.png
 scripts/generate_macos_icon.py
