@@ -5,9 +5,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy"
-    content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';">
+    content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; font-src https://fonts.gstatic.com;">
   <title>New Tab</title>
   <style>
+    @import url("https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Space+Grotesk:wght@400;500;600;700&display=swap");
+
     :root {
       --ink: #1d1a2f;
       --muted: #4f516a;
@@ -33,14 +35,14 @@
       min-height: 100vh;
       display: grid;
       place-items: center;
-      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-family: "Space Grotesk", sans-serif;
       color: var(--ink);
       background:
         radial-gradient(1200px circle at 8% -10%, rgba(0, 194, 255, 0.22), transparent 60%),
         radial-gradient(900px circle at 98% 8%, rgba(255, 77, 141, 0.22), transparent 60%),
         radial-gradient(800px circle at 30% 100%, rgba(255, 209, 102, 0.65), transparent 60%),
         linear-gradient(180deg, #fff7f0 0%, #f2f7ff 45%, #f0fff8 100%);
-      overflow-x: hidden;
+      overflow: auto;
       position: relative;
     }
 
@@ -62,7 +64,6 @@
       z-index: 0;
       will-change: transform;
       transition: transform 0.18s ease-out;
-      overflow: hidden;
     }
 
     .orb {
@@ -163,7 +164,7 @@
     }
 
     #c {
-      font-family: ui-serif, Georgia, Cambria, "Times New Roman", serif;
+      font-family: "Fraunces", serif;
       font-size: 5.6rem;
       font-weight: 600;
       margin: 0 0 10px;
@@ -350,18 +351,17 @@
     }
 
     @media (prefers-reduced-motion: reduce) {
-      *, ::before, ::after {
-        animation-delay: -1ms !important;
-        animation-duration: 1ms !important;
-        animation-iteration-count: 1 !important;
-        background-attachment: initial !important;
-        scroll-behavior: auto !important;
-        transition-duration: 0s !important;
-        transition-delay: 0s !important;
+      * {
+        animation: none !important;
+        transition: none !important;
       }
 
-      .orb, .card-orbs span {
-        animation: none !important;
+      .orb {
+        animation: drift 12s ease-in-out var(--delay) infinite !important;
+      }
+
+      .card-orbs span {
+        animation: var(--anim) var(--dur) ease-in-out var(--delay, 0s) infinite !important;
       }
 
       .orbs,
@@ -433,9 +433,9 @@
     <div class="content">
       <div id="c"></div>
       <div id="d"></div>
-      <form class="search" id="sf">
+      <div class="search">
         <input type="text" id="i" placeholder="Search the web" autofocus autocomplete="off">
-      </form>
+      </div>
       <div id="g"></div>
     </div>
   </div>
@@ -502,20 +502,16 @@
 
     search.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
-        e.preventDefault();
         const query = search.value.trim();
-        if (query) navigate(query);
+        if (query) {
+          if (window.electron && window.electron.invoke) {
+            window.electron.invoke('navigate-to', query);
+          } else {
+            window.location.href = 'https://www.google.com/search?q=' + encodeURIComponent(query);
+          }
+        }
       }
     });
-
-    const searchForm = document.getElementById('sf');
-    if (searchForm) {
-      searchForm.addEventListener('submit', (e) => {
-        e.preventDefault();
-        const query = search.value.trim();
-        if (query) navigate(query);
-      });
-    }
 
     const defaultShortcuts = [
       { name: 'Google', url: 'https://google.com', icon: 'G' },
@@ -525,7 +521,7 @@
     ];
     const HIDDEN_DEFAULT_SHORTCUTS_KEY = 'hidden-default-newtab-shortcuts';
 
-    function escape(str, forAttr) {
+    function escapeHtml(str, forAttr) {
       const s = (str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
       return forAttr ? s.replace(/"/g, '&quot;').replace(/'/g, '&#39;') : s;
     }
@@ -582,11 +578,11 @@
         .map((shortcut, i) => {
           const rawTitle = shortcut.name || shortcut.title || shortcut.url || '?';
           const shortLabel = (rawTitle[0] || '?').toUpperCase();
-          const label = escape(shortLabel);
-          const displayTitle = escape(rawTitle);
-          const urlAttr = escape(shortcut.url, true);
-          const ariaLabel = escape(t('newtab.removeShortcut', { name: rawTitle }), true);
-          const idAttr = shortcut.id ? `data-id="${escape(String(shortcut.id), true)}"` : '';
+          const label = escapeHtml(shortLabel);
+          const displayTitle = escapeHtml(rawTitle);
+          const urlAttr = escapeHtml(shortcut.url, true);
+          const ariaLabel = escapeHtml(t('newtab.removeShortcut', { name: rawTitle }), true);
+          const idAttr = shortcut.id ? `data-id="${escapeHtml(String(shortcut.id), true)}"` : '';
 
           return `
             <div class="shortcut" style="--i: ${i + 1}" data-url="${urlAttr}" data-default="${!!shortcut._default}" ${idAttr}>
@@ -632,7 +628,7 @@
 
     function navigate(url) {
       if (window.electron && window.electron.invoke) {
-        return window.electron.invoke('navigate-to', url);
+        window.electron.invoke('navigate-to', url);
       } else {
         window.location.href = url;
       }

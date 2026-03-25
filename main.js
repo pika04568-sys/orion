@@ -324,18 +324,20 @@ function loadS() {
   try {
     if (fs.existsSync(sPath)) {
       const s = JSON.parse(fs.readFileSync(sPath, "utf8"));
-      if (!s.profileExtensions) s.profileExtensions = {};
-      s.locale = localization.sanitizeLocale(s.locale);
-      return s;
+      return {
+        themeColor: "#e9e9f0",
+        profileExtensions: {},
+        ...s,
+        profileExtensions: s.profileExtensions || {},
+        locale: localization.sanitizeLocale(s.locale)
+      };
     }
-  } catch (e) { }
+  } catch (e) {}
   return { themeColor: "#e9e9f0", profileExtensions: {}, locale: null };
 }
 
 function saveS() {
-  try {
-    fs.writeFileSync(sPath, JSON.stringify(bSett));
-  } catch (e) { }
+  try { fs.writeFileSync(sPath, JSON.stringify(bSett)); } catch (e) {}
 }
 
 function genId() {
@@ -345,16 +347,18 @@ function genId() {
 function loadH() {
   try {
     if (fs.existsSync(hPath)) return JSON.parse(fs.readFileSync(hPath, "utf8"));
-  } catch (e) { }
+  } catch (e) {}
   return { visits: [], lastCleanup: Date.now() };
 }
 
 function saveH() {
   try {
     const limit = Date.now() - 90 * 864e5;
-    bHist.visits = bHist.visits.filter((v) => v.timestamp > limit);
-    fs.writeFileSync(hPath, JSON.stringify(bHist));
-  } catch (e) { }
+    fs.writeFileSync(hPath, JSON.stringify({
+      ...bHist,
+      visits: bHist.visits.filter((v) => v.timestamp > limit)
+    }));
+  } catch (e) {}
 }
 
 function addH(url, title) {
@@ -371,29 +375,21 @@ function addH(url, title) {
         last.timestamp = now;
         return saveH();
       }
-    } catch (e) { }
+    } catch (e) {}
   }
   if (!bHist.visits.find((v) => v.url === url && v.timestamp > now - 18e5)) {
-    bHist.visits.push({
-      id: genId(),
-      url,
-      title: title || new URL(url).hostname,
-      timestamp: now
-    });
+    bHist.visits.push({ id: genId(), url, title: title || new URL(url).hostname, timestamp: now });
     if (bHist.visits.length > 1000) bHist.visits.shift();
     saveH();
   }
 }
 
 function getH(q = "", limit = 50) {
-  let r = [...bHist.visits];
-  if (q) {
-    const nq = q.toLowerCase();
-    r = r.filter(
-      (v) => v.url.toLowerCase().includes(nq) || v.title.toLowerCase().includes(nq)
-    );
-  }
-  return r.sort((a, b) => b.timestamp - a.timestamp).slice(0, limit);
+  const nq = q && q.toLowerCase();
+  return [...bHist.visits]
+    .filter((v) => !nq || v.url.toLowerCase().includes(nq) || v.title.toLowerCase().includes(nq))
+    .sort((a, b) => b.timestamp - a.timestamp)
+    .slice(0, limit);
 }
 
 function updateB(pIdx) {
@@ -1023,8 +1019,14 @@ function getSenderWindow(sender) {
   return BrowserWindow.fromWebContents(sender) || sender.getOwnerBrowserWindow() || null;
 }
 
-ipcMain.on("set-chrome-metrics", (e, m) => {
-  if (!isTrustedSender(e.sender)) return;
+function withTrustedSender(handler, fallback) {
+  return (e, ...args) => {
+    if (!isTrustedSender(e.sender)) return fallback;
+    return handler(e, ...args);
+  };
+}
+
+ipcMain.on("set-chrome-metrics", withTrustedSender((e, m) => {
   const w = getSenderWindow(e.sender);
   if (!w) return;
   const s = states[w.profileIndex];
@@ -1033,40 +1035,34 @@ ipcMain.on("set-chrome-metrics", (e, m) => {
     if (m.left !== undefined) s.metrics.left = m.left;
     updateB(w.profileIndex);
   }
-});
-ipcMain.on("renderer-ready", (e) => {
-  if (!isTrustedSender(e.sender)) return;
+}));
+ipcMain.on("renderer-ready", withTrustedSender((e) => {
   const w = getSenderWindow(e.sender);
   if (w) {
     createT(w.profileIndex, w);
     broadcast();
   }
-});
-ipcMain.handle("get-window-bootstrap-state", (e) => {
-  if (!isTrustedSender(e.sender)) return null;
+}, null));
+ipcMain.handle("get-window-bootstrap-state", withTrustedSender((e) => {
   const w = getSenderWindow(e.sender);
   if (!w) return null;
   return ensureWindowBootstrapState(w);
-});
-ipcMain.on("fetch-and-show-history", (e, q) => {
-  if (!isTrustedSender(e.sender)) return;
+}, null));
+ipcMain.on("fetch-and-show-history", withTrustedSender((e, q) => {
   e.reply("history-data-received", getH(q));
-});
-ipcMain.on("apply-browser-color", (e, c) => {
-  if (!isTrustedSender(e.sender)) return;
+}));
+ipcMain.on("apply-browser-color", withTrustedSender((e, c) => {
   const w = getSenderWindow(e.sender);
   if (w) {
     w.setBackgroundColor(c);
     bSett.themeColor = c;
     saveS();
   }
-});
-ipcMain.on("update-default-search-engine", (e, u) => {
-  if (!isTrustedSender(e.sender)) return;
+}));
+ipcMain.on("update-default-search-engine", withTrustedSender((e, u) => {
   defSearch = u;
-});
-ipcMain.on("toggle-browser-view", (e, v) => {
-  if (!isTrustedSender(e.sender)) return;
+}));
+ipcMain.on("toggle-browser-view", withTrustedSender((e, v) => {
   const w = getSenderWindow(e.sender);
   if (!w) return;
   const s = states[w.profileIndex];
@@ -1084,16 +1080,15 @@ ipcMain.on("toggle-browser-view", (e, v) => {
       w.contentView.removeChildView(s.activeView);
     } catch (e) { }
   }
-});
-ipcMain.handle("add-new-profile", (e) => {
-  if (!isTrustedSender(e.sender)) return null;
+}));
+ipcMain.handle("add-new-profile", withTrustedSender((e) => {
   let n = 0;
   while (pTabs[n]) n++;
   pTabs[n] = [];
   pNames[n] = getDefaultProfileName(n);
   createW(n);
   return n;
-});
+}, null));
 function openIncognitoWindow(url) {
   const pIdx = nextIncognitoProfileId++;
   pTabs[pIdx] = [];
@@ -1105,19 +1100,16 @@ function openIncognitoWindow(url) {
   }
 }
 
-ipcMain.handle("open-incognito-window", (e, url) => {
-  if (!isTrustedSender(e.sender)) return;
+ipcMain.handle("open-incognito-window", withTrustedSender((e, url) => {
   openIncognitoWindow(url);
-});
-ipcMain.on("rename-profile", (e, { profileIndex, newName }) => {
-  if (!isTrustedSender(e.sender)) return;
+}, null));
+ipcMain.on("rename-profile", withTrustedSender((e, { profileIndex, newName }) => {
   if (pNames[profileIndex]) {
     pNames[profileIndex] = newName;
     broadcast();
   }
-});
-ipcMain.handle("create-tab", (e, { tabId, url, inc, afterTabId }) => {
-  if (!isTrustedSender(e.sender)) return;
+}, null));
+ipcMain.handle("create-tab", withTrustedSender((e, { tabId, url, inc, afterTabId }) => {
   const w = getSenderWindow(e.sender);
   if (!w) return;
   const pIdx = w.profileIndex;
@@ -1131,30 +1123,25 @@ ipcMain.handle("create-tab", (e, { tabId, url, inc, afterTabId }) => {
     win: w,
     afterTabId: typeof afterTabId === "string" && afterTabId.length ? afterTabId : null
   });
-});
-ipcMain.handle("switch-tab", (e, id) => {
-  if (!isTrustedSender(e.sender)) return;
+}, null));
+ipcMain.handle("switch-tab", withTrustedSender((e, id) => {
   const w = getSenderWindow(e.sender);
   if (w) switchT(id, w.profileIndex);
-});
-ipcMain.handle("close-tab", (e, id) => {
-  if (!isTrustedSender(e.sender)) return;
+}, null));
+ipcMain.handle("close-tab", withTrustedSender((e, id) => {
   const w = getSenderWindow(e.sender);
   if (w) closeTab(w.profileIndex, id, w);
-});
-ipcMain.handle("reopen-closed-tab", (e) => {
-  if (!isTrustedSender(e.sender)) return false;
+}, null));
+ipcMain.handle("reopen-closed-tab", withTrustedSender((e) => {
   const w = getSenderWindow(e.sender);
   if (!w) return false;
   return reopenClosedTab(w.profileIndex);
-});
-ipcMain.handle("clear-other-tabs", (e, keepId) => {
-  if (!isTrustedSender(e.sender)) return;
+}, false));
+ipcMain.handle("clear-other-tabs", withTrustedSender((e, keepId) => {
   const w = getSenderWindow(e.sender);
   if (w) clearOtherTabs(w.profileIndex, keepId, w);
-});
-ipcMain.handle("navigate-to", (e, u) => {
-  if (!isTrustedSender(e.sender)) return;
+}, null));
+ipcMain.handle("navigate-to", withTrustedSender((e, u) => {
   const w = getSenderWindow(e.sender);
   if (!w) return;
   const s = states[w.profileIndex];
@@ -1193,63 +1180,53 @@ ipcMain.handle("navigate-to", (e, u) => {
   }
   if (isHttpUrl(final)) return s.activeView.webContents.loadURL(final);
   return loadInternal(s.activeView.webContents, "chrome://newtab");
-});
-ipcMain.handle("go-back", (e) => {
-  if (!isTrustedSender(e.sender)) return;
+}, null));
+ipcMain.handle("go-back", withTrustedSender((e) => {
   const w = getSenderWindow(e.sender);
   if (!w) return;
   const s = states[w.profileIndex];
   if (s && s.activeView && s.activeView.webContents.canGoBack()) s.activeView.webContents.goBack();
-});
-ipcMain.handle("go-forward", (e) => {
-  if (!isTrustedSender(e.sender)) return;
+}, null));
+ipcMain.handle("go-forward", withTrustedSender((e) => {
   const w = getSenderWindow(e.sender);
   if (!w) return;
   const s = states[w.profileIndex];
   if (s && s.activeView && s.activeView.webContents.canGoForward())
     s.activeView.webContents.goForward();
-});
-ipcMain.handle("reload-page", (e) => {
-  if (!isTrustedSender(e.sender)) return;
+}, null));
+ipcMain.handle("reload-page", withTrustedSender((e) => {
   const w = getSenderWindow(e.sender);
   if (!w) return;
   reloadActiveView(w.profileIndex);
-});
-ipcMain.handle("switch-profile", (e, pIdx) => {
-  if (!isTrustedSender(e.sender)) return;
+}, null));
+ipcMain.handle("switch-profile", withTrustedSender((e, pIdx) => {
   if (windows[pIdx]) windows[pIdx].focus();
   else createW(pIdx);
-});
-ipcMain.handle("clear-history-range", (e, range) => {
-  if (!isTrustedSender(e.sender)) return;
+}, null));
+ipcMain.handle("clear-history-range", withTrustedSender((e, range) => {
   clearHistoryRange(range);
-});
-ipcMain.handle("delete-history-item", (e, id) => {
-  if (!isTrustedSender(e.sender)) return;
+}, null));
+ipcMain.handle("delete-history-item", withTrustedSender((e, id) => {
   deleteHistoryItem(id);
-});
-ipcMain.handle("find-in-page", (e, t, o = {}) => {
-  if (!isTrustedSender(e.sender)) return;
+}, null));
+ipcMain.handle("find-in-page", withTrustedSender((e, t, o = {}) => {
   const w = getSenderWindow(e.sender);
   if (!w) return;
   const s = states[w.profileIndex];
   if (s && s.activeView && t) s.activeView.webContents.findInPage(t, o);
-});
-ipcMain.handle("stop-find-in-page", (e, a) => {
-  if (!isTrustedSender(e.sender)) return;
+}, null));
+ipcMain.handle("stop-find-in-page", withTrustedSender((e, a) => {
   const w = getSenderWindow(e.sender);
   if (!w) return;
   const s = states[w.profileIndex];
   if (s && s.activeView) s.activeView.webContents.stopFindInPage(a || "clearSelection");
-});
-ipcMain.handle("select-extension-folder", async (e) => {
-  if (!isTrustedSender(e.sender)) return null;
+}, null));
+ipcMain.handle("select-extension-folder", withTrustedSender(async (e) => {
   return dialog
     .showOpenDialog(getSenderWindow(e.sender), { properties: ["openDirectory"] })
     .then((r) => (r.canceled ? null : r.filePaths[0]));
-});
-ipcMain.handle("load-extension", async (e, p) => {
-  if (!isTrustedSender(e.sender)) return { success: false, error: "Untrusted sender." };
+}, null));
+ipcMain.handle("load-extension", withTrustedSender(async (e, p) => {
   const w = getSenderWindow(e.sender);
   if (!w) return { success: false, error: "No window." };
   const pIdx = w.profileIndex;
@@ -1267,9 +1244,8 @@ ipcMain.handle("load-extension", async (e, p) => {
   } catch (err) {
     return { success: false, error: err.message };
   }
-});
-ipcMain.handle("get-extensions", (e) => {
-  if (!isTrustedSender(e.sender)) return [];
+}, { success: false, error: "Untrusted sender." }));
+ipcMain.handle("get-extensions", withTrustedSender((e) => {
   const w = getSenderWindow(e.sender);
   const pIdx = w ? w.profileIndex : 0;
   const sess = session.fromPartition(`persist:profile-${pIdx}`);
@@ -1279,9 +1255,8 @@ ipcMain.handle("get-extensions", (e) => {
     version: ext.version,
     description: ext.description
   }));
-});
-ipcMain.handle("remove-extension", (e, id) => {
-  if (!isTrustedSender(e.sender)) return;
+}, []));
+ipcMain.handle("remove-extension", withTrustedSender((e, id) => {
   const w = getSenderWindow(e.sender);
   const pIdx = w ? w.profileIndex : 0;
   const sess = session.fromPartition(`persist:profile-${pIdx}`);
@@ -1291,33 +1266,27 @@ ipcMain.handle("remove-extension", (e, id) => {
     saveS();
   }
   sess.removeExtension(id);
-});
-ipcMain.handle("get-app-version", (e) => {
-  if (!isTrustedSender(e.sender)) return null;
+}, null));
+ipcMain.handle("get-app-version", withTrustedSender(() => {
   return app.getVersion();
-});
-ipcMain.handle("get-updater-state", (e) => {
-  if (!isTrustedSender(e.sender)) return null;
+}, null));
+ipcMain.handle("get-updater-state", withTrustedSender(() => {
   return getUpdaterState();
-});
-ipcMain.handle("get-language-settings", (e) => {
-  if (!isTrustedSender(e.sender)) return { locale: null };
+}, null));
+ipcMain.handle("get-language-settings", withTrustedSender(() => {
   return { locale: getCurrentLocale() };
-});
-ipcMain.handle("set-language", (e, locale) => {
-  if (!isTrustedSender(e.sender)) return { locale: getCurrentLocale() };
+}, { locale: null }));
+ipcMain.handle("set-language", withTrustedSender((e, locale) => {
   const nextLocale = localization.sanitizeLocale(locale);
   if (!nextLocale) return { locale: getCurrentLocale() };
   bSett.locale = nextLocale;
   saveS();
   return { locale: nextLocale };
-});
-ipcMain.handle("check-for-updates", (e) => {
-  if (!isTrustedSender(e.sender)) return null;
+}, { locale: getCurrentLocale() }));
+ipcMain.handle("check-for-updates", withTrustedSender((e) => {
   return checkForUpdates("manual");
-});
-ipcMain.handle("update-adblock-rules", (e, r) => {
-  if (!isTrustedSender(e.sender)) return;
+}, null));
+ipcMain.handle("update-adblock-rules", withTrustedSender((e, r) => {
   adRules = (r || "")
     .split("\n")
     .map((line) => line.trim())
@@ -1326,7 +1295,7 @@ ipcMain.handle("update-adblock-rules", (e, r) => {
       return line.replace(/\s*!.*$/, "").trim();
     })
     .filter((x) => x);
-});
+}, null));
 
 function ad(p) {
   if (partitions.has(p)) return;
