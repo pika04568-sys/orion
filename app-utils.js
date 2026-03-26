@@ -7,7 +7,8 @@
 })(typeof globalThis !== "undefined" ? globalThis : this, () => {
   const INTERNAL_PAGE_ALIASES = Object.freeze({
     "newtab.html": "chrome://newtab",
-    "extensions.html": "chrome://extensions"
+    "extensions.html": "chrome://extensions",
+    "offline.html": "chrome://offline"
   });
   const APP_INVOKE_CHANNELS = Object.freeze([
     "add-new-profile",
@@ -83,6 +84,11 @@
       on: APP_ON_CHANNELS
     }),
     "newtab.html": Object.freeze({
+      invoke: INTERNAL_INVOKE_CHANNELS,
+      send: EMPTY_CHANNELS.send,
+      on: EMPTY_CHANNELS.on
+    }),
+    "offline.html": Object.freeze({
       invoke: INTERNAL_INVOKE_CHANNELS,
       send: EMPTY_CHANNELS.send,
       on: EMPTY_CHANNELS.on

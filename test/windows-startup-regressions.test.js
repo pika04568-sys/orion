@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 
 const appUtils = require("../app-utils");
 
-const TRUSTED_PAGE_FILES = new Set(["index.html", "newtab.html", "extensions.html"]);
+const TRUSTED_PAGE_FILES = new Set(["index.html", "newtab.html", "offline.html", "extensions.html"]);
 
 test("getLocalPageFileName handles packaged Windows file URLs", () => {
   assert.equal(
@@ -21,6 +21,10 @@ test("getLocalPageFileName handles Unix file URLs and rejects non-file URLs", ()
     appUtils.getLocalPageFileName("file:///Users/kenokayasu/Documents/MyBrowser/extensions.html"),
     "extensions.html"
   );
+  assert.equal(
+    appUtils.getLocalPageFileName("file:///Users/kenokayasu/Documents/MyBrowser/offline.html?game=snake"),
+    "offline.html"
+  );
   assert.equal(appUtils.getLocalPageFileName("https://example.com/index.html"), null);
   assert.equal(appUtils.getLocalPageFileName("not a url"), null);
 });
@@ -36,6 +40,10 @@ test("trusted local page recognition works for packaged and internal Orion pages
   );
   assert.equal(
     appUtils.isTrustedLocalPage("file:///Users/kenokayasu/Documents/MyBrowser/extensions.html", TRUSTED_PAGE_FILES),
+    true
+  );
+  assert.equal(
+    appUtils.isTrustedLocalPage("file:///Users/kenokayasu/Documents/MyBrowser/offline.html?game=tetris", TRUSTED_PAGE_FILES),
     true
   );
   assert.equal(
@@ -60,6 +68,13 @@ test("internal Orion file URLs normalize to chrome aliases across platforms", ()
     ),
     "chrome://extensions"
   );
+  assert.equal(
+    appUtils.normalizeInternalUrl(
+      "file:///Users/kenokayasu/Documents/MyBrowser/offline.html?game=pacman",
+      "fallback"
+    ),
+    "chrome://offline"
+  );
 });
 
 test("index shell channels allow renderer IPC and events", () => {
@@ -75,6 +90,9 @@ test("internal pages keep restricted invoke access", () => {
   assert.equal(appUtils.canUseElectronChannel("newtab.html", "invoke", "get-language-settings"), true);
   assert.equal(appUtils.canUseElectronChannel("newtab.html", "invoke", "get-window-bootstrap-state"), false);
   assert.equal(appUtils.canUseElectronChannel("newtab.html", "send", "renderer-ready"), false);
+  assert.equal(appUtils.canUseElectronChannel("offline.html", "invoke", "navigate-to"), true);
+  assert.equal(appUtils.canUseElectronChannel("offline.html", "invoke", "get-window-bootstrap-state"), false);
+  assert.equal(appUtils.canUseElectronChannel("offline.html", "send", "renderer-ready"), false);
   assert.equal(appUtils.canUseElectronChannel("extensions.html", "invoke", "load-extension"), true);
   assert.equal(appUtils.canUseElectronChannel("extensions.html", "on", "tab-created"), false);
 });

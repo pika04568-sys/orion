@@ -99,8 +99,10 @@
       "preload.js",
       "index.html",
       "newtab.html",
+      "offline.html",
       "extensions.html",
-      "package.json"
+      "package.json",
+      "offline-arcade.js"
     ]
   },
   "devDependencies": {

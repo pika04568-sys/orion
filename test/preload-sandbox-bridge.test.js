@@ -109,6 +109,25 @@ test("newtab page allows invoke but blocks send/on privileges", () => {
   assert.equal(runtime.removeCalls.length, 0);
 });
 
+test("offline page keeps the same restricted invoke-only bridge", () => {
+  const runtime = runPreload("file:///Users/kenokayasu/Documents/MyBrowser/offline.html?game=snake");
+  const { api } = runtime;
+
+  const invokeResult = api.invoke("navigate-to", "chrome://newtab");
+  const blockedBootstrap = api.invoke("get-window-bootstrap-state");
+  api.send("renderer-ready");
+  const unsubscribe = api.on("tab-created", () => {});
+  unsubscribe();
+
+  assert.equal(invokeResult, "invoke-result");
+  assert.equal(blockedBootstrap, undefined);
+  assert.equal(runtime.invokeCalls.length, 1);
+  assert.deepEqual(runtime.invokeCalls[0], ["navigate-to", "chrome://newtab"]);
+  assert.equal(runtime.sendCalls.length, 0);
+  assert.equal(runtime.onCalls.length, 0);
+  assert.equal(runtime.removeCalls.length, 0);
+});
+
 test("non-file pages block all privileged channels", () => {
   const runtime = runPreload("https://example.com/index.html");
   const { api } = runtime;

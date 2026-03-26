@@ -83,6 +83,11 @@ const ELECTRON_PAGE_CHANNELS = Object.freeze({
     send: EMPTY_CHANNELS.send,
     on: EMPTY_CHANNELS.on
   }),
+  "offline.html": Object.freeze({
+    invoke: INTERNAL_INVOKE_CHANNELS,
+    send: EMPTY_CHANNELS.send,
+    on: EMPTY_CHANNELS.on
+  }),
   "extensions.html": Object.freeze({
     invoke: INTERNAL_INVOKE_CHANNELS,
     send: EMPTY_CHANNELS.send,

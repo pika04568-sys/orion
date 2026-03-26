@@ -2,6 +2,7 @@ const {
   app,
   BrowserWindow,
   nativeImage,
+  net,
   WebContentsView,
   ipcMain,
   globalShortcut,
@@ -14,19 +15,24 @@ const { autoUpdater } = require("electron-updater");
 const path = require("path");
 const fs = require("fs");
 const os = require("os");
+const { pathToFileURL } = require("url");
 const appUtils = require("./app-utils");
 const localization = require("./localization");
 const tabState = require("./main-tab-state");
+const offlineArcade = require("./offline-arcade");
 
 const INTERNAL_PAGES = new Map([
   ["chrome://newtab", "newtab.html"],
-  ["chrome://extensions", "extensions.html"]
+  ["chrome://extensions", "extensions.html"],
+  ["chrome://offline", "offline.html"]
 ]);
 
 let windows = {};
 let views = {};
 let states = {};
 let recentlyClosedTabs = {};
+let offlineRotationStates = {};
+let offlineTabs = {};
 let adRules = [];
 let partitions = new Set();
 let pTabs = { 0: [] };
@@ -409,6 +415,16 @@ function updateB(pIdx) {
 function reloadActiveView(pIdx, options = {}) {
   const s = states[pIdx];
   if (!s || !s.activeView || s.activeView.webContents.isDestroyed()) return false;
+  const activeTabId = getActiveT(pIdx);
+  const offlineContext = getOfflineTabContext(activeTabId);
+  if (activeTabId && offlineContext && isOfflinePageUrl(s.activeView.webContents.getURL())) {
+    return !!loadTabUrl(
+      activeTabId,
+      pIdx,
+      offlineArcade.resolveOfflineReloadTarget(offlineContext),
+      { source: "reload" }
+    );
+  }
   if (options.ignoreCache) s.activeView.webContents.reloadIgnoringCache();
   else s.activeView.webContents.reload();
   return true;
@@ -573,7 +589,7 @@ function attachBrowserShortcutHandler(webContents, getProfileIndex) {
   });
 }
 
-const TRUSTED_PAGE_FILES = new Set(["index.html", "newtab.html", "extensions.html"]);
+const TRUSTED_PAGE_FILES = new Set(["index.html", "newtab.html", "offline.html", "extensions.html"]);
 
 function isTrustedSender(webContents) {
   if (!webContents || webContents.isDestroyed()) return false;
@@ -588,7 +604,7 @@ function isInternalPageUrl(url) {
   return appUtils.isTrustedLocalPage(url, INTERNAL_PAGES_FILE_SET);
 }
 
-const INTERNAL_PAGES_FILE_SET = new Set(["newtab.html", "extensions.html"]);
+const INTERNAL_PAGES_FILE_SET = new Set(["newtab.html", "offline.html", "extensions.html"]);
 
 function isHttpUrl(url) {
   try {
@@ -615,6 +631,120 @@ function loadInternal(webContents, url) {
   return webContents.loadFile(getAppHtmlPath(targetFile)).catch((error) => {
     showHtmlLoadError(targetFile, error);
   });
+}
+
+function isOfflinePageUrl(url) {
+  return appUtils.getLocalPageFileName(url) === "offline.html" || url === "chrome://offline";
+}
+
+function getOfflineTabContext(tabId) {
+  return tabId ? offlineTabs[tabId] || null : null;
+}
+
+function clearOfflineTabContext(tabId) {
+  if (tabId) delete offlineTabs[tabId];
+}
+
+function clearOfflineTabContextsForProfile(pIdx) {
+  Object.keys(offlineTabs).forEach((tabId) => {
+    if (tabId.startsWith(`p-${pIdx}-t-`)) delete offlineTabs[tabId];
+  });
+}
+
+function getOfflineTargetUrl(context) {
+  return offlineArcade.normalizeOfflineTargetUrl(context && context.targetUrl);
+}
+
+function getDisplayUrlForTab(tabId, rawUrl, fallbackUrl = "") {
+  const offlineContext = getOfflineTabContext(tabId);
+  if (offlineContext && isOfflinePageUrl(rawUrl)) return getOfflineTargetUrl(offlineContext);
+  return appUtils.normalizeInternalUrl(rawUrl, fallbackUrl || rawUrl || "");
+}
+
+function getDisplayTitleForTab(tabId, rawTitle) {
+  const offlineContext = getOfflineTabContext(tabId);
+  return offlineContext ? offlineContext.title : rawTitle;
+}
+
+function buildOfflinePageUrl(game, targetUrl, source) {
+  const pageUrl = pathToFileURL(getAppHtmlPath("offline.html"));
+  pageUrl.searchParams.set("game", game);
+  pageUrl.searchParams.set("target", offlineArcade.normalizeOfflineTargetUrl(targetUrl));
+  pageUrl.searchParams.set("source", source || "offline");
+  return pageUrl.toString();
+}
+
+function pickOfflineGame(pIdx) {
+  const next = offlineArcade.nextOfflineGame(offlineRotationStates[pIdx]);
+  offlineRotationStates[pIdx] = next.state;
+  return next.game;
+}
+
+function isBrowserOnline() {
+  try {
+    return !!net.isOnline();
+  } catch (_error) {
+    return true;
+  }
+}
+
+function showOfflinePage(tabId, pIdx, options = {}) {
+  const view = views[tabId];
+  const win = windows[pIdx];
+  if (!view || !view.webContents || view.webContents.isDestroyed()) return false;
+
+  const game = options.game || pickOfflineGame(pIdx);
+  const targetUrl = offlineArcade.normalizeOfflineTargetUrl(options.targetUrl);
+  const title = offlineArcade.buildOfflineTitle(game);
+  const source = options.source || "offline";
+  const fileUrl = buildOfflinePageUrl(game, targetUrl, source);
+
+  offlineTabs[tabId] = { game, targetUrl, title, source };
+  appUtils.syncTabRecord(pTabs[pIdx], tabId, { url: targetUrl, title });
+
+  view.tUrl = targetUrl;
+  view.lastHandledFailure = null;
+
+  if (win && !win.isDestroyed()) {
+    win.webContents.send("view-event", { tabId, type: "did-navigate", url: targetUrl });
+    win.webContents.send("view-event", { tabId, type: "title", title });
+  }
+
+  return view.webContents.loadURL(fileUrl).catch(() => false);
+}
+
+function loadTabUrl(tabId, pIdx, rawUrl, options = {}) {
+  const view = views[tabId];
+  if (!view || !view.webContents || view.webContents.isDestroyed()) return false;
+
+  const normalizedUrl = appUtils.normalizeInternalUrl(rawUrl || "chrome://newtab", "chrome://newtab") || "chrome://newtab";
+  const source = options.source || "navigate";
+
+  if (normalizedUrl === "chrome://offline") {
+    return showOfflinePage(tabId, pIdx, {
+      targetUrl: options.targetUrl || "chrome://newtab",
+      source
+    });
+  }
+
+  if (normalizedUrl === "chrome://newtab" && offlineArcade.shouldRouteNewTabToOffline(isBrowserOnline())) {
+    return showOfflinePage(tabId, pIdx, {
+      targetUrl: "chrome://newtab",
+      source: source === "reload" ? "reload" : "new-tab"
+    });
+  }
+
+  clearOfflineTabContext(tabId);
+  view.lastHandledFailure = null;
+  view.pendingTargetUrl = normalizedUrl;
+  view.tUrl = normalizedUrl;
+  appUtils.syncTabRecord(pTabs[pIdx], tabId, { url: normalizedUrl });
+
+  if (isInternalUrl(normalizedUrl)) return loadInternal(view.webContents, normalizedUrl);
+  if (isHttpUrl(normalizedUrl)) {
+    return view.webContents.loadURL(normalizedUrl).catch(() => false);
+  }
+  return loadInternal(view.webContents, "chrome://newtab");
 }
 
 function createW(pIdx = 0, opts = {}) {
@@ -658,6 +788,8 @@ function createW(pIdx = 0, opts = {}) {
   win.on("closed", () => {
     delete windows[pIdx];
     delete states[pIdx];
+    delete offlineRotationStates[pIdx];
+    clearOfflineTabContextsForProfile(pIdx);
     if (isIncognito) {
       delete pTabs[pIdx];
       delete pNames[pIdx];
@@ -800,7 +932,9 @@ function createV(id, url, inc, pIdx) {
     if (isInternalUrl(targetUrl)) {
       if (isInternalPageUrl(v.webContents.getURL())) {
         event.preventDefault();
-        loadInternal(v.webContents, targetUrl);
+        loadTabUrl(id, pIdx, targetUrl, {
+          source: targetUrl === "chrome://newtab" ? "new-tab" : "internal"
+        });
       } else {
         event.preventDefault();
       }
@@ -810,46 +944,75 @@ function createV(id, url, inc, pIdx) {
   });
 
   v.webContents.on("did-navigate", (_e, u) => {
-    const normalizedUrl = appUtils.normalizeInternalUrl(u, v.tUrl || u);
-    v.tUrl = normalizedUrl || v.tUrl;
-    const updatedTab = tabState.updateTabOnNavigate(pTabs[pIdx], id, normalizedUrl);
+    const offlinePage = isOfflinePageUrl(u);
+    if (!offlinePage) clearOfflineTabContext(id);
+    const displayUrl = getDisplayUrlForTab(id, u, v.tUrl || u);
+    v.tUrl = displayUrl || v.tUrl;
+    const updatedTab = tabState.updateTabOnNavigate(pTabs[pIdx], id, displayUrl);
     if (win) {
-      win.webContents.send("view-event", { tabId: id, type: "did-navigate", url: normalizedUrl });
+      win.webContents.send("view-event", { tabId: id, type: "did-navigate", url: displayUrl });
       const tab = pTabs[pIdx].find((t) => t.id === id);
-      if (!tab || !tab.incognito) {
+      if (!offlinePage && (!tab || !tab.incognito)) {
         try {
-          const host = new URL(normalizedUrl).hostname;
-          addH(normalizedUrl, (updatedTab && updatedTab.title) || host);
+          const host = new URL(displayUrl).hostname;
+          addH(displayUrl, (updatedTab && updatedTab.title) || host);
           win.webContents.send("history-updated", getH());
         } catch (e) {
-          addH(normalizedUrl, normalizedUrl);
+          addH(displayUrl, displayUrl);
         }
       }
     }
   });
   v.webContents.on("did-start-loading", () => {
+    v.lastHandledFailure = null;
     if (win) win.webContents.send("view-event", { tabId: id, type: "did-start-loading" });
   });
   v.webContents.on("did-stop-loading", () => {
     if (win) win.webContents.send("view-event", { tabId: id, type: "did-stop-loading" });
   });
   v.webContents.on("page-title-updated", (_e, t) => {
-    const currentUrl = appUtils.normalizeInternalUrl(v.webContents.getURL(), v.tUrl || "");
+    const currentUrl = getDisplayUrlForTab(id, v.webContents.getURL(), v.tUrl || "");
+    const title = getDisplayTitleForTab(id, t);
     v.tUrl = currentUrl || v.tUrl;
-    const updatedTab = tabState.updateTabOnTitle(pTabs[pIdx], id, t, currentUrl);
+    const updatedTab = tabState.updateTabOnTitle(pTabs[pIdx], id, title, currentUrl);
     if (win) {
       win.webContents.send("view-event", {
         tabId: id,
         type: "title",
-        title: (updatedTab && updatedTab.title) || t
+        title: (updatedTab && updatedTab.title) || title
       });
       const tab = pTabs[pIdx].find((tabEntry) => tabEntry.id === id);
-      if ((!tab || !tab.incognito) && currentUrl) {
-        addH(currentUrl, t);
+      if ((!tab || !tab.incognito) && currentUrl && !isOfflinePageUrl(v.webContents.getURL())) {
+        addH(currentUrl, title);
         win.webContents.send("history-updated", getH());
       }
     }
   });
+  const handleLoadFailure = (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+    const failureKey = `${errorCode}:${validatedURL}:${isMainFrame}`;
+    if (v.lastHandledFailure === failureKey) return;
+    v.lastHandledFailure = failureKey;
+
+    if (offlineArcade.shouldIgnoreLoadFailure({ errorCode, errorDescription, isMainFrame })) return;
+
+    const failedUrl = appUtils.normalizeInternalUrl(
+      validatedURL || v.pendingTargetUrl || v.tUrl || v.webContents.getURL() || "",
+      v.pendingTargetUrl || v.tUrl || "chrome://newtab"
+    ) || "chrome://newtab";
+
+    if (offlineArcade.shouldTriggerOfflinePage({ errorCode, errorDescription, isMainFrame })) {
+      showOfflinePage(id, pIdx, {
+        targetUrl: failedUrl,
+        source: "navigation-failure"
+      });
+      return;
+    }
+
+    clearOfflineTabContext(id);
+    loadInternal(v.webContents, "chrome://newtab");
+  };
+  v.webContents.on("did-fail-load", handleLoadFailure);
+  v.webContents.on("did-fail-provisional-load", handleLoadFailure);
   v.webContents.on("found-in-page", (_e, r) => {
     if (win) win.webContents.send("find-result", r);
   });
@@ -903,11 +1066,9 @@ function createV(id, url, inc, pIdx) {
     return { action: "deny" };
   });
 
-  v.tUrl = appUtils.normalizeInternalUrl(url, url);
-  if (isInternalUrl(url)) loadInternal(v.webContents, url);
-  else if (isHttpUrl(url)) {
-    v.webContents.loadURL(url).catch(() => loadInternal(v.webContents, "chrome://newtab"));
-  } else loadInternal(v.webContents, "chrome://newtab");
+  loadTabUrl(id, pIdx, url, {
+    source: url === "chrome://newtab" ? "new-tab" : "startup"
+  });
 }
 
 function switchT(id, pIdx) {
@@ -927,11 +1088,12 @@ function switchT(id, pIdx) {
     } catch (e) { }
   }
   if (win && !win.isDestroyed() && s.activeView && !s.activeView.webContents.isDestroyed()) {
+    const currentRawUrl = s.activeView.webContents.getURL() || views[id].tUrl || "";
     const payload = tabState.buildTabSwitchPayload(
       pTabs[pIdx],
       id,
-      s.activeView.webContents.getURL() || views[id].tUrl || "",
-      s.activeView.webContents.getTitle()
+      getDisplayUrlForTab(id, currentRawUrl, views[id].tUrl || currentRawUrl),
+      getDisplayTitleForTab(id, s.activeView.webContents.getTitle())
     );
     if (payload.url) views[id].tUrl = payload.url;
     win.webContents.send("tab-switched", payload);
@@ -961,6 +1123,7 @@ function closeTab(pIdx, id, win) {
   } catch (e) { }
   views[id].webContents.destroy();
   delete views[id];
+  clearOfflineTabContext(id);
   pTabs[pIdx] = pTabs[pIdx].filter((t) => t.id !== id);
   if (wasA) {
     s.activeView = null;
@@ -1146,9 +1309,13 @@ ipcMain.handle("navigate-to", withTrustedSender((e, u) => {
   if (!w) return;
   const s = states[w.profileIndex];
   if (!s || !s.activeView) return;
+  const activeTabId = getActiveT(w.profileIndex);
+  if (!activeTabId) return;
   const tu = (u || "").trim();
-  if (tu === "chrome://extensions" || tu === "chrome://newtab") {
-    return loadInternal(s.activeView.webContents, tu);
+  if (tu === "chrome://extensions" || tu === "chrome://newtab" || tu === "chrome://offline") {
+    return loadTabUrl(activeTabId, w.profileIndex, tu, {
+      source: tu === "chrome://newtab" ? "new-tab" : "internal"
+    });
   }
   const templates = {
     google: "https://www.google.com/search?q=",
@@ -1178,8 +1345,8 @@ ipcMain.handle("navigate-to", withTrustedSender((e, u) => {
       final = t + encodeURIComponent(tu);
     }
   }
-  if (isHttpUrl(final)) return s.activeView.webContents.loadURL(final);
-  return loadInternal(s.activeView.webContents, "chrome://newtab");
+  if (isHttpUrl(final)) return loadTabUrl(activeTabId, w.profileIndex, final, { source: "navigate" });
+  return loadTabUrl(activeTabId, w.profileIndex, "chrome://newtab", { source: "new-tab" });
 }, null));
 ipcMain.handle("go-back", withTrustedSender((e) => {
   const w = getSenderWindow(e.sender);
