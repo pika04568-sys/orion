@@ -68,6 +68,7 @@ let offlineTabs = {};
 let adRules = [];
 let incognitoSitePermissions = {};
 let partitions = new Set();
+let protocolSessions = new Set();
 let protocolRegistered = false;
 let pTabs = { 0: [] };
 let pNames = { 0: localization.getProfileName(localization.DEFAULT_LOCALE, 0) };
@@ -162,10 +163,11 @@ function resolveProtocolAssetPath(requestUrl) {
   }
 }
 
-function registerAppProtocol() {
-  if (protocolRegistered) return;
-  protocolRegistered = true;
-  protocol.handle(appUtils.ORION_SCHEME, async (request) => {
+function registerAppProtocolForSession(sess) {
+  if (!sess || typeof sess.protocol !== "object") return;
+  if (protocolSessions.has(sess)) return;
+  protocolSessions.add(sess);
+  sess.protocol.handle(appUtils.ORION_SCHEME, async (request) => {
     const filePath = resolveProtocolAssetPath(request.url);
     const contentType = getContentType(filePath || "");
     if (!filePath || !fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
@@ -184,6 +186,12 @@ function registerAppProtocol() {
       }
     });
   });
+}
+
+function registerAppProtocol() {
+  if (protocolRegistered) return;
+  protocolRegistered = true;
+  registerAppProtocolForSession(session.defaultSession);
 }
 
 function showHtmlLoadError(file, error) {
@@ -633,6 +641,7 @@ function ensureSessionSecurity(partition, pIdx, incognito = false) {
   partitions.add(partition);
 
   const sess = session.fromPartition(partition);
+  registerAppProtocolForSession(sess);
   sess.webRequest.onBeforeRequest((details, callback) => {
     if (!details.url.startsWith("http") || !adRules.length) return callback({ cancel: false });
     const url = details.url.toLowerCase();
