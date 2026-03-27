@@ -3,13 +3,11 @@
 
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy"
-    content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; font-src https://fonts.gstatic.com;">
+    content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>New Tab</title>
   <style>
-    @import url("https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Space+Grotesk:wght@400;500;600;700&display=swap");
-
     :root {
       --ink: #1d1a2f;
       --muted: #4f516a;
@@ -35,7 +33,7 @@
       min-height: 100vh;
       display: grid;
       place-items: center;
-      font-family: "Space Grotesk", sans-serif;
+      font-family: "Avenir Next", "Avenir", "Segoe UI", Arial, sans-serif;
       color: var(--ink);
       background:
         radial-gradient(1200px circle at 8% -10%, rgba(0, 194, 255, 0.22), transparent 60%),
@@ -164,7 +162,7 @@
     }
 
     #c {
-      font-family: "Fraunces", serif;
+      font-family: Georgia, "Times New Roman", serif;
       font-size: 5.6rem;
       font-weight: 600;
       margin: 0 0 10px;
@@ -351,17 +349,12 @@
     }
 
     @media (prefers-reduced-motion: reduce) {
-      * {
-        animation: none !important;
-        transition: none !important;
-      }
-
       .orb {
-        animation: drift 12s ease-in-out var(--delay) infinite !important;
+        animation: none !important;
       }
 
       .card-orbs span {
-        animation: var(--anim) var(--dur) ease-in-out var(--delay, 0s) infinite !important;
+        animation: none !important;
       }
 
       .orbs,
@@ -434,238 +427,14 @@
       <div id="c"></div>
       <div id="d"></div>
       <div class="search">
-        <input type="text" id="i" placeholder="Search the web" autofocus autocomplete="off">
+        <input type="text" id="i" placeholder="Search the web" autofocus autocomplete="search">
       </div>
       <div id="g"></div>
     </div>
   </div>
 
   <script src="localization.js"></script>
-  <script>
-    const localization = window.OrionLocalization;
-    const clock = document.getElementById('c');
-    const dateE = document.getElementById('d');
-    const search = document.getElementById('i');
-    const grid = document.getElementById('g');
-    let currentLocale = localization.resolveLocale(localStorage.getItem('orion-locale'));
-
-    const t = (key, vars = {}) => localization.t(currentLocale, key, vars);
-
-    function applyTranslations() {
-      document.documentElement.lang = currentLocale;
-      document.title = t('newtab.pageTitle');
-      search.setAttribute('placeholder', t('newtab.searchPlaceholder'));
-    }
-
-    async function syncLocale() {
-      try {
-        const response = window.electron && window.electron.invoke
-          ? await window.electron.invoke('get-language-settings')
-          : null;
-        const locale = localization.sanitizeLocale(response && response.locale);
-        if (locale) {
-          currentLocale = locale;
-          try { localStorage.setItem('orion-locale', locale); } catch (e) { }
-        }
-      } catch (e) { }
-      applyTranslations();
-      updateTime();
-      renderShortcuts();
-    }
-
-    function shouldShowSeconds() {
-      return localStorage.getItem('show-seconds') === 'true';
-    }
-
-    function updateTime() {
-      const now = new Date();
-      const timeOpts = { hour: '2-digit', minute: '2-digit', hour12: false };
-      if (shouldShowSeconds()) timeOpts.second = '2-digit';
-      const intlLocale = localization.getIntlLocale(currentLocale);
-      clock.textContent = now.toLocaleTimeString(intlLocale, timeOpts);
-      dateE.textContent = now.toLocaleDateString(intlLocale, { weekday: 'long', month: 'long', day: 'numeric' });
-    }
-
-    setInterval(updateTime, 1000);
-    applyTranslations();
-    updateTime();
-
-    window.addEventListener('storage', (e) => {
-      if (e.key === 'show-seconds') updateTime();
-      if (e.key === 'orion-locale' && localization.sanitizeLocale(e.newValue)) {
-        currentLocale = localization.resolveLocale(e.newValue);
-        applyTranslations();
-        updateTime();
-        renderShortcuts();
-      }
-    });
-
-    search.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        const query = search.value.trim();
-        if (query) {
-          if (window.electron && window.electron.invoke) {
-            window.electron.invoke('navigate-to', query);
-          } else {
-            window.location.href = 'https://www.google.com/search?q=' + encodeURIComponent(query);
-          }
-        }
-      }
-    });
-
-    const defaultShortcuts = [
-      { name: 'Google', url: 'https://google.com', icon: 'G' },
-      { name: 'YouTube', url: 'https://youtube.com', icon: 'Y' },
-      { name: 'GitHub', url: 'https://github.com', icon: 'H' },
-      { name: 'Wikipedia', url: 'https://wikipedia.org', icon: 'W' }
-    ];
-    const HIDDEN_DEFAULT_SHORTCUTS_KEY = 'hidden-default-newtab-shortcuts';
-
-    function escapeHtml(str, forAttr) {
-      const s = (str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-      return forAttr ? s.replace(/"/g, '&quot;').replace(/'/g, '&#39;') : s;
-    }
-
-    function getJson(key, fallback = []) {
-      try { return JSON.parse(localStorage.getItem(key) || '[]'); } catch { return fallback; }
-    }
-
-    function getHiddenDefaultShortcuts() {
-      return getJson(HIDDEN_DEFAULT_SHORTCUTS_KEY);
-    }
-
-    function hideDefaultShortcut(url) {
-      if (!url) return;
-      const hidden = getHiddenDefaultShortcuts();
-      if (!hidden.includes(url)) {
-        hidden.push(url);
-        try { localStorage.setItem(HIDDEN_DEFAULT_SHORTCUTS_KEY, JSON.stringify(hidden)); } catch (e) { }
-      }
-    }
-
-    function removeStoredShortcut(url, id) {
-      if (!url) return;
-      const bms = getJson('browser-bookmarks');
-      const filtered = bms.filter((b) => {
-        if (id) return String(b.id) !== String(id);
-        return b.url !== url;
-      });
-      try { localStorage.setItem('browser-bookmarks', JSON.stringify(filtered)); } catch (e) { }
-    }
-
-    function hideShortcutRemoveButtons() {
-      if (!grid) return;
-      grid.querySelectorAll('.shortcut.show-remove').forEach((el) => el.classList.remove('show-remove'));
-    }
-
-    document.addEventListener('click', (event) => {
-      if (!grid || !event.target) return;
-      if (!grid.contains(event.target)) hideShortcutRemoveButtons();
-    });
-
-    function renderShortcuts() {
-      if (!grid) return;
-      let shortcuts = getJson('browser-bookmarks').filter((b) => b.target === 'newtab' || b.target === 'both');
-
-      if (shortcuts.length === 0) {
-        const hiddenDefaults = getHiddenDefaultShortcuts();
-        shortcuts = defaultShortcuts
-          .filter((entry) => !hiddenDefaults.includes(entry.url))
-          .map((entry) => ({ ...entry, _default: true }));
-      }
-
-      grid.innerHTML = shortcuts
-        .map((shortcut, i) => {
-          const rawTitle = shortcut.name || shortcut.title || shortcut.url || '?';
-          const shortLabel = (rawTitle[0] || '?').toUpperCase();
-          const label = escapeHtml(shortLabel);
-          const displayTitle = escapeHtml(rawTitle);
-          const urlAttr = escapeHtml(shortcut.url, true);
-          const ariaLabel = escapeHtml(t('newtab.removeShortcut', { name: rawTitle }), true);
-          const idAttr = shortcut.id ? `data-id="${escapeHtml(String(shortcut.id), true)}"` : '';
-
-          return `
-            <div class="shortcut" style="--i: ${i + 1}" data-url="${urlAttr}" data-default="${!!shortcut._default}" ${idAttr}>
-              <a href="${urlAttr}">
-                <b>${label}</b>
-                <small>${displayTitle}</small>
-              </a>
-              <button type="button" class="remove-shortcut" aria-label="${ariaLabel}">×</button>
-            </div>
-          `;
-        })
-        .join('');
-    }
-
-    if (grid) {
-      grid.addEventListener('click', (e) => {
-        const anchor = e.target.closest('a');
-        const removeBtn = e.target.closest('.remove-shortcut');
-        if (removeBtn) {
-          e.preventDefault();
-          e.stopPropagation();
-          const shortcutEl = removeBtn.closest('.shortcut');
-          if (!shortcutEl) return;
-          const targetUrl = shortcutEl.dataset.url;
-          if (shortcutEl.dataset.default === 'true') hideDefaultShortcut(targetUrl);
-          else removeStoredShortcut(targetUrl, shortcutEl.dataset.id);
-          renderShortcuts();
-        } else if (anchor) {
-          e.preventDefault();
-          const targetUrl = anchor.closest('.shortcut')?.dataset.url;
-          if (targetUrl) navigate(targetUrl);
-        }
-      });
-      grid.addEventListener('contextmenu', (e) => {
-        const shortcutEl = e.target.closest('.shortcut');
-        if (shortcutEl) {
-          e.preventDefault();
-          hideShortcutRemoveButtons();
-          shortcutEl.classList.add('show-remove');
-        }
-      });
-    }
-
-    function navigate(url) {
-      if (window.electron && window.electron.invoke) {
-        window.electron.invoke('navigate-to', url);
-      } else {
-        window.location.href = url;
-      }
-    }
-
-    renderShortcuts();
-    syncLocale();
-
-    // Parallax on wrappers so orb keyframe animations keep running smoothly.
-    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    const orbLayer = document.querySelector('.orbs');
-    const cardOrbLayer = document.querySelector('.card-orbs');
-
-    if (!prefersReducedMotion && orbLayer && cardOrbLayer) {
-      let frame = null;
-      let px = 0;
-      let py = 0;
-
-      const paintParallax = () => {
-        orbLayer.style.transform = `translate3d(${px}px, ${py}px, 0)`;
-        cardOrbLayer.style.transform = `translate3d(${px * 0.55}px, ${py * 0.55}px, 0)`;
-        frame = null;
-      };
-
-      document.addEventListener('mousemove', (e) => {
-        px = (e.clientX / window.innerWidth - 0.5) * 20;
-        py = (e.clientY / window.innerHeight - 0.5) * 20;
-        if (!frame) frame = requestAnimationFrame(paintParallax);
-      });
-
-      document.addEventListener('mouseleave', () => {
-        px = 0;
-        py = 0;
-        if (!frame) frame = requestAnimationFrame(paintParallax);
-      });
-    }
-  </script>
+  <script src="newtab.js"></script>
 </body>
 
 </html>

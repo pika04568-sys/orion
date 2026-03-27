@@ -1,27 +1,28 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
+const ORION_PROTOCOL = "orion:";
+const ORION_HOST = "app";
+
 const APP_INVOKE_CHANNELS = Object.freeze([
   "add-new-profile",
   "check-for-updates",
   "clear-history-range",
-  "delete-history-item",
   "clear-other-tabs",
   "close-tab",
   "create-tab",
-  "get-language-settings",
-  "get-window-bootstrap-state",
-  "open-incognito-window",
+  "delete-history-item",
   "find-in-page",
   "get-app-version",
+  "get-language-settings",
   "get-updater-state",
+  "get-window-bootstrap-state",
   "go-back",
   "go-forward",
-  "load-extension",
   "navigate-to",
+  "open-incognito-window",
   "reload-page",
   "reopen-closed-tab",
   "set-language",
-  "select-extension-folder",
   "stop-find-in-page",
   "switch-profile",
   "switch-tab",
@@ -32,10 +33,10 @@ const APP_SEND_CHANNELS = Object.freeze([
   "apply-browser-color",
   "fetch-and-show-history",
   "renderer-ready",
+  "rename-profile",
   "set-chrome-metrics",
   "toggle-browser-view",
-  "update-default-search-engine",
-  "rename-profile"
+  "update-default-search-engine"
 ]);
 
 const APP_ON_CHANNELS = Object.freeze([
@@ -56,77 +57,31 @@ const APP_ON_CHANNELS = Object.freeze([
   "view-event"
 ]);
 
-const INTERNAL_INVOKE_CHANNELS = Object.freeze([
-  "get-language-settings",
-  "get-extensions",
-  "load-extension",
-  "navigate-to",
-  "remove-extension",
-  "set-language",
-  "select-extension-folder"
-]);
-
-const EMPTY_CHANNELS = Object.freeze({
-  invoke: Object.freeze([]),
-  send: Object.freeze([]),
-  on: Object.freeze([])
-});
-
-const ELECTRON_PAGE_CHANNELS = Object.freeze({
-  "index.html": Object.freeze({
-    invoke: APP_INVOKE_CHANNELS,
-    send: APP_SEND_CHANNELS,
-    on: APP_ON_CHANNELS
-  }),
-  "newtab.html": Object.freeze({
-    invoke: INTERNAL_INVOKE_CHANNELS,
-    send: EMPTY_CHANNELS.send,
-    on: EMPTY_CHANNELS.on
-  }),
-  "offline.html": Object.freeze({
-    invoke: INTERNAL_INVOKE_CHANNELS,
-    send: EMPTY_CHANNELS.send,
-    on: EMPTY_CHANNELS.on
-  }),
-  "extensions.html": Object.freeze({
-    invoke: INTERNAL_INVOKE_CHANNELS,
-    send: EMPTY_CHANNELS.send,
-    on: EMPTY_CHANNELS.on
-  })
-});
-
-function getLocalPageFileName(url) {
+function getAppPageFileName(url) {
   if (!url || typeof url !== "string") return null;
 
   try {
     const parsed = new URL(url);
-    if (parsed.protocol !== "file:") return null;
-
-    const decodedPath = decodeURIComponent(parsed.pathname || "").replace(/\\/g, "/");
-    const file = decodedPath.split("/").filter(Boolean).pop();
+    if (parsed.protocol !== ORION_PROTOCOL || parsed.hostname !== ORION_HOST) return null;
+    const file = (parsed.pathname || "").split("/").filter(Boolean).pop();
     return file ? file.toLowerCase() : null;
   } catch (_error) {
     return null;
   }
 }
 
-function getPageChannels(fileName) {
-  if (!fileName || typeof fileName !== "string") return EMPTY_CHANNELS;
-  return ELECTRON_PAGE_CHANNELS[fileName.toLowerCase()] || EMPTY_CHANNELS;
-}
+function createIndexBridge() {
+  const canUseChannel = (method, channel) => {
+    if (typeof channel !== "string" || !channel) return false;
+    const allowed = method === "invoke"
+      ? APP_INVOKE_CHANNELS
+      : method === "send"
+        ? APP_SEND_CHANNELS
+        : APP_ON_CHANNELS;
+    return allowed.includes(channel);
+  };
 
-const CURRENT_PAGE = getLocalPageFileName(window.location.href);
-
-function canUseChannel(method, channel) {
-  if (!channel || typeof channel !== "string") return false;
-  const channels = getPageChannels(CURRENT_PAGE);
-  const allowed = channels && channels[method];
-  return Array.isArray(allowed) ? allowed.includes(channel) : false;
-}
-
-contextBridge.exposeInMainWorld(
-  "electron",
-  Object.freeze({
+  return Object.freeze({
     invoke: (channel, ...args) => {
       if (!canUseChannel("invoke", channel)) return undefined;
       return ipcRenderer.invoke(channel, ...args);
@@ -136,10 +91,43 @@ contextBridge.exposeInMainWorld(
       ipcRenderer.send(channel, ...args);
     },
     on: (channel, listener) => {
-      if (!canUseChannel("on", channel)) return () => {};
+      if (!canUseChannel("on", channel) || typeof listener !== "function") return () => {};
       const subscription = (event, ...args) => listener(event, ...args);
       ipcRenderer.on(channel, subscription);
       return () => ipcRenderer.removeListener(channel, subscription);
     }
-  })
-);
+  });
+}
+
+function createInternalBridge(page) {
+  const newtabBridge = {
+    getLanguageSettings: () => ipcRenderer.invoke("get-language-settings"),
+    navigateTo: (value) => ipcRenderer.invoke("navigate-to", value)
+  };
+
+  if (page === "extensions.html") {
+    return Object.freeze({
+      getExtensions: () => ipcRenderer.invoke("get-extensions"),
+      getLanguageSettings: () => ipcRenderer.invoke("get-language-settings"),
+      loadExtension: (extensionPath) => ipcRenderer.invoke("load-extension", extensionPath),
+      removeExtension: (id) => ipcRenderer.invoke("remove-extension", id),
+      selectExtensionFolder: () => ipcRenderer.invoke("select-extension-folder")
+    });
+  }
+
+  if (page === "offline.html") {
+    return Object.freeze({
+      navigateTo: (value) => ipcRenderer.invoke("navigate-to", value)
+    });
+  }
+
+  return Object.freeze(newtabBridge);
+}
+
+const currentPage = getAppPageFileName(window.location.href);
+
+if (currentPage === "index.html") {
+  contextBridge.exposeInMainWorld("electron", createIndexBridge());
+} else if (currentPage === "newtab.html" || currentPage === "offline.html" || currentPage === "extensions.html") {
+  contextBridge.exposeInMainWorld("orionPage", createInternalBridge(currentPage));
+}

@@ -3,6 +3,7 @@ const {
   BrowserWindow,
   nativeImage,
   net,
+  protocol,
   WebContentsView,
   ipcMain,
   globalShortcut,
@@ -15,17 +16,48 @@ const { autoUpdater } = require("electron-updater");
 const path = require("path");
 const fs = require("fs");
 const os = require("os");
-const { pathToFileURL } = require("url");
+const browserSecurity = require("./browser-security");
 const appUtils = require("./app-utils");
 const localization = require("./localization");
 const tabState = require("./main-tab-state");
 const offlineArcade = require("./offline-arcade");
+
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: appUtils.ORION_SCHEME,
+    privileges: {
+      bypassCSP: false,
+      corsEnabled: true,
+      secure: true,
+      standard: true,
+      stream: true,
+      supportFetchAPI: true
+    }
+  }
+]);
 
 const INTERNAL_PAGES = new Map([
   ["chrome://newtab", "newtab.html"],
   ["chrome://extensions", "extensions.html"],
   ["chrome://offline", "offline.html"]
 ]);
+const TRUSTED_PAGE_FILES = new Set(["index.html", "newtab.html", "offline.html", "extensions.html"]);
+const INTERNAL_PAGES_FILE_SET = new Set(["newtab.html", "offline.html", "extensions.html"]);
+const MIME_TYPES = Object.freeze({
+  ".html": "text/html",
+  ".ico": "image/x-icon",
+  ".icns": "image/icns",
+  ".js": "application/javascript",
+  ".json": "application/json",
+  ".png": "image/png",
+  ".svg": "image/svg+xml"
+});
+const PERMISSION_LABELS = Object.freeze({
+  fullscreen: "full screen access",
+  geolocation: "your location",
+  media: "your camera and microphone",
+  notifications: "notifications"
+});
 
 let windows = {};
 let views = {};
@@ -34,7 +66,9 @@ let recentlyClosedTabs = {};
 let offlineRotationStates = {};
 let offlineTabs = {};
 let adRules = [];
+let incognitoSitePermissions = {};
 let partitions = new Set();
+let protocolRegistered = false;
 let pTabs = { 0: [] };
 let pNames = { 0: localization.getProfileName(localization.DEFAULT_LOCALE, 0) };
 const INCOGNITO_PROFILE_BASE = 10000;
@@ -102,6 +136,54 @@ function setMacDockIcon() {
 
 function getAppHtmlPath(file) {
   return path.join(__dirname, file);
+}
+
+function getAppPageUrl(file, searchParams = null) {
+  return appUtils.getAppPageUrl(file, searchParams);
+}
+
+function getContentType(filePath) {
+  const extension = path.extname(filePath).toLowerCase();
+  return MIME_TYPES[extension] || "application/octet-stream";
+}
+
+function resolveProtocolAssetPath(requestUrl) {
+  try {
+    const parsed = new URL(requestUrl);
+    if (parsed.protocol !== appUtils.ORION_PROTOCOL || parsed.hostname !== appUtils.ORION_HOST) return null;
+    const requestedPath = decodeURIComponent(parsed.pathname || "/").replace(/^\/+/, "");
+    if (!requestedPath) return null;
+    const rootPath = path.resolve(__dirname);
+    const resolved = path.resolve(__dirname, requestedPath);
+    if (resolved !== rootPath && !resolved.startsWith(`${rootPath}${path.sep}`)) return null;
+    return resolved;
+  } catch (_error) {
+    return null;
+  }
+}
+
+function registerAppProtocol() {
+  if (protocolRegistered) return;
+  protocolRegistered = true;
+  protocol.handle(appUtils.ORION_SCHEME, async (request) => {
+    const filePath = resolveProtocolAssetPath(request.url);
+    const contentType = getContentType(filePath || "");
+    if (!filePath || !fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+      return new Response("Not found", {
+        status: 404,
+        headers: { "content-type": "text/plain; charset=utf-8" }
+      });
+    }
+
+    return new Response(fs.readFileSync(filePath), {
+      status: 200,
+      headers: {
+        "content-type": /^(text\/|application\/(javascript|json))/.test(contentType)
+          ? `${contentType}; charset=utf-8`
+          : contentType
+      }
+    });
+  });
 }
 
 function showHtmlLoadError(file, error) {
@@ -333,17 +415,78 @@ function loadS() {
       return {
         themeColor: "#e9e9f0",
         profileExtensions: {},
+        profileExtensionMetadata: {},
+        sitePermissions: {},
         ...s,
-        profileExtensions: s.profileExtensions || {},
+        profileExtensions: sanitizeProfileExtensions(s.profileExtensions),
+        profileExtensionMetadata: sanitizeProfileExtensionMetadata(s.profileExtensionMetadata),
+        sitePermissions: browserSecurity.sanitizePermissionStore(s.sitePermissions),
         locale: localization.sanitizeLocale(s.locale)
       };
     }
   } catch (e) {}
-  return { themeColor: "#e9e9f0", profileExtensions: {}, locale: null };
+  return {
+    themeColor: "#e9e9f0",
+    profileExtensionMetadata: {},
+    profileExtensions: {},
+    sitePermissions: {},
+    locale: null
+  };
 }
 
 function saveS() {
   try { fs.writeFileSync(sPath, JSON.stringify(bSett)); } catch (e) {}
+}
+
+function sanitizeProfileExtensions(rawExtensions) {
+  const next = {};
+  if (!rawExtensions || typeof rawExtensions !== "object") return next;
+
+  Object.entries(rawExtensions).forEach(([profileKey, paths]) => {
+    if (!Array.isArray(paths)) return;
+    const safePaths = Array.from(
+      new Set(
+        paths.filter((entry) => typeof entry === "string" && path.isAbsolute(entry))
+      )
+    );
+    if (safePaths.length > 0) next[String(profileKey)] = safePaths;
+  });
+
+  return next;
+}
+
+function sanitizeProfileExtensionMetadata(rawMetadata) {
+  const next = {};
+  if (!rawMetadata || typeof rawMetadata !== "object") return next;
+
+  Object.entries(rawMetadata).forEach(([profileKey, profileMetadata]) => {
+    if (!profileMetadata || typeof profileMetadata !== "object") return;
+
+    const safeProfileMetadata = {};
+    Object.entries(profileMetadata).forEach(([extensionPath, metadata]) => {
+      if (!path.isAbsolute(extensionPath) || !metadata || typeof metadata !== "object") return;
+      const safePermissions = Array.isArray(metadata.permissions)
+        ? Array.from(
+          new Set(metadata.permissions.filter((entry) => typeof entry === "string" && entry.trim()))
+        )
+        : [];
+
+      if (typeof metadata.hash !== "string" || !metadata.hash.trim()) return;
+      safeProfileMetadata[extensionPath] = {
+        description: typeof metadata.description === "string" ? metadata.description : "",
+        hash: metadata.hash,
+        lastConfirmedAt: Number.isFinite(metadata.lastConfirmedAt) ? metadata.lastConfirmedAt : Date.now(),
+        manifestVersion: Number.isInteger(metadata.manifestVersion) ? metadata.manifestVersion : null,
+        name: typeof metadata.name === "string" ? metadata.name : path.basename(extensionPath),
+        permissions: safePermissions,
+        version: typeof metadata.version === "string" ? metadata.version : ""
+      };
+    });
+
+    if (Object.keys(safeProfileMetadata).length > 0) next[String(profileKey)] = safeProfileMetadata;
+  });
+
+  return next;
 }
 
 function genId() {
@@ -367,9 +510,216 @@ function saveH() {
   } catch (e) {}
 }
 
+function getPartitionForProfile(pIdx, incognito = false) {
+  return incognito ? `orion-incognito-profile-${pIdx}` : `persist:profile-${pIdx}`;
+}
+
+function getPermissionScopeKey(pIdx, incognito = false) {
+  return incognito ? `incognito:${pIdx}` : `profile:${pIdx}`;
+}
+
+function getProfileExtensionStore(pIdx) {
+  if (!bSett.profileExtensions[pIdx]) bSett.profileExtensions[pIdx] = [];
+  return bSett.profileExtensions[pIdx];
+}
+
+function getProfileExtensionMetadataStore(pIdx) {
+  if (!bSett.profileExtensionMetadata[pIdx]) bSett.profileExtensionMetadata[pIdx] = {};
+  return bSett.profileExtensionMetadata[pIdx];
+}
+
+function removeStoredExtensionForProfile(pIdx, extensionPath) {
+  if (!bSett.profileExtensions[pIdx]) return;
+  bSett.profileExtensions[pIdx] = bSett.profileExtensions[pIdx].filter((entry) => entry !== extensionPath);
+  if (bSett.profileExtensionMetadata[pIdx]) delete bSett.profileExtensionMetadata[pIdx][extensionPath];
+}
+
+function buildPermissionPromptOptions(origin, permission) {
+  const label = PERMISSION_LABELS[permission] || permission;
+  return {
+    type: "question",
+    buttons: ["Allow", "Block"],
+    defaultId: 1,
+    cancelId: 1,
+    title: "Permission Request",
+    message: `${origin} wants ${label}.`,
+    detail: "Your choice will be remembered for this browser profile."
+  };
+}
+
+function rememberPermissionDecision(pIdx, incognito, origin, permission, decision) {
+  const scopeKey = getPermissionScopeKey(pIdx, incognito);
+  if (incognito) {
+    browserSecurity.setPermissionDecision(incognitoSitePermissions, scopeKey, origin, permission, decision);
+    return;
+  }
+
+  browserSecurity.setPermissionDecision(bSett.sitePermissions, scopeKey, origin, permission, decision);
+  saveS();
+}
+
+function getRememberedPermissionDecision(pIdx, incognito, origin, permission) {
+  const scopeKey = getPermissionScopeKey(pIdx, incognito);
+  const store = incognito ? incognitoSitePermissions : bSett.sitePermissions;
+  return browserSecurity.getPermissionDecision(store, scopeKey, origin, permission);
+}
+
+async function promptForPermission(webContents, pIdx, incognito, permission, origin) {
+  const ownerWindow = BrowserWindow.fromWebContents(webContents);
+  const result = await (ownerWindow && !ownerWindow.isDestroyed()
+    ? dialog.showMessageBox(ownerWindow, buildPermissionPromptOptions(origin, permission))
+    : dialog.showMessageBox(buildPermissionPromptOptions(origin, permission)));
+  const decision = result.response === 0
+    ? browserSecurity.PERMISSION_DECISIONS.ALLOW
+    : browserSecurity.PERMISSION_DECISIONS.DENY;
+  rememberPermissionDecision(pIdx, incognito, origin, permission, decision);
+  return decision === browserSecurity.PERMISSION_DECISIONS.ALLOW;
+}
+
+function parseRemoteOrigin(details = {}, webContents = null) {
+  return browserSecurity.normalizePermissionOrigin(
+    details.requestingOrigin ||
+    details.requestingUrl ||
+    (webContents && typeof webContents.getURL === "function" ? webContents.getURL() : "")
+  );
+}
+
+function storeExtensionMetadata(pIdx, extensionPath, extensionInfo) {
+  getProfileExtensionMetadataStore(pIdx)[extensionPath] = {
+    description: extensionInfo.description || "",
+    hash: extensionInfo.hash,
+    lastConfirmedAt: Date.now(),
+    manifestVersion: extensionInfo.manifestVersion,
+    name: extensionInfo.name,
+    permissions: extensionInfo.permissions.slice(),
+    version: extensionInfo.version || ""
+  };
+}
+
+function formatExtensionPermissions(extensionInfo) {
+  if (!extensionInfo.permissions.length) return "No explicit extension permissions were declared.";
+  return extensionInfo.permissions.map((permission) => `- ${permission}`).join("\n");
+}
+
+async function confirmExtensionInstall(win, extensionPath, extensionInfo) {
+  const detail = [
+    `Path: ${extensionPath}`,
+    extensionInfo.version ? `Version: ${extensionInfo.version}` : "Version: not specified",
+    extensionInfo.manifestVersion ? `Manifest: v${extensionInfo.manifestVersion}` : "Manifest: not specified",
+    "",
+    "Declared permissions:",
+    formatExtensionPermissions(extensionInfo),
+    "",
+    "Only install unpacked extensions from sources you trust."
+  ].join("\n");
+
+  const options = {
+    type: "warning",
+    buttons: ["Install Extension", "Cancel"],
+    defaultId: 1,
+    cancelId: 1,
+    title: "Review Unpacked Extension",
+    message: `Install "${extensionInfo.name}"?`,
+    detail
+  };
+  const result = win && !win.isDestroyed()
+    ? await dialog.showMessageBox(win, options)
+    : await dialog.showMessageBox(options);
+  return result.response === 0;
+}
+
+function ensureSessionSecurity(partition, pIdx, incognito = false) {
+  if (partitions.has(partition)) return session.fromPartition(partition);
+  partitions.add(partition);
+
+  const sess = session.fromPartition(partition);
+  sess.webRequest.onBeforeRequest((details, callback) => {
+    if (!details.url.startsWith("http") || !adRules.length) return callback({ cancel: false });
+    const url = details.url.toLowerCase();
+    callback({ cancel: adRules.some((rule) => url.includes(rule.toLowerCase())) });
+  });
+
+  sess.setPermissionCheckHandler((webContents, permission, requestingOrigin, details) => {
+    const origin = browserSecurity.normalizePermissionOrigin(requestingOrigin) || parseRemoteOrigin(details, webContents);
+    if (!origin) return false;
+
+    if (browserSecurity.shouldDenyPermissionByDefault(permission)) return false;
+    const decision = getRememberedPermissionDecision(pIdx, incognito, origin, permission);
+    return decision === browserSecurity.PERMISSION_DECISIONS.ALLOW;
+  });
+
+  sess.setPermissionRequestHandler(async (webContents, permission, callback, details) => {
+    try {
+      const origin = parseRemoteOrigin(details, webContents);
+      if (!origin) return callback(false);
+      if (browserSecurity.shouldDenyPermissionByDefault(permission)) return callback(false);
+
+      const remembered = getRememberedPermissionDecision(pIdx, incognito, origin, permission);
+      if (remembered === browserSecurity.PERMISSION_DECISIONS.ALLOW) return callback(true);
+      if (remembered === browserSecurity.PERMISSION_DECISIONS.DENY) return callback(false);
+      if (!browserSecurity.isPermissionPromptable(permission)) return callback(false);
+
+      callback(await promptForPermission(webContents, pIdx, incognito, permission, origin));
+    } catch (_error) {
+      callback(false);
+    }
+  });
+
+  return sess;
+}
+
+async function restoreStoredExtensionsForProfile(pIdx, partition, win) {
+  const sess = ensureSessionSecurity(partition, pIdx, false);
+  const storedPaths = getProfileExtensionStore(pIdx).slice();
+  const metadataStore = getProfileExtensionMetadataStore(pIdx);
+  let mutated = false;
+  const changedExtensions = [];
+
+  for (const extensionPath of storedPaths) {
+    try {
+      const inspection = browserSecurity.inspectExtensionDirectory(extensionPath);
+      const previous = metadataStore[extensionPath] || null;
+      if (previous && previous.hash && previous.hash !== inspection.hash) {
+        changedExtensions.push(inspection.name || path.basename(extensionPath));
+        removeStoredExtensionForProfile(pIdx, extensionPath);
+        mutated = true;
+        continue;
+      }
+
+      storeExtensionMetadata(pIdx, extensionPath, inspection);
+      mutated = true;
+      await sess.loadExtension(extensionPath);
+    } catch (_error) {
+      removeStoredExtensionForProfile(pIdx, extensionPath);
+      mutated = true;
+    }
+  }
+
+  if (mutated) saveS();
+  if (changedExtensions.length) {
+    const options = {
+      type: "warning",
+      buttons: ["OK"],
+      defaultId: 0,
+      title: "Extension Disabled",
+      message: "One or more unpacked extensions changed on disk and were disabled.",
+      detail: changedExtensions.join("\n")
+    };
+    if (win && !win.isDestroyed()) void dialog.showMessageBox(win, options);
+    else void dialog.showMessageBox(options);
+  }
+}
+
 function addH(url, title) {
   if (!url) return;
-  if (url.startsWith("about:") || url.startsWith("file:") || url.startsWith("chrome:")) return;
+  if (
+    url.startsWith("about:") ||
+    url.startsWith("file:") ||
+    url.startsWith("chrome:") ||
+    url.startsWith(appUtils.ORION_PROTOCOL)
+  ) {
+    return;
+  }
   if (url.includes("newtab")) return;
   const now = Date.now();
   const last = bHist.visits[bHist.visits.length - 1];
@@ -589,11 +939,9 @@ function attachBrowserShortcutHandler(webContents, getProfileIndex) {
   });
 }
 
-const TRUSTED_PAGE_FILES = new Set(["index.html", "newtab.html", "offline.html", "extensions.html"]);
-
 function isTrustedSender(webContents) {
   if (!webContents || webContents.isDestroyed()) return false;
-  return appUtils.isTrustedLocalPage(webContents.getURL(), TRUSTED_PAGE_FILES);
+  return appUtils.isTrustedAppPage(webContents.getURL(), TRUSTED_PAGE_FILES);
 }
 
 function isInternalUrl(url) {
@@ -601,10 +949,8 @@ function isInternalUrl(url) {
 }
 
 function isInternalPageUrl(url) {
-  return appUtils.isTrustedLocalPage(url, INTERNAL_PAGES_FILE_SET);
+  return appUtils.isTrustedAppPage(url, INTERNAL_PAGES_FILE_SET);
 }
-
-const INTERNAL_PAGES_FILE_SET = new Set(["newtab.html", "offline.html", "extensions.html"]);
 
 function isHttpUrl(url) {
   try {
@@ -628,13 +974,13 @@ function normalizeHttpUrl(raw) {
 function loadInternal(webContents, url) {
   const file = INTERNAL_PAGES.get(url);
   const targetFile = file || "newtab.html";
-  return webContents.loadFile(getAppHtmlPath(targetFile)).catch((error) => {
+  return webContents.loadURL(getAppPageUrl(targetFile)).catch((error) => {
     showHtmlLoadError(targetFile, error);
   });
 }
 
 function isOfflinePageUrl(url) {
-  return appUtils.getLocalPageFileName(url) === "offline.html" || url === "chrome://offline";
+  return appUtils.getAppPageFileName(url) === "offline.html" || url === "chrome://offline";
 }
 
 function getOfflineTabContext(tabId) {
@@ -667,11 +1013,11 @@ function getDisplayTitleForTab(tabId, rawTitle) {
 }
 
 function buildOfflinePageUrl(game, targetUrl, source) {
-  const pageUrl = pathToFileURL(getAppHtmlPath("offline.html"));
-  pageUrl.searchParams.set("game", game);
-  pageUrl.searchParams.set("target", offlineArcade.normalizeOfflineTargetUrl(targetUrl));
-  pageUrl.searchParams.set("source", source || "offline");
-  return pageUrl.toString();
+  return getAppPageUrl("offline.html", {
+    game,
+    source: source || "offline",
+    target: offlineArcade.normalizeOfflineTargetUrl(targetUrl)
+  });
 }
 
 function pickOfflineGame(pIdx) {
@@ -750,6 +1096,8 @@ function loadTabUrl(tabId, pIdx, rawUrl, options = {}) {
 function createW(pIdx = 0, opts = {}) {
   const isIncognito = !!opts.incognito;
   if (!isIncognito && windows[pIdx]) return windows[pIdx].focus();
+  const partition = getPartitionForProfile(pIdx, isIncognito);
+  ensureSessionSecurity(partition, pIdx, isIncognito);
   let win = new BrowserWindow({
     width: 1400,
     height: 900,
@@ -769,7 +1117,7 @@ function createW(pIdx = 0, opts = {}) {
       safeDialogs: true,
       allowRunningInsecureContent: false,
       preload: path.join(__dirname, "preload.js"),
-      partition: `persist:profile-${pIdx}`
+      partition
     },
     autoHideMenuBar: true
   });
@@ -780,7 +1128,7 @@ function createW(pIdx = 0, opts = {}) {
   if (!pTabs[pIdx]) pTabs[pIdx] = [];
   pNames[pIdx] = isIncognito ? getDefaultProfileName(pIdx, { incognito: true }) : (pNames[pIdx] || getDefaultProfileName(pIdx));
   states[pIdx] = { activeView: null, metrics: { top: 76, left: 0 }, visible: true };
-  win.loadFile(getAppHtmlPath("index.html")).catch((error) => {
+  win.loadURL(getAppPageUrl("index.html")).catch((error) => {
     showHtmlLoadError("index.html", error);
     if (!win.isDestroyed()) win.destroy();
   });
@@ -791,18 +1139,14 @@ function createW(pIdx = 0, opts = {}) {
     delete offlineRotationStates[pIdx];
     clearOfflineTabContextsForProfile(pIdx);
     if (isIncognito) {
+      delete incognitoSitePermissions[getPermissionScopeKey(pIdx, true)];
       delete pTabs[pIdx];
       delete pNames[pIdx];
     }
     saveH();
   });
   broadcast();
-  const sess = session.fromPartition(`persist:profile-${pIdx}`);
-  (bSett.profileExtensions[pIdx] || []).forEach(async (p) => {
-    try {
-      await sess.loadExtension(p);
-    } catch (e) { }
-  });
+  if (!isIncognito) void restoreStoredExtensionsForProfile(pIdx, partition, win);
   return win;
 }
 
@@ -908,6 +1252,7 @@ function ensureWindowBootstrapState(win) {
 function createV(id, url, inc, pIdx) {
   const win = windows[pIdx];
   const s = states[pIdx];
+  const partition = getPartitionForProfile(pIdx, inc);
   const webP = {
     contextIsolation: true,
     nodeIntegration: false,
@@ -917,9 +1262,9 @@ function createV(id, url, inc, pIdx) {
     safeDialogs: true,
     allowRunningInsecureContent: false,
     preload: path.join(__dirname, "preload.js"),
-    partition: inc ? `incognito-${Date.now()}` : `persist:profile-${pIdx}`
+    partition
   };
-  ad(webP.partition);
+  ensureSessionSecurity(partition, pIdx, inc);
   const v = new WebContentsView({ webPreferences: webP });
   attachBrowserShortcutHandler(v.webContents, () => pIdx);
   v.webContents.setUserAgent(
@@ -1182,6 +1527,13 @@ function getSenderWindow(sender) {
   return BrowserWindow.fromWebContents(sender) || sender.getOwnerBrowserWindow() || null;
 }
 
+function getSessionForWindow(win) {
+  const profileIndex = win ? win.profileIndex : 0;
+  const incognito = !!(win && win.incognitoWindow);
+  const partition = getPartitionForProfile(profileIndex, incognito);
+  return ensureSessionSecurity(partition, profileIndex, incognito);
+}
+
 function withTrustedSender(handler, fallback) {
   return (e, ...args) => {
     if (!isTrustedSender(e.sender)) return fallback;
@@ -1396,17 +1748,19 @@ ipcMain.handle("select-extension-folder", withTrustedSender(async (e) => {
 ipcMain.handle("load-extension", withTrustedSender(async (e, p) => {
   const w = getSenderWindow(e.sender);
   if (!w) return { success: false, error: "No window." };
+  if (w.incognitoWindow) return { success: false, error: "Extensions cannot be installed from incognito windows." };
   const pIdx = w.profileIndex;
-  if (!p || !path.isAbsolute(p) || !fs.existsSync(p))
-    return { success: false, error: "Invalid extension path." };
-  const sess = session.fromPartition(`persist:profile-${pIdx}`);
   try {
+    const inspection = browserSecurity.inspectExtensionDirectory(p);
+    const approved = await confirmExtensionInstall(w, p, inspection);
+    if (!approved) return { success: false, error: "Installation cancelled." };
+
+    const sess = getSessionForWindow(w);
     const ext = await sess.loadExtension(p);
-    if (!bSett.profileExtensions[pIdx]) bSett.profileExtensions[pIdx] = [];
-    if (!bSett.profileExtensions[pIdx].includes(p)) {
-      bSett.profileExtensions[pIdx].push(p);
-      saveS();
-    }
+    const extensionStore = getProfileExtensionStore(pIdx);
+    if (!extensionStore.includes(p)) extensionStore.push(p);
+    storeExtensionMetadata(pIdx, p, inspection);
+    saveS();
     return { success: true, name: ext.name };
   } catch (err) {
     return { success: false, error: err.message };
@@ -1414,8 +1768,7 @@ ipcMain.handle("load-extension", withTrustedSender(async (e, p) => {
 }, { success: false, error: "Untrusted sender." }));
 ipcMain.handle("get-extensions", withTrustedSender((e) => {
   const w = getSenderWindow(e.sender);
-  const pIdx = w ? w.profileIndex : 0;
-  const sess = session.fromPartition(`persist:profile-${pIdx}`);
+  const sess = getSessionForWindow(w);
   return sess.getAllExtensions().map((ext) => ({
     id: ext.id,
     name: ext.name,
@@ -1426,10 +1779,10 @@ ipcMain.handle("get-extensions", withTrustedSender((e) => {
 ipcMain.handle("remove-extension", withTrustedSender((e, id) => {
   const w = getSenderWindow(e.sender);
   const pIdx = w ? w.profileIndex : 0;
-  const sess = session.fromPartition(`persist:profile-${pIdx}`);
+  const sess = getSessionForWindow(w);
   const ext = sess.getExtension(id);
-  if (ext && bSett.profileExtensions[pIdx]) {
-    bSett.profileExtensions[pIdx] = bSett.profileExtensions[pIdx].filter((p) => p !== ext.path);
+  if (ext) {
+    removeStoredExtensionForProfile(pIdx, ext.path);
     saveS();
   }
   sess.removeExtension(id);
@@ -1464,22 +1817,12 @@ ipcMain.handle("update-adblock-rules", withTrustedSender((e, r) => {
     .filter((x) => x);
 }, null));
 
-function ad(p) {
-  if (partitions.has(p)) return;
-  partitions.add(p);
-  const sess = session.fromPartition(p);
-  sess.webRequest.onBeforeRequest((d, cb) => {
-    if (!d.url.startsWith("http") || !adRules.length) return cb({ cancel: false });
-    const url = d.url.toLowerCase();
-    cb({ cancel: adRules.some((r) => url.includes(r.toLowerCase())) });
-  });
-}
-
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 
 app.whenReady().then(() => {
+  registerAppProtocol();
   setMacDockIcon();
   createW(0);
   configureAutoUpdater();

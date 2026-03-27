@@ -13,7 +13,7 @@ function runPreload(href) {
   const sendCalls = [];
   const onCalls = [];
   const removeCalls = [];
-  let exposedApi = null;
+  const exposedApis = {};
 
   const ipcRenderer = {
     invoke: (...args) => {
@@ -33,7 +33,7 @@ function runPreload(href) {
 
   const contextBridge = {
     exposeInMainWorld: (name, api) => {
-      if (name === "electron") exposedApi = api;
+      exposedApis[name] = api;
     }
   };
 
@@ -50,7 +50,7 @@ function runPreload(href) {
   vm.runInContext(preloadSource, context, { filename: "preload.js" });
 
   return {
-    api: exposedApi,
+    apis: exposedApis,
     requireCalls,
     invokeCalls,
     sendCalls,
@@ -60,19 +60,19 @@ function runPreload(href) {
 }
 
 test("preload only requires electron in sandbox bridge", () => {
-  const runtime = runPreload("file:///Users/kenokayasu/Documents/MyBrowser/index.html");
-  assert.ok(runtime.api);
+  const runtime = runPreload("orion://app/index.html");
+  assert.ok(runtime.apis.electron);
   assert.deepEqual(runtime.requireCalls, ["electron"]);
 });
 
 test("index page allows renderer-ready send and startup/navigation invokes", () => {
-  const runtime = runPreload("file:///Users/kenokayasu/Documents/MyBrowser/index.html");
-  const { api } = runtime;
+  const runtime = runPreload("orion://app/index.html");
+  const { electron } = runtime.apis;
 
-  const invokeResult = api.invoke("navigate-to", "https://example.com");
-  const bootstrapInvokeResult = api.invoke("get-window-bootstrap-state");
-  api.send("renderer-ready");
-  const unsubscribe = api.on("tab-created", () => {});
+  const invokeResult = electron.invoke("navigate-to", "https://example.com");
+  const bootstrapInvokeResult = electron.invoke("get-window-bootstrap-state");
+  electron.send("renderer-ready");
+  const unsubscribe = electron.on("tab-created", () => {});
   unsubscribe();
 
   assert.equal(invokeResult, "invoke-result");
@@ -90,56 +90,59 @@ test("index page allows renderer-ready send and startup/navigation invokes", () 
   assert.equal(typeof runtime.removeCalls[0][1], "function");
 });
 
-test("newtab page allows invoke but blocks send/on privileges", () => {
-  const runtime = runPreload("file:///C:/Program%20Files/Orion/resources/app.asar/newtab.html");
-  const { api } = runtime;
+test("newtab page exposes only the scoped newtab helpers", async () => {
+  const runtime = runPreload("orion://app/newtab.html");
+  const { orionPage, electron } = runtime.apis;
 
-  const invokeResult = api.invoke("navigate-to", "example query");
-  const blockedBootstrap = api.invoke("get-window-bootstrap-state");
-  api.send("renderer-ready");
-  const unsubscribe = api.on("tab-created", () => {});
-  unsubscribe();
+  assert.equal(electron, undefined);
+  assert.ok(orionPage);
 
-  assert.equal(invokeResult, "invoke-result");
-  assert.equal(blockedBootstrap, undefined);
-  assert.equal(runtime.invokeCalls.length, 1);
-  assert.deepEqual(runtime.invokeCalls[0], ["navigate-to", "example query"]);
+  const navigateResult = await orionPage.navigateTo("example query");
+  const localeResult = await orionPage.getLanguageSettings();
+
+  assert.equal(navigateResult, "invoke-result");
+  assert.equal(localeResult, "invoke-result");
+  assert.equal(typeof orionPage.loadExtension, "undefined");
+  assert.deepEqual(runtime.invokeCalls, [
+    ["navigate-to", "example query"],
+    ["get-language-settings"]
+  ]);
   assert.equal(runtime.sendCalls.length, 0);
   assert.equal(runtime.onCalls.length, 0);
-  assert.equal(runtime.removeCalls.length, 0);
 });
 
-test("offline page keeps the same restricted invoke-only bridge", () => {
-  const runtime = runPreload("file:///Users/kenokayasu/Documents/MyBrowser/offline.html?game=snake");
-  const { api } = runtime;
+test("offline page only exposes navigation back into the browser", async () => {
+  const runtime = runPreload("orion://app/offline.html?game=snake");
+  const { orionPage } = runtime.apis;
 
-  const invokeResult = api.invoke("navigate-to", "chrome://newtab");
-  const blockedBootstrap = api.invoke("get-window-bootstrap-state");
-  api.send("renderer-ready");
-  const unsubscribe = api.on("tab-created", () => {});
-  unsubscribe();
+  const invokeResult = await orionPage.navigateTo("chrome://newtab");
 
   assert.equal(invokeResult, "invoke-result");
-  assert.equal(blockedBootstrap, undefined);
-  assert.equal(runtime.invokeCalls.length, 1);
-  assert.deepEqual(runtime.invokeCalls[0], ["navigate-to", "chrome://newtab"]);
+  assert.deepEqual(runtime.invokeCalls, [["navigate-to", "chrome://newtab"]]);
+  assert.equal(typeof orionPage.getLanguageSettings, "undefined");
   assert.equal(runtime.sendCalls.length, 0);
   assert.equal(runtime.onCalls.length, 0);
-  assert.equal(runtime.removeCalls.length, 0);
 });
 
-test("non-file pages block all privileged channels", () => {
+test("extensions page keeps extension management scoped to its own page", async () => {
+  const runtime = runPreload("orion://app/extensions.html");
+  const { orionPage } = runtime.apis;
+
+  const folderResult = await orionPage.selectExtensionFolder();
+  const loadResult = await orionPage.loadExtension("/tmp/sample-extension");
+
+  assert.equal(folderResult, "invoke-result");
+  assert.equal(loadResult, "invoke-result");
+  assert.equal(typeof orionPage.navigateTo, "undefined");
+  assert.deepEqual(runtime.invokeCalls, [
+    ["select-extension-folder"],
+    ["load-extension", "/tmp/sample-extension"]
+  ]);
+});
+
+test("non-app pages block all privileged channels", () => {
   const runtime = runPreload("https://example.com/index.html");
-  const { api } = runtime;
-
-  const invokeResult = api.invoke("navigate-to", "https://openai.com");
-  const blockedBootstrap = api.invoke("get-window-bootstrap-state");
-  api.send("renderer-ready");
-  const unsubscribe = api.on("tab-created", () => {});
-  unsubscribe();
-
-  assert.equal(invokeResult, undefined);
-  assert.equal(blockedBootstrap, undefined);
+  assert.deepEqual(runtime.apis, {});
   assert.equal(runtime.invokeCalls.length, 0);
   assert.equal(runtime.sendCalls.length, 0);
   assert.equal(runtime.onCalls.length, 0);

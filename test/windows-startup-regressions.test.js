@@ -5,60 +5,58 @@ const appUtils = require("../app-utils");
 
 const TRUSTED_PAGE_FILES = new Set(["index.html", "newtab.html", "offline.html", "extensions.html"]);
 
-test("getLocalPageFileName handles packaged Windows file URLs", () => {
+test("getAppPageFileName handles Orion protocol URLs", () => {
   assert.equal(
-    appUtils.getLocalPageFileName("file:///C:/Program%20Files/Orion/resources/app.asar/index.html"),
+    appUtils.getAppPageFileName("orion://app/index.html"),
     "index.html"
   );
   assert.equal(
-    appUtils.getLocalPageFileName("file:///C:/Users/Ken/AppData/Local/Programs/Orion/resources/app.asar/newtab.html"),
+    appUtils.getAppPageFileName("orion://app/newtab.html"),
     "newtab.html"
   );
 });
 
-test("getLocalPageFileName handles Unix file URLs and rejects non-file URLs", () => {
+test("getAppPageFileName still normalizes legacy file URLs for aliasing but rejects web URLs", () => {
   assert.equal(
-    appUtils.getLocalPageFileName("file:///Users/kenokayasu/Documents/MyBrowser/extensions.html"),
+    appUtils.getAppPageFileName("file:///Users/kenokayasu/Documents/MyBrowser/extensions.html"),
     "extensions.html"
   );
   assert.equal(
-    appUtils.getLocalPageFileName("file:///Users/kenokayasu/Documents/MyBrowser/offline.html?game=snake"),
+    appUtils.getAppPageFileName("file:///Users/kenokayasu/Documents/MyBrowser/offline.html?game=snake"),
     "offline.html"
   );
-  assert.equal(appUtils.getLocalPageFileName("https://example.com/index.html"), null);
-  assert.equal(appUtils.getLocalPageFileName("not a url"), null);
+  assert.equal(appUtils.getAppPageFileName("https://example.com/index.html"), null);
+  assert.equal(appUtils.getAppPageFileName("not a url"), null);
 });
 
-test("trusted local page recognition works for packaged and internal Orion pages", () => {
+test("trusted Orion page recognition requires the custom app origin", () => {
   assert.equal(
-    appUtils.isTrustedLocalPage("file:///C:/Program%20Files/Orion/resources/app.asar/index.html", TRUSTED_PAGE_FILES),
+    appUtils.isTrustedAppPage("orion://app/index.html", TRUSTED_PAGE_FILES),
     true
   );
   assert.equal(
-    appUtils.isTrustedLocalPage("file:///Users/kenokayasu/Documents/MyBrowser/newtab.html", TRUSTED_PAGE_FILES),
+    appUtils.isTrustedAppPage("orion://app/newtab.html", TRUSTED_PAGE_FILES),
     true
   );
   assert.equal(
-    appUtils.isTrustedLocalPage("file:///Users/kenokayasu/Documents/MyBrowser/extensions.html", TRUSTED_PAGE_FILES),
+    appUtils.isTrustedAppPage("orion://app/extensions.html", TRUSTED_PAGE_FILES),
     true
   );
   assert.equal(
-    appUtils.isTrustedLocalPage("file:///Users/kenokayasu/Documents/MyBrowser/offline.html?game=tetris", TRUSTED_PAGE_FILES),
+    appUtils.isTrustedAppPage("orion://app/offline.html?game=tetris", TRUSTED_PAGE_FILES),
     true
   );
   assert.equal(
-    appUtils.isTrustedLocalPage("file:///C:/Program%20Files/Orion/resources/app.asar/unknown.html", TRUSTED_PAGE_FILES),
+    appUtils.isTrustedAppPage("orion://app/unknown.html", TRUSTED_PAGE_FILES),
     false
   );
-  assert.equal(appUtils.isTrustedLocalPage("https://example.com/index.html", TRUSTED_PAGE_FILES), false);
+  assert.equal(appUtils.isTrustedAppPage("file:///Users/kenokayasu/Documents/MyBrowser/index.html", TRUSTED_PAGE_FILES), false);
+  assert.equal(appUtils.isTrustedAppPage("https://example.com/index.html", TRUSTED_PAGE_FILES), false);
 });
 
-test("internal Orion file URLs normalize to chrome aliases across platforms", () => {
+test("internal Orion URLs normalize to chrome aliases across protocol and legacy file paths", () => {
   assert.equal(
-    appUtils.normalizeInternalUrl(
-      "file:///C:/Program%20Files/Orion/resources/app.asar/newtab.html",
-      "fallback"
-    ),
+    appUtils.normalizeInternalUrl("orion://app/newtab.html", "fallback"),
     "chrome://newtab"
   );
   assert.equal(
@@ -88,12 +86,15 @@ test("index shell channels allow renderer IPC and events", () => {
 test("internal pages keep restricted invoke access", () => {
   assert.equal(appUtils.canUseElectronChannel("newtab.html", "invoke", "navigate-to"), true);
   assert.equal(appUtils.canUseElectronChannel("newtab.html", "invoke", "get-language-settings"), true);
+  assert.equal(appUtils.canUseElectronChannel("newtab.html", "invoke", "load-extension"), false);
   assert.equal(appUtils.canUseElectronChannel("newtab.html", "invoke", "get-window-bootstrap-state"), false);
   assert.equal(appUtils.canUseElectronChannel("newtab.html", "send", "renderer-ready"), false);
   assert.equal(appUtils.canUseElectronChannel("offline.html", "invoke", "navigate-to"), true);
+  assert.equal(appUtils.canUseElectronChannel("offline.html", "invoke", "get-language-settings"), false);
   assert.equal(appUtils.canUseElectronChannel("offline.html", "invoke", "get-window-bootstrap-state"), false);
   assert.equal(appUtils.canUseElectronChannel("offline.html", "send", "renderer-ready"), false);
   assert.equal(appUtils.canUseElectronChannel("extensions.html", "invoke", "load-extension"), true);
+  assert.equal(appUtils.canUseElectronChannel("extensions.html", "invoke", "navigate-to"), false);
   assert.equal(appUtils.canUseElectronChannel("extensions.html", "on", "tab-created"), false);
 });
 

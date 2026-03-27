@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <meta http-equiv="Content-Security-Policy"
-            content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';">
+            content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'; frame-ancestors 'none';">
     <title>Extensions</title>
     <style>
         :root {
@@ -329,120 +329,7 @@
 
     <script src="localization.js"></script>
     <script src="app-utils.js"></script>
-    <script>
-        const electron = window.electron || { invoke: async () => ({ success: false, error: "Not running in Electron." }) };
-        const invoke = (channel, ...args) => electron.invoke(channel, ...args);
-        const appUtils = window.OrionAppUtils;
-        const localization = window.OrionLocalization;
-
-        const loadBtn = document.getElementById('load-btn');
-        const pathInput = document.getElementById('ext-path');
-        const list = document.getElementById('ext-list');
-        let currentLocale = localization.resolveLocale(localStorage.getItem('orion-locale'));
-
-        const t = (key, vars = {}) => localization.t(currentLocale, key, vars);
-
-        function applyTranslations() {
-            document.documentElement.lang = currentLocale;
-            document.title = t('extension.pageTitle');
-            document.getElementById('ext-eyebrow').textContent = t('extension.eyebrow');
-            document.getElementById('ext-header').textContent = t('extension.header');
-            document.getElementById('ext-badge').textContent = t('extension.badge');
-            document.getElementById('ext-load-title').textContent = t('extension.loadTitle');
-            document.getElementById('ext-load-body').textContent = t('extension.loadBody');
-            document.getElementById('ext-load-example').textContent = t('extension.loadExample');
-            document.getElementById('ext-installed-title').textContent = t('extension.installedTitle');
-            document.getElementById('ext-installed-note').textContent = t('extension.installedNote');
-            pathInput.setAttribute('placeholder', t('extension.pathPlaceholder'));
-            loadBtn.textContent = loadBtn.disabled ? t('download.loading') : t('extension.loadButton');
-        }
-
-        async function syncLocale() {
-            try {
-                const response = await invoke('get-language-settings');
-                const locale = localization.sanitizeLocale(response && response.locale);
-                if (locale) {
-                    currentLocale = locale;
-                    try { localStorage.setItem('orion-locale', locale); } catch (e) { }
-                }
-            } catch (e) { }
-            applyTranslations();
-            refreshList();
-        }
-
-        async function removeExtension(id) {
-            if (confirm(t('extension.removeConfirm'))) {
-                await invoke('remove-extension', id);
-                refreshList();
-            }
-        }
-
-        async function refreshList() {
-            try {
-                const extensions = await invoke('get-extensions');
-                list.innerHTML = '';
-
-                if (!extensions || extensions.length === 0) {
-                    list.innerHTML = `<div class="empty-state">${t('extension.empty')}</div>`;
-                    return;
-                }
-
-                extensions.forEach(ext => {
-                    const { card, removeBtn } = appUtils.createExtensionCard(document, ext, {
-                        remove: t('extension.remove'),
-                        unknown: t('extension.unknown'),
-                        noDescription: t('extension.noDescription')
-                    });
-                    removeBtn.addEventListener('click', () => {
-                        void removeExtension(ext.id);
-                    });
-                    list.appendChild(card);
-                });
-            } catch (err) {
-                console.error('Failed to refresh extension list:', err);
-                list.innerHTML = `<div class="empty-state">${t('extension.error')}</div>`;
-            }
-        }
-
-        loadBtn.addEventListener('click', async () => {
-            // Open native folder picker
-            const path = await invoke('select-extension-folder');
-            if (!path) return; // User cancelled
-
-            pathInput.value = path;
-            loadBtn.disabled = true;
-            loadBtn.textContent = t('download.loading');
-
-            try {
-                const result = await invoke('load-extension', path);
-                if (result.success) {
-                    alert(t('extension.success'));
-                    pathInput.value = '';
-                    refreshList();
-                } else {
-                    alert(t('extension.loadFailure', { error: result.error }));
-                }
-            } catch (err) {
-                alert(t('extension.invokeFailure', { error: err.message }));
-            } finally {
-                loadBtn.disabled = false;
-                loadBtn.textContent = t('extension.loadButton');
-            }
-        });
-
-        window.addEventListener('storage', (event) => {
-            if (event.key === 'orion-locale' && localization.sanitizeLocale(event.newValue)) {
-                currentLocale = localization.resolveLocale(event.newValue);
-                applyTranslations();
-                refreshList();
-            }
-        });
-
-        // Initial load
-        applyTranslations();
-        refreshList();
-        syncLocale();
-    </script>
+    <script src="extensions.js"></script>
 </body>
 
 </html>

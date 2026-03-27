@@ -5,6 +5,9 @@
   }
   root.OrionAppUtils = factory();
 })(typeof globalThis !== "undefined" ? globalThis : this, () => {
+  const ORION_SCHEME = "orion";
+  const ORION_PROTOCOL = `${ORION_SCHEME}:`;
+  const ORION_HOST = "app";
   const INTERNAL_PAGE_ALIASES = Object.freeze({
     "newtab.html": "chrome://newtab",
     "extensions.html": "chrome://extensions",
@@ -63,13 +66,18 @@
     "updater-status",
     "view-event"
   ]);
-  const INTERNAL_INVOKE_CHANNELS = Object.freeze([
+  const NEWTAB_INVOKE_CHANNELS = Object.freeze([
     "get-language-settings",
+    "navigate-to"
+  ]);
+  const OFFLINE_INVOKE_CHANNELS = Object.freeze([
+    "navigate-to"
+  ]);
+  const EXTENSIONS_INVOKE_CHANNELS = Object.freeze([
     "get-extensions",
+    "get-language-settings",
     "load-extension",
-    "navigate-to",
     "remove-extension",
-    "set-language",
     "select-extension-folder"
   ]);
   const EMPTY_CHANNELS = Object.freeze({
@@ -84,48 +92,76 @@
       on: APP_ON_CHANNELS
     }),
     "newtab.html": Object.freeze({
-      invoke: INTERNAL_INVOKE_CHANNELS,
+      invoke: NEWTAB_INVOKE_CHANNELS,
       send: EMPTY_CHANNELS.send,
       on: EMPTY_CHANNELS.on
     }),
     "offline.html": Object.freeze({
-      invoke: INTERNAL_INVOKE_CHANNELS,
+      invoke: OFFLINE_INVOKE_CHANNELS,
       send: EMPTY_CHANNELS.send,
       on: EMPTY_CHANNELS.on
     }),
     "extensions.html": Object.freeze({
-      invoke: INTERNAL_INVOKE_CHANNELS,
+      invoke: EXTENSIONS_INVOKE_CHANNELS,
       send: EMPTY_CHANNELS.send,
       on: EMPTY_CHANNELS.on
     })
   });
 
-  function getLocalPageFileName(url) {
+  function getAppPageFileName(url) {
     if (!url || typeof url !== "string") return null;
 
     try {
       const parsed = new URL(url);
-      if (parsed.protocol !== "file:") return null;
-
-      const decodedPath = decodeURIComponent(parsed.pathname || "").replace(/\\/g, "/");
-      const file = decodedPath.split("/").filter(Boolean).pop();
+      let file = null;
+      if (parsed.protocol === ORION_PROTOCOL && parsed.hostname === ORION_HOST) {
+        file = (parsed.pathname || "")
+          .split("/")
+          .filter(Boolean)
+          .pop();
+      } else if (parsed.protocol === "file:") {
+        const decodedPath = decodeURIComponent(parsed.pathname || "").replace(/\\/g, "/");
+        file = decodedPath.split("/").filter(Boolean).pop();
+      } else {
+        return null;
+      }
       return file ? file.toLowerCase() : null;
-    } catch (error) {
+    } catch (_error) {
       return null;
     }
   }
 
-  function isTrustedLocalPage(url, trustedFiles) {
+  function getAppPageUrl(fileName, searchParams = null) {
+    if (!fileName || typeof fileName !== "string") return "";
+    const url = new URL(`${ORION_PROTOCOL}//${ORION_HOST}/${fileName.replace(/^\/+/, "")}`);
+    if (searchParams && typeof searchParams === "object") {
+      Object.entries(searchParams).forEach(([key, value]) => {
+        if (value == null) return;
+        url.searchParams.set(key, String(value));
+      });
+    }
+    return url.toString();
+  }
+
+  function isTrustedAppPage(url, trustedFiles) {
     if (!trustedFiles || typeof trustedFiles.has !== "function") return false;
-    const file = getLocalPageFileName(url);
-    return !!file && trustedFiles.has(file);
+    if (!url || typeof url !== "string") return false;
+
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol !== ORION_PROTOCOL || parsed.hostname !== ORION_HOST) return false;
+      const file = getAppPageFileName(url);
+      return !!file && trustedFiles.has(file);
+    } catch (_error) {
+      return false;
+    }
   }
 
   function getInternalAlias(url) {
     if (!url || typeof url !== "string") return null;
     if (url.startsWith("chrome://")) return url;
 
-    const file = getLocalPageFileName(url);
+    const file = getAppPageFileName(url);
     return file ? INTERNAL_PAGE_ALIASES[file] || null : null;
   }
 
@@ -347,19 +383,28 @@
     APP_INVOKE_CHANNELS,
     APP_ON_CHANNELS,
     APP_SEND_CHANNELS,
-    INTERNAL_INVOKE_CHANNELS,
+    EXTENSIONS_INVOKE_CHANNELS,
+    INTERNAL_INVOKE_CHANNELS: NEWTAB_INVOKE_CHANNELS,
+    NEWTAB_INVOKE_CHANNELS,
+    OFFLINE_INVOKE_CHANNELS,
+    ORION_HOST,
+    ORION_PROTOCOL,
+    ORION_SCHEME,
     ELECTRON_PAGE_CHANNELS,
     canUseElectronChannel,
     INTERNAL_PAGE_ALIASES,
     createExtensionCard,
     createTabElement,
+    getAppPageFileName,
+    getAppPageUrl,
     getElectronPageChannels,
     getActiveTabBookmark,
-    getLocalPageFileName,
+    getLocalPageFileName: getAppPageFileName,
     resolveRendererBootstrapState,
     resolveBrowserShortcutAction,
     normalizeInternalUrl,
-    isTrustedLocalPage,
+    isTrustedAppPage,
+    isTrustedLocalPage: isTrustedAppPage,
     removeBookmarkById,
     syncTabRecord,
     upsertTabRecord
