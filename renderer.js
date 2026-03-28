@@ -1023,12 +1023,15 @@ async function bootstrap() {
   } catch (_error) { }
 
   let persistedLocale = null;
+  let onboardingCompleted = true;
   try {
     const response = await ipcRenderer.invoke('get-language-settings');
     persistedLocale = localization.sanitizeLocale(response && response.locale);
+    onboardingCompleted = response && response.onboardingCompleted === false ? false : true;
   } catch (_error) { }
 
   const bootstrapState = appUtils.resolveRendererBootstrapState({
+    onboardingCompleted,
     persistedLocale,
     storedLocale: getStoredLocale(),
     defaultLocale: localization.DEFAULT_LOCALE,

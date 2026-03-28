@@ -131,6 +131,45 @@
     }
   }
 
+  function normalizeFilePathCandidates(value) {
+    if (!value || typeof value !== "string") return [];
+
+    const normalized = value
+      .replace(/\\/g, "/")
+      .replace(/\/+/g, "/")
+      .replace(/\/$/, "");
+    const driveNormalized = normalized.replace(/^\/([A-Za-z]:\/)/, "$1");
+
+    return Array.from(new Set([normalized, driveNormalized].filter(Boolean)));
+  }
+
+  function isTrustedBundledFilePage(url, trustedFiles, rootPath) {
+    if (!trustedFiles || typeof trustedFiles.has !== "function") return false;
+    if (!rootPath || typeof rootPath !== "string") return false;
+    if (!url || typeof url !== "string") return false;
+
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol !== "file:") return false;
+
+      const file = getAppPageFileName(url);
+      if (!file || !trustedFiles.has(file)) return false;
+
+      const rootCandidates = normalizeFilePathCandidates(rootPath);
+      const fileCandidates = normalizeFilePathCandidates(decodeURIComponent(parsed.pathname || ""));
+
+      return fileCandidates.some((filePath) => {
+        const lowerFilePath = filePath.toLowerCase();
+        return rootCandidates.some((rootCandidate) => {
+          const lowerRoot = rootCandidate.toLowerCase();
+          return lowerFilePath === lowerRoot || lowerFilePath.startsWith(`${lowerRoot}/`);
+        });
+      });
+    } catch (_error) {
+      return false;
+    }
+  }
+
   function getAppPageUrl(fileName, searchParams = null) {
     if (!fileName || typeof fileName !== "string") return "";
     const url = new URL(`${ORION_PROTOCOL}//${ORION_HOST}/${fileName.replace(/^\/+/, "")}`);
@@ -231,27 +270,43 @@
     const sanitizeLocale =
       typeof options.sanitizeLocale === "function" ? options.sanitizeLocale : (value) => value || null;
     const persistedLocale = sanitizeLocale(options.persistedLocale);
+    const storedLocale = sanitizeLocale(options.storedLocale);
+    const onboardingCompleted = options.onboardingCompleted !== false;
+
+    let locale = options.defaultLocale || "en";
+    let source = "default";
+
     if (persistedLocale) {
-      return {
-        locale: persistedLocale,
-        showOnboarding: false,
-        source: "settings"
-      };
+      locale = persistedLocale;
+      source = "settings";
+    } else if (storedLocale) {
+      locale = storedLocale;
+      source = "local-storage";
     }
 
-    const storedLocale = sanitizeLocale(options.storedLocale);
-    if (storedLocale) {
+    return {
+      locale,
+      showOnboarding: !onboardingCompleted,
+      source
+    };
+  }
+
+  function resolveLanguageSettingsState(options = {}) {
+    const sanitizeLocale =
+      typeof options.sanitizeLocale === "function" ? options.sanitizeLocale : (value) => value || null;
+    const currentLocale = sanitizeLocale(options.currentLocale);
+    const nextLocale = sanitizeLocale(options.nextLocale);
+
+    if (!nextLocale) {
       return {
-        locale: storedLocale,
-        showOnboarding: false,
-        source: "local-storage"
+        locale: currentLocale,
+        onboardingCompleted: !!options.currentOnboardingCompleted
       };
     }
 
     return {
-      locale: options.defaultLocale || "en",
-      showOnboarding: true,
-      source: "default"
+      locale: nextLocale,
+      onboardingCompleted: true
     };
   }
 
@@ -401,9 +456,11 @@
     getActiveTabBookmark,
     getLocalPageFileName: getAppPageFileName,
     resolveRendererBootstrapState,
+    resolveLanguageSettingsState,
     resolveBrowserShortcutAction,
     normalizeInternalUrl,
     isTrustedAppPage,
+    isTrustedBundledFilePage,
     isTrustedLocalPage: isTrustedAppPage,
     removeBookmarkById,
     syncTabRecord,

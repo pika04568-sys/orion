@@ -62,8 +62,15 @@ function getAppPageFileName(url) {
 
   try {
     const parsed = new URL(url);
-    if (parsed.protocol !== ORION_PROTOCOL || parsed.hostname !== ORION_HOST) return null;
-    const file = (parsed.pathname || "").split("/").filter(Boolean).pop();
+    let file = null;
+    if (parsed.protocol === ORION_PROTOCOL && parsed.hostname === ORION_HOST) {
+      file = (parsed.pathname || "").split("/").filter(Boolean).pop();
+    } else if (parsed.protocol === "file:") {
+      const decodedPath = decodeURIComponent(parsed.pathname || "").replace(/\\/g, "/");
+      file = decodedPath.split("/").filter(Boolean).pop();
+    } else {
+      return null;
+    }
     return file ? file.toLowerCase() : null;
   } catch (_error) {
     return null;

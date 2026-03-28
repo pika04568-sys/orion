@@ -106,7 +106,8 @@
       "offline.html",
       "extensions.html",
       "package.json",
-      "offline-arcade.js"
+      "offline-arcade.js",
+      "offline-game-helpers.js"
     ]
   },
   "devDependencies": {

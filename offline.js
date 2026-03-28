@@ -1,5 +1,6 @@
 (() => {
   const pageBridge = window.orionPage || null;
+  const helpers = window.OfflineArcadeHelpers || {};
   const params = new URLSearchParams(window.location.search);
   const GAME_LABELS = {
     pacman: "Pac-Man",
@@ -7,10 +8,62 @@
     tetris: "Tetris"
   };
   const CONTROL_COPY = {
-    pacman: "Arrow keys or WASD move. Clear the maze and dodge the ghosts.",
-    snake: "Arrow keys or WASD steer. Eat the fruit and avoid walls and yourself.",
-    tetris: "Arrow keys move, Up/X rotates clockwise, Z rotates backward, Space hard-drops."
+    pacman: "Arrow keys or WASD move. Press P to pause.",
+    snake: "Arrow keys or WASD steer. Press P to pause.",
+    tetris: "Arrow keys move, Up/X rotates clockwise, Z rotates backward, Space hard-drops. Press P to pause."
   };
+
+  const enqueueDirection = typeof helpers.enqueueDirection === "function"
+    ? helpers.enqueueDirection
+    : (queue, currentDirection, candidate, maxQueueLength = 3) => {
+      const next = candidate && Number.isFinite(candidate.x) && Number.isFinite(candidate.y)
+        ? { x: candidate.x, y: candidate.y }
+        : null;
+      const lastQueued = queue.length ? queue[queue.length - 1] : currentDirection;
+      if (!next || (lastQueued && lastQueued.x === -next.x && lastQueued.y === -next.y)) return queue.slice();
+      return queue.concat(next).slice(-Math.max(1, maxQueueLength));
+    };
+  const directionToAngle = typeof helpers.directionToAngle === "function"
+    ? helpers.directionToAngle
+    : (direction, fallback = { x: 1, y: 0 }) => {
+      const active = direction || fallback;
+      if (active.x === 1) return 0;
+      if (active.x === -1) return Math.PI;
+      if (active.y === 1) return Math.PI / 2;
+      if (active.y === -1) return -Math.PI / 2;
+      return 0;
+    };
+  const createPieceStream = typeof helpers.createPieceStream === "function"
+    ? helpers.createPieceStream
+    : (pieces, random = Math.random) => {
+      function cloneMatrix(matrix) {
+        return matrix.map((row) => row.slice());
+      }
+
+      function clonePiece(piece) {
+        return {
+          color: piece.color,
+          shape: cloneMatrix(piece.shape)
+        };
+      }
+
+      function drawPiece() {
+        const template = pieces[Math.floor(random() * pieces.length)] || pieces[0];
+        return clonePiece(template);
+      }
+
+      let nextPiece = drawPiece();
+      return {
+        peekNextPiece() {
+          return clonePiece(nextPiece);
+        },
+        takeNextPiece() {
+          const current = clonePiece(nextPiece);
+          nextPiece = drawPiece();
+          return current;
+        }
+      };
+    };
 
   const game = GAME_LABELS[params.get("game")] ? params.get("game") : "snake";
   const target = params.get("target") || "chrome://newtab";
@@ -26,10 +79,12 @@
   const statusEl = document.getElementById("status");
   const retryBtn = document.getElementById("retry-btn");
   const restartBtn = document.getElementById("restart-btn");
+  const pauseBtn = document.getElementById("pause-btn");
 
   let controller = null;
   let animationFrame = null;
   let lastTimestamp = 0;
+  let paused = false;
 
   gameTitle.textContent = title;
   controlsText.textContent = CONTROL_COPY[game];
@@ -51,6 +106,33 @@
   function setStatus(message, type = "") {
     statusEl.textContent = message;
     statusEl.className = type ? `status ${type}` : "status";
+  }
+
+  function setPaused(nextPaused) {
+    paused = !!nextPaused;
+    pauseBtn.textContent = paused ? "Resume" : "Pause";
+  }
+
+  function togglePause() {
+    if (!controller || controller.gameOver) return;
+    setPaused(!paused);
+    setStatus(paused ? "Game paused. Press P or Resume to continue." : controller.baseStatus || "Back in the game.");
+  }
+
+  function drawPauseOverlay() {
+    if (!paused) return;
+    ctx.save();
+    ctx.fillStyle = "rgba(2, 6, 16, 0.52)";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = "#f6f1dd";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.font = "700 44px \"Avenir Next\", \"Trebuchet MS\", sans-serif";
+    ctx.fillText("Paused", canvas.width / 2, canvas.height / 2 - 18);
+    ctx.font = "600 18px \"Avenir Next\", \"Trebuchet MS\", sans-serif";
+    ctx.fillStyle = "rgba(246, 241, 221, 0.84)";
+    ctx.fillText("Press P or Resume to continue", canvas.width / 2, canvas.height / 2 + 26);
+    ctx.restore();
   }
 
   function drawBackdrop(gridSize) {
@@ -99,14 +181,15 @@
     };
     let snake = [origin, { x: origin.x - 1, y: origin.y }, { x: origin.x - 2, y: origin.y }];
     let direction = { x: 1, y: 0 };
-    let nextDirection = { x: 1, y: 0 };
+    let directionQueue = [];
     let food = placeFood();
     let accumulator = 0;
     let gameOver = false;
     let score = 0;
+    const baseStatus = "Collect as much fruit as you can before the walls or your tail catch you.";
 
     setScore(0);
-    setStatus("Collect as much fruit as you can before the walls or your tail catch you.");
+    setStatus(baseStatus);
 
     function placeFood() {
       const free = [];
@@ -123,6 +206,10 @@
     }
 
     return {
+      baseStatus,
+      get gameOver() {
+        return gameOver;
+      },
       keydown(event) {
         const key = event.key.toLowerCase();
         const candidate = (
@@ -133,8 +220,7 @@
           null
         );
         if (!candidate || gameOver) return;
-        if (candidate.x === -direction.x && candidate.y === -direction.y) return;
-        nextDirection = candidate;
+        directionQueue = enqueueDirection(directionQueue, direction, candidate, 3);
       },
       render(time) {
         drawBackdrop(board.cell);
@@ -162,13 +248,15 @@
           roundRect(x + 2, y + 2, board.cell - 4, board.cell - 4, 8);
           ctx.fill();
         });
+
+        drawPauseOverlay();
       },
       update(delta) {
-        if (gameOver) return;
+        if (gameOver || paused) return;
         accumulator += delta;
         if (accumulator < 110) return;
         accumulator = 0;
-        direction = nextDirection;
+        if (directionQueue.length) direction = directionQueue.shift();
         const head = {
           x: snake[0].x + direction.x,
           y: snake[0].y + direction.y
@@ -200,6 +288,12 @@
     const boardX = boardRect.x;
     const boardY = boardRect.y;
     const sidebarX = boardX + cols * cell + cell;
+    const previewBox = {
+      x: sidebarX - 4,
+      y: boardY + 108,
+      width: cell * 4 + 8,
+      height: cell * 4 + 8
+    };
     const pieces = [
       { color: "#63b8ff", shape: [[1, 1, 1, 1]] },
       { color: "#ffd166", shape: [[1, 1], [1, 1]] },
@@ -209,15 +303,17 @@
       { color: "#ff9f1c", shape: [[1, 0, 0], [1, 1, 1]] },
       { color: "#2ec4b6", shape: [[0, 0, 1], [1, 1, 1]] }
     ];
+    const pieceStream = createPieceStream(pieces);
     let board = Array.from({ length: rows }, () => Array(cols).fill(null));
     let piece = spawnPiece();
     let accumulator = 0;
     let score = 0;
-    let lines = 0;
+    let clearedRows = 0;
     let gameOver = false;
+    const baseStatus = "Stack clean clears to keep the board open. Hard-drops are worth the risk.";
 
     setScore(0);
-    setStatus("Stack clean lines to keep the board open. Hard-drops are worth the risk.");
+    setStatus(baseStatus);
 
     function cloneMatrix(matrix) {
       return matrix.map((row) => row.slice());
@@ -231,7 +327,7 @@
     }
 
     function spawnPiece() {
-      const template = pieces[Math.floor(Math.random() * pieces.length)];
+      const template = pieceStream.takeNextPiece();
       const shape = cloneMatrix(template.shape);
       const next = {
         color: template.color,
@@ -280,7 +376,7 @@
       });
       while (board.length < rows) board.unshift(Array(cols).fill(null));
       if (!cleared) return;
-      lines += cleared;
+      clearedRows += cleared;
       score += [0, 100, 280, 500, 800][cleared] || cleared * 260;
       setScore(score);
     }
@@ -314,6 +410,10 @@
     }
 
     return {
+      baseStatus,
+      get gameOver() {
+        return gameOver;
+      },
       keydown(event) {
         const key = event.key.toLowerCase();
         if (gameOver) return;
@@ -356,14 +456,34 @@
 
         ctx.fillStyle = "#f6f1dd";
         ctx.font = "700 22px \"Avenir Next\", \"Trebuchet MS\", sans-serif";
-        ctx.fillText("Lines", sidebarX, boardY + 42);
+        ctx.fillText("Score", sidebarX, boardY + 42);
         ctx.font = "700 44px \"Avenir Next\", \"Trebuchet MS\", sans-serif";
-        ctx.fillText(String(lines), sidebarX, boardY + 88);
+        ctx.fillText(String(score), sidebarX, boardY + 88);
+        ctx.font = "700 18px \"Avenir Next\", \"Trebuchet MS\", sans-serif";
+        ctx.fillText("Next", sidebarX, boardY + 158);
+        ctx.fillStyle = "rgba(255,255,255,0.04)";
+        roundRect(previewBox.x, previewBox.y, previewBox.width, previewBox.height, 16);
+        ctx.fill();
+
+        const nextPiece = pieceStream.peekNextPiece();
+        const previewCell = Math.max(6, Math.floor(Math.min((previewBox.width - 16) / 4, (previewBox.height - 16) / 4)));
+        const previewWidth = nextPiece.shape[0].length * previewCell;
+        const previewHeight = nextPiece.shape.length * previewCell;
+        const previewX = previewBox.x + Math.floor((previewBox.width - previewWidth) / 2);
+        const previewY = previewBox.y + Math.floor((previewBox.height - previewHeight) / 2);
+        nextPiece.shape.forEach((row, y) => {
+          row.forEach((value, x) => {
+            if (!value) return;
+            drawBlock(previewX + x * previewCell, previewY + y * previewCell, previewCell, nextPiece.color);
+          });
+        });
+
+        drawPauseOverlay();
       },
       update(delta) {
-        if (gameOver) return;
+        if (gameOver || paused) return;
         accumulator += delta;
-        const interval = Math.max(120, 580 - Math.floor(lines / 3) * 30);
+        const interval = Math.max(120, 580 - Math.floor(clearedRows / 3) * 30);
         if (accumulator < interval) return;
         accumulator = 0;
         drop();
@@ -406,10 +526,11 @@
     let gameOver = false;
     let won = false;
     let pellets = countPellets();
+    const baseStatus = "Clear the maze and keep moving. The ghosts get bolder once you hesitate.";
 
     maze[player.y][player.x] = " ";
     setScore(0);
-    setStatus("Clear the maze and keep moving. The ghosts get bolder once you hesitate.");
+    setStatus(baseStatus);
 
     function countPellets() {
       return maze.reduce((total, row) => total + row.filter((cell) => cell === "." || cell === "o").length, 0);
@@ -467,6 +588,10 @@
     }
 
     return {
+      baseStatus,
+      get gameOver() {
+        return gameOver;
+      },
       keydown(event) {
         const key = event.key.toLowerCase();
         const next = (
@@ -476,7 +601,7 @@
           key === "arrowright" || key === "d" ? { x: 1, y: 0 } :
           null
         );
-        if (!next) return;
+        if (!next || gameOver) return;
         player.nextDir = next;
       },
       render(time) {
@@ -509,6 +634,7 @@
         });
 
         const mouth = 0.22 + (Math.sin(time / 130) + 1) * 0.12;
+        const faceAngle = directionToAngle(player.dir, player.nextDir);
         ctx.fillStyle = "#ffd166";
         ctx.beginPath();
         ctx.moveTo(board.x + player.x * board.cell + board.cell / 2, board.y + player.y * board.cell + board.cell / 2);
@@ -516,8 +642,8 @@
           board.x + player.x * board.cell + board.cell / 2,
           board.y + player.y * board.cell + board.cell / 2,
           board.cell * 0.38,
-          mouth,
-          Math.PI * 2 - mouth
+          faceAngle + mouth,
+          faceAngle + Math.PI * 2 - mouth
         );
         ctx.closePath();
         ctx.fill();
@@ -543,9 +669,11 @@
           ctx.fillStyle = "rgba(255, 209, 102, 0.16)";
           ctx.fillRect(0, 0, canvas.width, canvas.height);
         }
+
+        drawPauseOverlay();
       },
       update(delta) {
-        if (gameOver) return;
+        if (gameOver || paused) return;
         accumulator += delta;
         ghostAccumulator += delta;
 
@@ -617,14 +745,15 @@
     const tick = (timestamp) => {
       const delta = lastTimestamp ? timestamp - lastTimestamp : 0;
       lastTimestamp = timestamp;
-      controller.update(delta);
-      controller.render(timestamp);
+      if (controller && !paused) controller.update(delta);
+      if (controller) controller.render(timestamp);
       animationFrame = requestAnimationFrame(tick);
     };
     animationFrame = requestAnimationFrame(tick);
   }
 
   function restartGame() {
+    setPaused(false);
     controller = buildController();
     startLoop();
   }
@@ -639,15 +768,24 @@
   }
 
   document.addEventListener("keydown", (event) => {
+    const key = event.key.toLowerCase();
+    const handledKeys = new Set(["arrowup", "arrowdown", "arrowleft", "arrowright", "w", "a", "s", "d", "x", "z", " ", "p"]);
+    if (handledKeys.has(key)) event.preventDefault();
+    if (key === "p") {
+      togglePause();
+      return;
+    }
     if (event.key === "Enter" && statusEl.classList.contains("alert")) {
       restartGame();
       return;
     }
+    if (paused) return;
     if (controller && typeof controller.keydown === "function") controller.keydown(event);
   });
 
   retryBtn.addEventListener("click", retryTarget);
   restartBtn.addEventListener("click", restartGame);
+  pauseBtn.addEventListener("click", togglePause);
   window.addEventListener("beforeunload", stopLoop);
 
   restartGame();

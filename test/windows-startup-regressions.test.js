@@ -54,6 +54,43 @@ test("trusted Orion page recognition requires the custom app origin", () => {
   assert.equal(appUtils.isTrustedAppPage("https://example.com/index.html", TRUSTED_PAGE_FILES), false);
 });
 
+test("bundled file pages are trusted only inside the packaged app root", () => {
+  const packagedRoot = "C:\\Program Files\\Orion\\resources\\app.asar";
+
+  assert.equal(
+    appUtils.isTrustedBundledFilePage(
+      "file:///C:/Program%20Files/Orion/resources/app.asar/index.html",
+      TRUSTED_PAGE_FILES,
+      packagedRoot
+    ),
+    true
+  );
+  assert.equal(
+    appUtils.isTrustedBundledFilePage(
+      "file:///C:/Program%20Files/Orion/resources/app.asar/newtab.html",
+      TRUSTED_PAGE_FILES,
+      packagedRoot
+    ),
+    true
+  );
+  assert.equal(
+    appUtils.isTrustedBundledFilePage(
+      "file:///C:/Users/kenokayasu/Downloads/index.html",
+      TRUSTED_PAGE_FILES,
+      packagedRoot
+    ),
+    false
+  );
+  assert.equal(
+    appUtils.isTrustedBundledFilePage(
+      "https://example.com/index.html",
+      TRUSTED_PAGE_FILES,
+      packagedRoot
+    ),
+    false
+  );
+});
+
 test("internal Orion URLs normalize to chrome aliases across protocol and legacy file paths", () => {
   assert.equal(
     appUtils.normalizeInternalUrl("orion://app/newtab.html", "fallback"),
@@ -111,6 +148,7 @@ test("unknown pages do not get privileged channel access", () => {
 
 test("renderer bootstrap prefers saved settings locale", () => {
   const state = appUtils.resolveRendererBootstrapState({
+    onboardingCompleted: true,
     persistedLocale: "ja",
     storedLocale: "fr",
     defaultLocale: "en",
@@ -125,6 +163,7 @@ test("renderer bootstrap prefers saved settings locale", () => {
 
 test("renderer bootstrap falls back to stored locale without showing onboarding", () => {
   const state = appUtils.resolveRendererBootstrapState({
+    onboardingCompleted: true,
     persistedLocale: null,
     storedLocale: "de",
     defaultLocale: "en",
@@ -137,8 +176,24 @@ test("renderer bootstrap falls back to stored locale without showing onboarding"
   });
 });
 
-test("renderer bootstrap shows onboarding only when no valid locale exists", () => {
+test("renderer bootstrap shows onboarding when setup is incomplete even with a stored locale", () => {
   const state = appUtils.resolveRendererBootstrapState({
+    onboardingCompleted: false,
+    persistedLocale: null,
+    storedLocale: "de",
+    defaultLocale: "en",
+    sanitizeLocale: (locale) => ["en", "fr", "de", "ja"].includes(locale) ? locale : null
+  });
+  assert.deepEqual(state, {
+    locale: "de",
+    showOnboarding: true,
+    source: "local-storage"
+  });
+});
+
+test("renderer bootstrap keeps onboarding visible on a fresh install with no valid locale", () => {
+  const state = appUtils.resolveRendererBootstrapState({
+    onboardingCompleted: false,
     persistedLocale: null,
     storedLocale: "invalid",
     defaultLocale: "en",
@@ -148,6 +203,49 @@ test("renderer bootstrap shows onboarding only when no valid locale exists", () 
     locale: "en",
     showOnboarding: true,
     source: "default"
+  });
+});
+
+test("renderer bootstrap skips onboarding for existing installs without a saved locale", () => {
+  const state = appUtils.resolveRendererBootstrapState({
+    onboardingCompleted: true,
+    persistedLocale: null,
+    storedLocale: "invalid",
+    defaultLocale: "en",
+    sanitizeLocale: (locale) => ["en", "fr", "de", "ja"].includes(locale) ? locale : null
+  });
+  assert.deepEqual(state, {
+    locale: "en",
+    showOnboarding: false,
+    source: "default"
+  });
+});
+
+test("language selection persists onboarding completion", () => {
+  const state = appUtils.resolveLanguageSettingsState({
+    currentLocale: null,
+    nextLocale: "fr",
+    currentOnboardingCompleted: false,
+    sanitizeLocale: (locale) => ["en", "fr", "de", "ja"].includes(locale) ? locale : null
+  });
+
+  assert.deepEqual(state, {
+    locale: "fr",
+    onboardingCompleted: true
+  });
+});
+
+test("invalid language selection keeps the existing onboarding state", () => {
+  const state = appUtils.resolveLanguageSettingsState({
+    currentLocale: "de",
+    nextLocale: "invalid",
+    currentOnboardingCompleted: false,
+    sanitizeLocale: (locale) => ["en", "fr", "de", "ja"].includes(locale) ? locale : null
+  });
+
+  assert.deepEqual(state, {
+    locale: "de",
+    onboardingCompleted: false
   });
 });
 

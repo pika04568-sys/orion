@@ -107,6 +107,23 @@ function getCurrentLocale() {
   return localization.sanitizeLocale(bSett && bSett.locale);
 }
 
+function getOnboardingCompleted() {
+  return !!(bSett && bSett.onboardingCompleted);
+}
+
+function getTrustedAppRootPath() {
+  try {
+    return app.getAppPath();
+  } catch (_error) {
+    return __dirname;
+  }
+}
+
+function isTrustedInternalPageUrl(url, trustedFiles) {
+  return appUtils.isTrustedAppPage(url, trustedFiles)
+    || appUtils.isTrustedBundledFilePage(url, trustedFiles, getTrustedAppRootPath());
+}
+
 function getDefaultProfileName(index, opts = {}) {
   const locale = getCurrentLocale() || localization.DEFAULT_LOCALE;
   if (opts.incognito) return localization.getIncognitoProfileName(locale);
@@ -429,7 +446,8 @@ function loadS() {
         profileExtensions: sanitizeProfileExtensions(s.profileExtensions),
         profileExtensionMetadata: sanitizeProfileExtensionMetadata(s.profileExtensionMetadata),
         sitePermissions: browserSecurity.sanitizePermissionStore(s.sitePermissions),
-        locale: localization.sanitizeLocale(s.locale)
+        locale: localization.sanitizeLocale(s.locale),
+        onboardingCompleted: typeof s.onboardingCompleted === "boolean" ? s.onboardingCompleted : true
       };
     }
   } catch (e) {}
@@ -438,7 +456,8 @@ function loadS() {
     profileExtensionMetadata: {},
     profileExtensions: {},
     sitePermissions: {},
-    locale: null
+    locale: null,
+    onboardingCompleted: false
   };
 }
 
@@ -950,7 +969,7 @@ function attachBrowserShortcutHandler(webContents, getProfileIndex) {
 
 function isTrustedSender(webContents) {
   if (!webContents || webContents.isDestroyed()) return false;
-  return appUtils.isTrustedAppPage(webContents.getURL(), TRUSTED_PAGE_FILES);
+  return isTrustedInternalPageUrl(webContents.getURL(), TRUSTED_PAGE_FILES);
 }
 
 function isInternalUrl(url) {
@@ -958,7 +977,7 @@ function isInternalUrl(url) {
 }
 
 function isInternalPageUrl(url) {
-  return appUtils.isTrustedAppPage(url, INTERNAL_PAGES_FILE_SET);
+  return isTrustedInternalPageUrl(url, INTERNAL_PAGES_FILE_SET);
 }
 
 function isHttpUrl(url) {
@@ -1545,7 +1564,9 @@ function getSessionForWindow(win) {
 
 function withTrustedSender(handler, fallback) {
   return (e, ...args) => {
-    if (!isTrustedSender(e.sender)) return fallback;
+    if (!isTrustedSender(e.sender)) {
+      return typeof fallback === "function" ? fallback(e, ...args) : fallback;
+    }
     return handler(e, ...args);
   };
 }
@@ -1803,15 +1824,26 @@ ipcMain.handle("get-updater-state", withTrustedSender(() => {
   return getUpdaterState();
 }, null));
 ipcMain.handle("get-language-settings", withTrustedSender(() => {
-  return { locale: getCurrentLocale() };
-}, { locale: null }));
+  return {
+    locale: getCurrentLocale(),
+    onboardingCompleted: getOnboardingCompleted()
+  };
+}, () => ({ locale: null, onboardingCompleted: true })));
 ipcMain.handle("set-language", withTrustedSender((e, locale) => {
-  const nextLocale = localization.sanitizeLocale(locale);
-  if (!nextLocale) return { locale: getCurrentLocale() };
-  bSett.locale = nextLocale;
+  const nextState = appUtils.resolveLanguageSettingsState({
+    currentLocale: getCurrentLocale(),
+    nextLocale: locale,
+    currentOnboardingCompleted: getOnboardingCompleted(),
+    sanitizeLocale: localization.sanitizeLocale
+  });
+  bSett.locale = nextState.locale;
+  bSett.onboardingCompleted = nextState.onboardingCompleted;
   saveS();
-  return { locale: nextLocale };
-}, { locale: getCurrentLocale() }));
+  return nextState;
+}, () => ({
+  locale: getCurrentLocale(),
+  onboardingCompleted: getOnboardingCompleted()
+})));
 ipcMain.handle("check-for-updates", withTrustedSender((e) => {
   return checkForUpdates("manual");
 }, null));

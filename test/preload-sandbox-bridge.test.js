@@ -111,6 +111,32 @@ test("newtab page exposes only the scoped newtab helpers", async () => {
   assert.equal(runtime.onCalls.length, 0);
 });
 
+test("packaged file index page keeps the shell bridge", () => {
+  const runtime = runPreload("file:///C:/Program%20Files/Orion/resources/app.asar/index.html");
+  const { electron } = runtime.apis;
+
+  assert.ok(electron);
+  assert.equal(electron.invoke("get-window-bootstrap-state"), "invoke-result");
+  electron.send("renderer-ready");
+
+  assert.deepEqual(runtime.invokeCalls, [["get-window-bootstrap-state"]]);
+  assert.deepEqual(runtime.sendCalls, [["renderer-ready"]]);
+});
+
+test("packaged file newtab page keeps the scoped newtab bridge", async () => {
+  const runtime = runPreload("file:///C:/Program%20Files/Orion/resources/app.asar/newtab.html");
+  const { orionPage, electron } = runtime.apis;
+
+  assert.equal(electron, undefined);
+  assert.ok(orionPage);
+  assert.equal(await orionPage.getLanguageSettings(), "invoke-result");
+  assert.equal(await orionPage.navigateTo("example query"), "invoke-result");
+  assert.deepEqual(runtime.invokeCalls, [
+    ["get-language-settings"],
+    ["navigate-to", "example query"]
+  ]);
+});
+
 test("offline page only exposes navigation back into the browser", async () => {
   const runtime = runPreload("orion://app/offline.html?game=snake");
   const { orionPage } = runtime.apis;
