@@ -20,6 +20,24 @@
     { locale: "de", label: "Deutsch" },
     { locale: "ja", label: "日本語" }
   ]);
+  const UI_PLATFORM_EXTENSION_PATHS = Object.freeze({
+    windows: "C:\\Users\\username\\Downloads\\my-extension",
+    mac: "/Users/username/Downloads/my-extension",
+    linux: "/home/username/Downloads/my-extension"
+  });
+  const UI_PLATFORM_PRIMARY_MODIFIERS = Object.freeze({
+    windows: Object.freeze({
+      default: "Ctrl",
+      de: "Strg"
+    }),
+    mac: Object.freeze({
+      default: "Cmd"
+    }),
+    linux: Object.freeze({
+      default: "Ctrl",
+      de: "Strg"
+    })
+  });
 
   const TRANSLATIONS = Object.freeze({
     en: Object.freeze({
@@ -30,7 +48,7 @@
       "find.placeholder": "Find...",
       "find.empty": "0/0",
       "toolbar.newTab": "New Tab",
-      "toolbar.newIncognitoTab": "New Incognito Tab (Ctrl/Cmd+Shift+N)",
+      "toolbar.newIncognitoTab": "New Incognito Tab ({{primaryModifierLabel}}+Shift+N)",
       "toolbar.closeOthers": "Close Others",
       "profile.addNew": "Add New Profile",
       "profile.default": "Default",
@@ -60,10 +78,21 @@
       "adblock.kicker": "Privacy",
       "adblock.title": "Adblock",
       "adblock.close": "Close adblock panel",
-      "adblock.description": "Create custom block rules to remove ads, popups, and known trackers. Add one rule per line and apply instantly.",
-      "adblock.badge": "One rule per line",
-      "adblock.placeholder": "||ads.example.com^\n||tracker.example.net^\n! comment lines start with !",
-      "adblock.tip": "Tip: lines starting with \"!\" are comments. Inline comments are allowed after a rule.",
+      "adblock.description": "Use EasyList and uBlock Origin filter subscriptions by default, then layer custom rules on top for advanced blocking.",
+      "adblock.badge": "Built-in lists + custom rules",
+      "adblock.builtInTitle": "Built-in lists",
+      "adblock.customTitle": "Custom rules",
+      "adblock.placeholder": "||ads.example.com^\n@@||trusted-site.com^\n||tracker.example.net^\n! comment lines start with !",
+      "adblock.tip": "Tip: lines starting with \"!\" are comments. Use @@ to allow a request inside a custom rule.",
+      "adblock.enabled": "Enabled",
+      "adblock.disabled": "Disabled",
+      "adblock.rules": "rules",
+      "adblock.customRulesCount": "custom rules",
+      "adblock.listsEnabled": "lists enabled",
+      "adblock.syncNever": "Never synced",
+      "adblock.syncIdle": "Ready to refresh adblock lists.",
+      "adblock.refresh": "Refresh Lists",
+      "adblock.resetDefaults": "Reset Defaults",
       "adblock.save": "Save & Apply Rules",
       "adblock.saved": "Saved!",
       "settings.kicker": "Browser Controls",
@@ -111,9 +140,9 @@
       "extension.header": "Manage Installed Extensions",
       "extension.badge": "Unpacked Mode",
       "extension.loadTitle": "Load Unpacked Extension",
-      "extension.loadBody": "To install an extension, download it, unzip it, and paste the full folder path below.",
-      "extension.loadExample": "(e.g., /Users/username/Downloads/my-extension)",
-      "extension.pathPlaceholder": "absolute/path/to/extension/folder",
+      "extension.loadBody": "To install an extension, click Load Extension to choose the unpacked folder, or paste the full folder path below.",
+      "extension.loadExample": "(e.g., {{extensionPathExample}})",
+      "extension.pathPlaceholder": "{{extensionPathPlaceholder}}",
       "extension.loadButton": "Load Extension",
       "extension.installedTitle": "Installed Extensions",
       "extension.installedNote": "Loaded from local folders in this browser profile.",
@@ -138,7 +167,7 @@
       "find.placeholder": "Rechercher...",
       "find.empty": "0/0",
       "toolbar.newTab": "Nouvel onglet",
-      "toolbar.newIncognitoTab": "Nouvel onglet privé (Ctrl/Cmd+Maj+N)",
+      "toolbar.newIncognitoTab": "Nouvel onglet privé ({{primaryModifierLabel}}+Maj+N)",
       "toolbar.closeOthers": "Fermer les autres",
       "profile.addNew": "Ajouter un profil",
       "profile.default": "Par défaut",
@@ -168,10 +197,21 @@
       "adblock.kicker": "Confidentialité",
       "adblock.title": "Bloqueur de pub",
       "adblock.close": "Fermer le panneau du bloqueur de pub",
-      "adblock.description": "Créez des règles personnalisées pour supprimer les publicités, les pop-ups et les traqueurs connus. Ajoutez une règle par ligne et appliquez-la instantanément.",
-      "adblock.badge": "Une règle par ligne",
-      "adblock.placeholder": "||ads.example.com^\n||tracker.example.net^\n! les lignes de commentaire commencent par !",
-      "adblock.tip": "Astuce : les lignes commençant par \"!\" sont des commentaires. Les commentaires en ligne sont aussi autorisés après une règle.",
+      "adblock.description": "Utilisez par défaut les abonnements EasyList et uBlock Origin, puis ajoutez vos propres règles au-dessus pour un blocage avancé.",
+      "adblock.badge": "Listes intégrées + règles personnalisées",
+      "adblock.builtInTitle": "Listes intégrées",
+      "adblock.customTitle": "Règles personnalisées",
+      "adblock.placeholder": "||ads.example.com^\n@@||trusted-site.com^\n||tracker.example.net^\n! les lignes de commentaire commencent par !",
+      "adblock.tip": "Astuce : les lignes commençant par \"!\" sont des commentaires. Utilisez @@ pour autoriser une requête dans une règle personnalisée.",
+      "adblock.enabled": "Activée",
+      "adblock.disabled": "Désactivée",
+      "adblock.rules": "règles",
+      "adblock.customRulesCount": "règles personnalisées",
+      "adblock.listsEnabled": "listes actives",
+      "adblock.syncNever": "Jamais synchronisé",
+      "adblock.syncIdle": "Prêt à rafraîchir les listes de blocage.",
+      "adblock.refresh": "Rafraîchir les listes",
+      "adblock.resetDefaults": "Rétablir les valeurs par défaut",
       "adblock.save": "Enregistrer et appliquer",
       "adblock.saved": "Enregistré !",
       "settings.kicker": "Contrôles du navigateur",
@@ -219,9 +259,9 @@
       "extension.header": "Gérer les extensions installées",
       "extension.badge": "Mode non empaqueté",
       "extension.loadTitle": "Charger une extension non empaquetée",
-      "extension.loadBody": "Pour installer une extension, téléchargez-la, décompressez-la, puis collez le chemin complet du dossier ci-dessous.",
-      "extension.loadExample": "(par ex. /Users/username/Downloads/my-extension)",
-      "extension.pathPlaceholder": "chemin/absolu/vers/le/dossier/extension",
+      "extension.loadBody": "Pour installer une extension, cliquez sur Charger l'extension pour choisir le dossier décompressé, ou collez ci-dessous le chemin complet du dossier.",
+      "extension.loadExample": "(par ex. {{extensionPathExample}})",
+      "extension.pathPlaceholder": "{{extensionPathPlaceholder}}",
       "extension.loadButton": "Charger l'extension",
       "extension.installedTitle": "Extensions installées",
       "extension.installedNote": "Chargées depuis des dossiers locaux dans ce profil du navigateur.",
@@ -246,7 +286,7 @@
       "find.placeholder": "Suchen...",
       "find.empty": "0/0",
       "toolbar.newTab": "Neuer Tab",
-      "toolbar.newIncognitoTab": "Neuer Inkognito-Tab (Strg/Cmd+Umschalt+N)",
+      "toolbar.newIncognitoTab": "Neuer Inkognito-Tab ({{primaryModifierLabel}}+Umschalt+N)",
       "toolbar.closeOthers": "Andere schließen",
       "profile.addNew": "Neues Profil hinzufügen",
       "profile.default": "Standard",
@@ -276,10 +316,21 @@
       "adblock.kicker": "Datenschutz",
       "adblock.title": "Werbeblocker",
       "adblock.close": "Werbeblocker schließen",
-      "adblock.description": "Erstelle eigene Blockierregeln, um Werbung, Pop-ups und bekannte Tracker zu entfernen. Füge pro Zeile eine Regel hinzu und wende sie sofort an.",
-      "adblock.badge": "Eine Regel pro Zeile",
-      "adblock.placeholder": "||ads.example.com^\n||tracker.example.net^\n! Kommentarzeilen beginnen mit !",
-      "adblock.tip": "Tipp: Zeilen, die mit \"!\" beginnen, sind Kommentare. Inline-Kommentare nach einer Regel sind ebenfalls erlaubt.",
+      "adblock.description": "Nutze standardmäßig EasyList- und uBlock-Origin-Filterabonnements und lege eigene Regeln darüber.",
+      "adblock.badge": "Integrierte Listen + eigene Regeln",
+      "adblock.builtInTitle": "Integrierte Listen",
+      "adblock.customTitle": "Eigene Regeln",
+      "adblock.placeholder": "||ads.example.com^\n@@||trusted-site.com^\n||tracker.example.net^\n! Kommentarzeilen beginnen mit !",
+      "adblock.tip": "Tipp: Zeilen, die mit \"!\" beginnen, sind Kommentare. Verwende @@, um eine Anfrage in einer eigenen Regel zu erlauben.",
+      "adblock.enabled": "Aktiviert",
+      "adblock.disabled": "Deaktiviert",
+      "adblock.rules": "Regeln",
+      "adblock.customRulesCount": "eigene Regeln",
+      "adblock.listsEnabled": "aktive Listen",
+      "adblock.syncNever": "Noch nie synchronisiert",
+      "adblock.syncIdle": "Bereit, die Blocklisten zu aktualisieren.",
+      "adblock.refresh": "Listen aktualisieren",
+      "adblock.resetDefaults": "Standard wiederherstellen",
       "adblock.save": "Speichern und anwenden",
       "adblock.saved": "Gespeichert!",
       "settings.kicker": "Browser-Steuerung",
@@ -327,9 +378,9 @@
       "extension.header": "Installierte Erweiterungen verwalten",
       "extension.badge": "Entpackter Modus",
       "extension.loadTitle": "Entpackte Erweiterung laden",
-      "extension.loadBody": "Um eine Erweiterung zu installieren, lade sie herunter, entpacke sie und füge unten den vollständigen Ordnerpfad ein.",
-      "extension.loadExample": "(z. B. /Users/username/Downloads/my-extension)",
-      "extension.pathPlaceholder": "absoluter/pfad/zum/erweiterungsordner",
+      "extension.loadBody": "Um eine Erweiterung zu installieren, klicke auf „Erweiterung laden“, um den entpackten Ordner auszuwählen, oder füge unten den vollständigen Ordnerpfad ein.",
+      "extension.loadExample": "(z. B. {{extensionPathExample}})",
+      "extension.pathPlaceholder": "{{extensionPathPlaceholder}}",
       "extension.loadButton": "Erweiterung laden",
       "extension.installedTitle": "Installierte Erweiterungen",
       "extension.installedNote": "Aus lokalen Ordnern in diesem Browserprofil geladen.",
@@ -354,7 +405,7 @@
       "find.placeholder": "ページ内検索...",
       "find.empty": "0/0",
       "toolbar.newTab": "新しいタブ",
-      "toolbar.newIncognitoTab": "新しいシークレット タブ (Ctrl/Cmd+Shift+N)",
+      "toolbar.newIncognitoTab": "新しいシークレット タブ ({{primaryModifierLabel}}+Shift+N)",
       "toolbar.closeOthers": "他を閉じる",
       "profile.addNew": "新しいプロフィールを追加",
       "profile.default": "デフォルト",
@@ -384,10 +435,21 @@
       "adblock.kicker": "プライバシー",
       "adblock.title": "広告ブロック",
       "adblock.close": "広告ブロック パネルを閉じる",
-      "adblock.description": "広告、ポップアップ、既知のトラッカーを除去するためのカスタム ルールを作成します。1 行に 1 つのルールを追加するとすぐに適用されます。",
-      "adblock.badge": "1 行に 1 ルール",
-      "adblock.placeholder": "||ads.example.com^\n||tracker.example.net^\n! コメント行は ! で始まります",
-      "adblock.tip": "ヒント: \"!\" で始まる行はコメントです。ルールの後ろにインライン コメントも書けます。",
+      "adblock.description": "EasyList と uBlock Origin のフィルターを既定で使い、必要に応じて独自ルールを重ねます。",
+      "adblock.badge": "組み込みリスト + 独自ルール",
+      "adblock.builtInTitle": "組み込みリスト",
+      "adblock.customTitle": "独自ルール",
+      "adblock.placeholder": "||ads.example.com^\n@@||trusted-site.com^\n||tracker.example.net^\n! コメント行は ! で始まります",
+      "adblock.tip": "ヒント: \"!\" で始まる行はコメントです。@@ を使うと独自ルール内で許可できます。",
+      "adblock.enabled": "有効",
+      "adblock.disabled": "無効",
+      "adblock.rules": "件のルール",
+      "adblock.customRulesCount": "独自ルール",
+      "adblock.listsEnabled": "有効なリスト",
+      "adblock.syncNever": "未同期",
+      "adblock.syncIdle": "ブロックリストを更新できます。",
+      "adblock.refresh": "リストを更新",
+      "adblock.resetDefaults": "既定に戻す",
       "adblock.save": "保存して適用",
       "adblock.saved": "保存しました",
       "settings.kicker": "ブラウザー操作",
@@ -435,9 +497,9 @@
       "extension.header": "インストール済み拡張機能を管理",
       "extension.badge": "展開モード",
       "extension.loadTitle": "展開済み拡張機能を読み込む",
-      "extension.loadBody": "拡張機能をインストールするには、ダウンロードして展開し、下にフォルダーの完全なパスを貼り付けてください。",
-      "extension.loadExample": "(例: /Users/username/Downloads/my-extension)",
-      "extension.pathPlaceholder": "拡張機能フォルダーへの絶対パス",
+      "extension.loadBody": "拡張機能をインストールするには、「拡張機能を読み込む」をクリックして展開済みフォルダーを選ぶか、下にフォルダーの完全なパスを貼り付けてください。",
+      "extension.loadExample": "(例: {{extensionPathExample}})",
+      "extension.pathPlaceholder": "{{extensionPathPlaceholder}}",
       "extension.loadButton": "拡張機能を読み込む",
       "extension.installedTitle": "インストール済み拡張機能",
       "extension.installedNote": "このブラウザー プロフィールのローカル フォルダーから読み込まれています。",
@@ -470,6 +532,53 @@
 
   function getMessages(locale) {
     return TRANSLATIONS[resolveLocale(locale)] || TRANSLATIONS[DEFAULT_LOCALE];
+  }
+
+  function normalizeUiPlatform(platform) {
+    const value = String(platform == null ? "" : platform).trim().toLowerCase();
+    if (!value) return "linux";
+
+    if (
+      value === "mac"
+      || value === "macos"
+      || value === "darwin"
+      || value === "osx"
+      || value.includes("mac")
+      || value.includes("darwin")
+      || value.includes("os x")
+    ) {
+      return "mac";
+    }
+
+    if (
+      value === "windows"
+      || value === "win32"
+      || value === "win64"
+      || value.includes("windows")
+      || /\bwin(?:32|64)?\b/.test(value)
+    ) {
+      return "windows";
+    }
+
+    if (value === "linux" || value.includes("linux") || value.includes("x11")) {
+      return "linux";
+    }
+
+    return "linux";
+  }
+
+  function getUiPlatformText(locale, platform) {
+    const resolvedLocale = resolveLocale(locale);
+    const resolvedPlatform = normalizeUiPlatform(platform);
+    const modifierLabels = UI_PLATFORM_PRIMARY_MODIFIERS[resolvedPlatform] || UI_PLATFORM_PRIMARY_MODIFIERS.linux;
+    const extensionPath = UI_PLATFORM_EXTENSION_PATHS[resolvedPlatform] || UI_PLATFORM_EXTENSION_PATHS.linux;
+
+    return {
+      platform: resolvedPlatform,
+      primaryModifierLabel: modifierLabels[resolvedLocale] || modifierLabels.default || "Ctrl",
+      extensionPathExample: extensionPath,
+      extensionPathPlaceholder: extensionPath
+    };
   }
 
   function interpolate(template, vars = {}) {
@@ -516,7 +625,9 @@
     getLanguageOptions,
     getMessages,
     getProfileName,
+    getUiPlatformText,
     isGeneratedProfileName,
+    normalizeUiPlatform,
     resolveLocale,
     sanitizeLocale,
     t

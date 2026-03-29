@@ -91,6 +91,7 @@
     ],
     "compression": "maximum",
     "files": [
+      "adblock.js",
       "app-utils.js",
       "browser-security.js",
       "extensions.js",
@@ -107,7 +108,11 @@
       "extensions.html",
       "package.json",
       "offline-arcade.js",
-      "offline-game-helpers.js"
+      "offline-game-helpers.js",
+      "reader-session.js",
+      "reader-utils.js",
+      "reader.html",
+      "reader.js"
     ]
   },
   "devDependencies": {

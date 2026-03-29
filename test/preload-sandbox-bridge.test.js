@@ -150,6 +150,47 @@ test("offline page only exposes navigation back into the browser", async () => {
   assert.equal(runtime.onCalls.length, 0);
 });
 
+test("packaged file offline page keeps the scoped offline bridge", async () => {
+  const runtime = runPreload("file:///C:/Program%20Files/Orion/resources/app.asar/offline.html?game=snake");
+  const { orionPage, electron } = runtime.apis;
+
+  assert.equal(electron, undefined);
+  assert.ok(orionPage);
+  assert.equal(await orionPage.navigateTo("chrome://newtab"), "invoke-result");
+  assert.equal(typeof orionPage.getLanguageSettings, "undefined");
+  assert.deepEqual(runtime.invokeCalls, [["navigate-to", "chrome://newtab"]]);
+});
+
+test("reader page keeps reader controls scoped to the reader surface", async () => {
+  const runtime = runPreload("orion://app/reader.html");
+  const { orionPage, electron } = runtime.apis;
+
+  assert.equal(electron, undefined);
+  assert.ok(orionPage);
+  assert.equal(typeof orionPage.getLanguageSettings, "undefined");
+  assert.equal(await orionPage.getReaderContent(), "invoke-result");
+  assert.equal(await orionPage.closeReader(), "invoke-result");
+  assert.deepEqual(runtime.invokeCalls, [
+    ["get-reader-content"],
+    ["close-reader"]
+  ]);
+});
+
+test("packaged file reader page keeps reader controls scoped to the reader surface", async () => {
+  const runtime = runPreload("file:///C:/Program%20Files/Orion/resources/app.asar/reader.html");
+  const { orionPage, electron } = runtime.apis;
+
+  assert.equal(electron, undefined);
+  assert.ok(orionPage);
+  assert.equal(typeof orionPage.getLanguageSettings, "undefined");
+  assert.equal(await orionPage.getReaderContent(), "invoke-result");
+  assert.equal(await orionPage.closeReader(), "invoke-result");
+  assert.deepEqual(runtime.invokeCalls, [
+    ["get-reader-content"],
+    ["close-reader"]
+  ]);
+});
+
 test("extensions page keeps extension management scoped to its own page", async () => {
   const runtime = runPreload("orion://app/extensions.html");
   const { orionPage } = runtime.apis;
@@ -163,6 +204,21 @@ test("extensions page keeps extension management scoped to its own page", async 
   assert.deepEqual(runtime.invokeCalls, [
     ["select-extension-folder"],
     ["load-extension", "/tmp/sample-extension"]
+  ]);
+});
+
+test("packaged file extensions page keeps extension management scoped to its own page", async () => {
+  const runtime = runPreload("file:///C:/Program%20Files/Orion/resources/app.asar/extensions.html");
+  const { orionPage, electron } = runtime.apis;
+
+  assert.equal(electron, undefined);
+  assert.ok(orionPage);
+  assert.equal(await orionPage.selectExtensionFolder(), "invoke-result");
+  assert.equal(await orionPage.loadExtension("C:\\Users\\username\\Downloads\\my-extension"), "invoke-result");
+  assert.equal(typeof orionPage.navigateTo, "undefined");
+  assert.deepEqual(runtime.invokeCalls, [
+    ["select-extension-folder"],
+    ["load-extension", "C:\\Users\\username\\Downloads\\my-extension"]
   ]);
 });
 

@@ -18,9 +18,12 @@ const fs = require("fs");
 const os = require("os");
 const browserSecurity = require("./browser-security");
 const appUtils = require("./app-utils");
+const adblock = require("./adblock");
 const localization = require("./localization");
 const tabState = require("./main-tab-state");
 const offlineArcade = require("./offline-arcade");
+const readerUtils = require("./reader-utils");
+const readerSession = require("./reader-session");
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -39,10 +42,11 @@ protocol.registerSchemesAsPrivileged([
 const INTERNAL_PAGES = new Map([
   ["chrome://newtab", "newtab.html"],
   ["chrome://extensions", "extensions.html"],
-  ["chrome://offline", "offline.html"]
+  ["chrome://offline", "offline.html"],
+  ["chrome://reader", "reader.html"]
 ]);
-const TRUSTED_PAGE_FILES = new Set(["index.html", "newtab.html", "offline.html", "extensions.html"]);
-const INTERNAL_PAGES_FILE_SET = new Set(["newtab.html", "offline.html", "extensions.html"]);
+const TRUSTED_PAGE_FILES = new Set(["index.html", "newtab.html", "offline.html", "extensions.html", "reader.html"]);
+const INTERNAL_PAGES_FILE_SET = new Set(["newtab.html", "offline.html", "extensions.html", "reader.html"]);
 const MIME_TYPES = Object.freeze({
   ".html": "text/html",
   ".ico": "image/x-icon",
@@ -61,11 +65,14 @@ const PERMISSION_LABELS = Object.freeze({
 
 let windows = {};
 let views = {};
+let readerViews = {};
+let readerSessions = {};
+let readerViewTabs = {};
 let states = {};
 let recentlyClosedTabs = {};
 let offlineRotationStates = {};
 let offlineTabs = {};
-let adRules = [];
+let adblockManager = null;
 let incognitoSitePermissions = {};
 let partitions = new Set();
 let protocolSessions = new Set();
@@ -105,6 +112,10 @@ let installingUpdate = false;
 
 function getCurrentLocale() {
   return localization.sanitizeLocale(bSett && bSett.locale);
+}
+
+function getCurrentUiPlatform() {
+  return localization.normalizeUiPlatform(process.platform);
 }
 
 function getOnboardingCompleted() {
@@ -662,9 +673,8 @@ function ensureSessionSecurity(partition, pIdx, incognito = false) {
   const sess = session.fromPartition(partition);
   registerAppProtocolForSession(sess);
   sess.webRequest.onBeforeRequest((details, callback) => {
-    if (!details.url.startsWith("http") || !adRules.length) return callback({ cancel: false });
-    const url = details.url.toLowerCase();
-    callback({ cancel: adRules.some((rule) => url.includes(rule.toLowerCase())) });
+    if (!details.url.startsWith("http") || !adblockManager) return callback({ cancel: false });
+    callback({ cancel: adblockManager.shouldBlockRequest(details) });
   });
 
   sess.setPermissionCheckHandler((webContents, permission, requestingOrigin, details) => {
@@ -781,11 +791,13 @@ function updateB(pIdx) {
   const s = states[pIdx];
   if (!win || !s || !s.activeView || !s.visible) return;
   const [w, h] = win.getContentSize();
-  const top = s.metrics.top || 76;
+  const activeTabId = getActiveT(pIdx);
+  const readerActive = !!(activeTabId && readerSessions[activeTabId] && readerSessions[activeTabId].active);
+  const top = readerActive ? 0 : (s.metrics.top || 76);
   s.activeView.setBounds({
-    x: s.metrics.left,
+    x: readerActive ? 0 : s.metrics.left,
     y: top,
-    width: Math.max(0, w - s.metrics.left),
+    width: Math.max(0, w - (readerActive ? 0 : s.metrics.left)),
     height: Math.max(0, h - top)
   });
 }
@@ -806,6 +818,464 @@ function reloadActiveView(pIdx, options = {}) {
   if (options.ignoreCache) s.activeView.webContents.reloadIgnoringCache();
   else s.activeView.webContents.reload();
   return true;
+}
+
+function collectReaderAnalysisInPage() {
+  const normalizeWhitespace = (value) => String(value == null ? "" : value)
+    .replace(/[\u0000-\u001f\u007f]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const resolveUrl = (value, baseUrl) => {
+    const text = normalizeWhitespace(value);
+    if (!text) return "";
+    const lower = text.toLowerCase();
+    if (lower.startsWith("javascript:") || lower.startsWith("vbscript:")) return "";
+    if (lower.startsWith("data:")) return lower.startsWith("data:image/") ? text : "";
+    try {
+      const resolved = baseUrl ? new URL(text, baseUrl) : new URL(text);
+      return resolved.protocol === "http:" || resolved.protocol === "https:" ? resolved.href : "";
+    } catch (_error) {
+      return "";
+    }
+  };
+  const cleanText = (value, limit = 6000) => normalizeWhitespace(value).slice(0, limit);
+  const metaValue = (...selectors) => {
+    for (const selector of selectors) {
+      const el = document.querySelector(selector);
+      if (!el) continue;
+      const value = cleanText(el.content || el.getAttribute("content") || el.getAttribute("href") || el.textContent || "", 320);
+      if (value) return value;
+    }
+    return "";
+  };
+  const documentTitle = cleanText(
+    metaValue('meta[property="og:title"]', 'meta[name="twitter:title"]') ||
+    document.title ||
+    "",
+    180
+  );
+  const siteName = cleanText(
+    metaValue('meta[property="og:site_name"]', 'meta[name="application-name"]', 'meta[name="publisher"]'),
+    160
+  );
+  const canonicalUrl = resolveUrl(
+    document.querySelector('link[rel="canonical"]')?.href || "",
+    document.location.href
+  );
+  const byline = cleanText(
+    metaValue('meta[property="article:author"]', 'meta[name="author"]', 'meta[name="byl"]') ||
+    document.querySelector('[rel="author"]')?.textContent ||
+    document.querySelector('[itemprop="author"]')?.textContent ||
+    "",
+    180
+  );
+  const publishedDate = cleanText(
+    metaValue('meta[property="article:published_time"]', 'meta[property="og:published_time"]', 'meta[name="date"]', 'time[datetime]') ||
+    document.querySelector('time[datetime]')?.getAttribute("datetime") ||
+    "",
+    120
+  );
+  const modifiedDate = cleanText(
+    metaValue('meta[property="article:modified_time"]', 'meta[property="og:updated_time"]') ||
+    document.querySelector('time[pubdate][datetime]')?.getAttribute("datetime") ||
+    "",
+    120
+  );
+  const isReadableSelector = (el) => {
+    if (!el || !el.tagName) return false;
+    const tag = el.tagName.toLowerCase();
+    return ["article", "main", "section", "div", "body"].includes(tag);
+  };
+  const badPattern = /nav|footer|header|menu|sidebar|comment|subscribe|promo|advert|ad-|ads|cookie|share|social|breadcrumb|related|recommend|newsletter/i;
+  const goodPattern = /article|story|content|post|entry|main|body|reader|text|rich/i;
+  const candidateSet = new Set();
+  const candidates = [];
+  const addCandidate = (el, semanticRoot = "") => {
+    if (!el || candidateSet.has(el) || !isReadableSelector(el)) return;
+    candidateSet.add(el);
+    const text = cleanText(el.innerText || el.textContent || "");
+    if (text.length < 120) return;
+    const paragraphs = Array.from(el.querySelectorAll("p")).map((node) => cleanText(node.textContent || "", 1200)).filter((value) => value.length > 40);
+    const headings = Array.from(el.querySelectorAll("h1,h2,h3")).map((node) => cleanText(node.textContent || "", 240)).filter(Boolean);
+    const images = Array.from(el.querySelectorAll("img"))
+      .map((img) => resolveUrl(img.currentSrc || img.src || img.getAttribute("data-src") || "", document.location.href))
+      .filter(Boolean);
+    const links = Array.from(el.querySelectorAll("a")).reduce((total, link) => total + cleanText(link.textContent || "", 260).length, 0);
+    const linkDensity = text.length ? links / text.length : 1;
+    const className = `${el.id || ""} ${typeof el.className === "string" ? el.className : ""}`.toLowerCase();
+    let score = 0;
+
+    if (semanticRoot === "article" || el.tagName.toLowerCase() === "article") score += 24;
+    else if (semanticRoot === "main" || el.tagName.toLowerCase() === "main" || el.getAttribute("role") === "main") score += 18;
+    else if (semanticRoot === "content") score += 10;
+
+    if (goodPattern.test(className)) score += 10;
+    if (badPattern.test(className)) score -= 18;
+
+    score += Math.min(26, text.length / 140);
+    score += Math.min(18, paragraphs.length * 3.5);
+    score += Math.min(8, headings.length * 1.5);
+    score += Math.min(6, images.length * 1.2);
+
+    if (linkDensity > 0.5) score -= 20;
+    else if (linkDensity > 0.35) score -= 12;
+    else if (linkDensity > 0.22) score -= 6;
+
+    if (paragraphs.length < 2) score -= 7;
+    if (text.length < 420) score -= 10;
+
+    candidates.push({
+      el,
+      semanticRoot,
+      text,
+      textLength: text.length,
+      paragraphCount: paragraphs.length,
+      headingCount: headings.length,
+      images,
+      linkDensity,
+      score: Math.max(0, Math.min(100, Math.round(score)))
+    });
+  };
+
+  addCandidate(document.querySelector("article"), "article");
+  addCandidate(document.querySelector("main"), "main");
+  addCandidate(document.querySelector('[role="main"]'), "main");
+  addCandidate(document.querySelector("body"), "content");
+
+  Array.from(document.querySelectorAll("section,div")).slice(0, 40).forEach((el) => {
+    const text = cleanText(el.innerText || el.textContent || "");
+    if (text.length < 180) return;
+    const className = `${el.id || ""} ${typeof el.className === "string" ? el.className : ""}`.toLowerCase();
+    if (badPattern.test(className)) return;
+    if (goodPattern.test(className) || /article|content|story|post|entry/i.test(className) || el.querySelector("p")) addCandidate(el, "content");
+  });
+
+  candidates.sort((left, right) => right.score - left.score);
+  const chosen = candidates[0] || null;
+  const root = chosen ? chosen.el : document.body;
+  const baseUrl = document.location.href;
+  const blocks = [];
+  const seen = new Set();
+  const pushBlock = (type, text) => {
+    const cleaned = cleanText(text, 6000);
+    if (!cleaned || cleaned.length < 20) return;
+    const key = `${type}:${cleaned.toLowerCase()}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    blocks.push({ type, text: cleaned });
+  };
+
+  if (root) {
+    const blockNodes = root.querySelectorAll("h1,h2,h3,h4,h5,h6,p,li,blockquote");
+    if (blockNodes.length) {
+      blockNodes.forEach((node) => {
+        const text = cleanText(node.textContent || "", 6000);
+        if (!text) return;
+        const tag = node.tagName.toLowerCase();
+        if (tag === "blockquote") pushBlock("quote", text);
+        else if (/^h[1-6]$/.test(tag)) pushBlock("heading", text);
+        else if (tag === "li") pushBlock("list", text);
+        else pushBlock("paragraph", text);
+      });
+    } else {
+      cleanText(root.innerText || root.textContent || "", 6000)
+        .split(/\n{2,}/)
+        .map((entry) => entry.trim())
+        .filter((entry) => entry.length > 40)
+        .forEach((entry) => pushBlock("paragraph", entry));
+    }
+  }
+
+  const imageUrls = chosen ? chosen.images.slice(0, 8) : [];
+  const excerpt = blocks[0] ? blocks[0].text : cleanText(root && (root.innerText || root.textContent) || "", 360);
+
+  return {
+    sourceUrl: baseUrl,
+    canonicalUrl,
+    title: documentTitle,
+    siteName,
+    byline,
+    publishedDate,
+    modifiedDate,
+    blocks,
+    images: imageUrls.map((src) => ({ src })),
+    textLength: chosen ? chosen.textLength : excerpt.length,
+    paragraphCount: chosen ? chosen.paragraphCount : blocks.filter((block) => block.type === "paragraph" || block.type === "quote").length,
+    headingCount: chosen ? chosen.headingCount : blocks.filter((block) => block.type === "heading").length,
+    linkDensity: chosen ? chosen.linkDensity : 1,
+    semanticRoot: chosen ? chosen.semanticRoot : "",
+    boilerplatePenalty: chosen ? Math.max(0, 100 - chosen.score) : 35,
+    structureBonus: chosen ? Math.min(20, chosen.score / 5) : 0,
+    excerpt,
+    score: chosen ? chosen.score : 0,
+    reason: chosen && chosen.score >= 58 && (chosen.textLength >= 420 || blocks.length >= 3)
+      ? ""
+      : "Orion could not confidently identify a readable article on this page."
+  };
+}
+
+async function extractReaderSnapshot(webContents) {
+  if (!webContents || webContents.isDestroyed()) return null;
+  try {
+    const analysis = await webContents.executeJavaScript(`(${collectReaderAnalysisInPage.toString()})()`, true);
+    return readerUtils.buildReaderSnapshot(analysis || {});
+  } catch (_error) {
+    return null;
+  }
+}
+
+function getReaderSession(tabId) {
+  return tabId ? readerSessions[tabId] || null : null;
+}
+
+function destroyReaderView(tabId) {
+  const session = getReaderSession(tabId);
+  if (!session) return;
+  const readerViewId = session.readerView && session.readerView.webContents ? session.readerView.webContents.id : null;
+  if (session.readerView && session.readerView.webContents && !session.readerView.webContents.isDestroyed()) {
+    try {
+      session.readerView.webContents.destroy();
+    } catch (_error) { }
+  }
+  if (readerViewId != null) delete readerViewTabs[readerViewId];
+  delete readerViews[tabId];
+  delete readerSessions[tabId];
+}
+
+function sendReaderModeState(pIdx, tabId, payload = {}) {
+  const win = windows[pIdx];
+  if (!win || win.isDestroyed()) return;
+  win.webContents.send("reader-mode-changed", {
+    tabId,
+    active: !!payload.active,
+    available: payload.available !== false,
+    reason: payload.reason || "",
+    sourceTitle: payload.sourceTitle || "",
+    sourceUrl: payload.sourceUrl || ""
+  });
+}
+
+function updateReaderTabRecord(pIdx, tabId, readerMode) {
+  if (!tabId || !pTabs[pIdx]) return null;
+  return appUtils.syncTabRecord(pTabs[pIdx], tabId, { readerMode: !!readerMode });
+}
+
+function getSourceViewForTab(tabId) {
+  return tabId ? views[tabId] || null : null;
+}
+
+function getReaderViewForTab(tabId) {
+  const session = getReaderSession(tabId);
+  return session && session.readerView ? session.readerView : null;
+}
+
+function getCurrentVisibleView(tabId) {
+  const session = getReaderSession(tabId);
+  if (session && session.active && session.readerView) return session.readerView;
+  return getSourceViewForTab(tabId);
+}
+
+function ensureReaderView(tabId, pIdx) {
+  let session = getReaderSession(tabId);
+  if (!session) {
+    const tab = pTabs[pIdx] && pTabs[pIdx].find((entry) => entry && entry.id === tabId) || null;
+    session = readerSession.createReaderSession({
+      tabId,
+      profileIndex: pIdx,
+      incognito: !!(tab && tab.incognito),
+      sourceView: views[tabId] || null,
+      sourceUrl: tab && tab.url ? tab.url : "",
+      sourceTitle: tab && tab.title ? tab.title : ""
+    });
+    readerSessions[tabId] = session;
+  }
+
+  if (!session.readerView || session.readerView.webContents.isDestroyed()) {
+    const win = windows[pIdx];
+    const partition = getPartitionForProfile(pIdx, !!session.incognito);
+    const webP = {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      webSecurity: true,
+      webviewTag: false,
+      safeDialogs: true,
+      allowRunningInsecureContent: false,
+      preload: path.join(__dirname, "preload.js"),
+      partition
+    };
+    const readerView = new WebContentsView({ webPreferences: webP });
+    readerView.webContents.setUserAgent(
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+    );
+    readerView.webContents.on("will-navigate", (event, targetUrl) => {
+      if (isHttpUrl(targetUrl)) {
+        event.preventDefault();
+        openL(targetUrl, pIdx);
+        return;
+      }
+      if (isInternalUrl(targetUrl)) return;
+      event.preventDefault();
+    });
+    readerView.webContents.setWindowOpenHandler(({ url: targetUrl }) => {
+      if (isHttpUrl(targetUrl)) openL(targetUrl, pIdx);
+      return { action: "deny" };
+    });
+    readerViews[tabId] = readerView;
+    readerViewTabs[readerView.webContents.id] = tabId;
+    session.readerView = readerView;
+    if (win && !win.isDestroyed()) {
+      // The reader surface is shown through the window content view, just like a tab view.
+    }
+  }
+
+  return session.readerView;
+}
+
+function attachViewToWindow(pIdx, view) {
+  const win = windows[pIdx];
+  if (!win || win.isDestroyed() || !view || !view.webContents || view.webContents.isDestroyed()) return false;
+  try {
+    win.contentView.addChildView(view);
+    return true;
+  } catch (_error) {
+    return false;
+  }
+}
+
+function detachViewFromWindow(pIdx, view) {
+  const win = windows[pIdx];
+  if (!win || win.isDestroyed() || !view || !view.webContents || view.webContents.isDestroyed()) return false;
+  try {
+    win.contentView.removeChildView(view);
+    return true;
+  } catch (_error) {
+    return false;
+  }
+}
+
+async function enterReaderMode(pIdx, tabId) {
+  const sourceView = getSourceViewForTab(tabId);
+  const tab = pTabs[pIdx] && pTabs[pIdx].find((entry) => entry && entry.id === tabId) || null;
+  if (!sourceView || !sourceView.webContents || sourceView.webContents.isDestroyed()) {
+    sendReaderModeState(pIdx, tabId, {
+      active: false,
+      available: false,
+      reason: "Reader mode is unavailable for this tab."
+    });
+    return { active: false, available: false };
+  }
+
+  if (!isHttpUrl(sourceView.webContents.getURL())) {
+    sendReaderModeState(pIdx, tabId, {
+      active: false,
+      available: false,
+      reason: "Reader mode only works on article pages."
+    });
+    return { active: false, available: false };
+  }
+
+  const snapshot = await extractReaderSnapshot(sourceView.webContents);
+  if (!snapshot || !snapshot.readable) {
+    sendReaderModeState(pIdx, tabId, {
+      active: false,
+      available: false,
+      reason: snapshot && snapshot.reason ? snapshot.reason : "Reader mode is unavailable for this page."
+    });
+    return { active: false, available: false, reason: snapshot && snapshot.reason ? snapshot.reason : "" };
+  }
+
+  const session = ensureReaderView(tabId, pIdx);
+  if (!session) {
+    sendReaderModeState(pIdx, tabId, {
+      active: false,
+      available: false,
+      reason: "Reader mode could not be prepared."
+    });
+    return { active: false, available: false };
+  }
+
+  readerSession.setReaderSnapshot(session, snapshot);
+  readerSession.setSourceState(session, {
+    sourceUrl: tab && tab.url ? tab.url : sourceView.webContents.getURL(),
+    sourceTitle: tab && tab.title ? tab.title : sourceView.webContents.getTitle() || ""
+  });
+  readerSession.activateReaderSession(session);
+  updateReaderTabRecord(pIdx, tabId, true);
+  loadInternal(session.readerView.webContents, "chrome://reader");
+
+  const activeView = getCurrentVisibleView(tabId);
+  const s = states[pIdx];
+  const win = windows[pIdx];
+  if (s && win && !win.isDestroyed()) {
+    if (s.activeView && s.activeView !== activeView) {
+      detachViewFromWindow(pIdx, s.activeView);
+    }
+    s.activeView = activeView;
+    s.readerMode = true;
+    s.readerTabId = tabId;
+    attachViewToWindow(pIdx, activeView);
+    updateB(pIdx);
+  }
+
+  sendReaderModeState(pIdx, tabId, {
+    active: true,
+    available: true,
+    sourceTitle: session.sourceTitle,
+    sourceUrl: session.sourceUrl
+  });
+  return { active: true, available: true, snapshot };
+}
+
+function exitReaderMode(pIdx, tabId, options = {}) {
+  const session = getReaderSession(tabId);
+  const sourceView = getSourceViewForTab(tabId);
+  const s = states[pIdx];
+  const win = windows[pIdx];
+  const tab = pTabs[pIdx] && pTabs[pIdx].find((entry) => entry && entry.id === tabId) || null;
+  if (!session || !session.active) {
+    if (!options.silent) {
+      sendReaderModeState(pIdx, tabId, {
+        active: false,
+        available: true,
+        sourceTitle: tab && tab.title ? tab.title : "",
+        sourceUrl: tab && tab.url ? tab.url : ""
+      });
+    }
+    return { active: false, available: true };
+  }
+
+  readerSession.deactivateReaderSession(session);
+  updateReaderTabRecord(pIdx, tabId, false);
+
+  if (s && win && !win.isDestroyed()) {
+    const needsAttach = !!(sourceView && s.activeView !== sourceView);
+    if (s.activeView && session.readerView && s.activeView === session.readerView) {
+      detachViewFromWindow(pIdx, session.readerView);
+    }
+    s.activeView = sourceView;
+    s.readerMode = false;
+    s.readerTabId = null;
+    if (needsAttach) attachViewToWindow(pIdx, sourceView);
+    updateB(pIdx);
+  }
+
+  if (!options.silent) {
+    const restoreState = readerSession.getRestoreState(session);
+    sendReaderModeState(pIdx, tabId, {
+      active: false,
+      available: true,
+      sourceTitle: restoreState.sourceTitle,
+      sourceUrl: restoreState.sourceUrl
+    });
+  }
+
+  return { active: false, available: true };
+}
+
+function getTabReaderView(tabId) {
+  const session = getReaderSession(tabId);
+  return session ? session.readerView : null;
 }
 
 function getProfileTabList(pIdx) {
@@ -847,7 +1317,8 @@ function openTabInProfile(pIdx, tabLike = {}, options = {}) {
     id: tabId,
     url: nextUrl,
     title: tabLike.title || getDefaultTabTitle(pIdx, { incognito: !!tabLike.incognito }),
-    incognito: !!tabLike.incognito
+    incognito: !!tabLike.incognito,
+    readerMode: !!tabLike.readerMode
   };
   const afterTabId = typeof options.afterTabId === "string" && options.afterTabId ? options.afterTabId : null;
   insertTabAfter(pIdx, nextTab, afterTabId);
@@ -1093,6 +1564,10 @@ function loadTabUrl(tabId, pIdx, rawUrl, options = {}) {
 
   const normalizedUrl = appUtils.normalizeInternalUrl(rawUrl || "chrome://newtab", "chrome://newtab") || "chrome://newtab";
   const source = options.source || "navigate";
+  const session = getReaderSession(tabId);
+  if (session && session.active) {
+    exitReaderMode(pIdx, tabId);
+  }
 
   if (normalizedUrl === "chrome://offline") {
     return showOfflinePage(tabId, pIdx, {
@@ -1155,7 +1630,7 @@ function createW(pIdx = 0, opts = {}) {
   attachBrowserShortcutHandler(win.webContents, () => win.profileIndex);
   if (!pTabs[pIdx]) pTabs[pIdx] = [];
   pNames[pIdx] = isIncognito ? getDefaultProfileName(pIdx, { incognito: true }) : (pNames[pIdx] || getDefaultProfileName(pIdx));
-  states[pIdx] = { activeView: null, metrics: { top: 76, left: 0 }, visible: true };
+  states[pIdx] = { activeView: null, metrics: { top: 76, left: 0 }, visible: true, readerMode: false, readerTabId: null };
   win.loadURL(getAppPageUrl("index.html")).catch((error) => {
     showHtmlLoadError("index.html", error);
     if (!win.isDestroyed()) win.destroy();
@@ -1198,6 +1673,9 @@ function getActiveT(pIdx) {
   const s = states[pIdx];
   if (!s || !s.activeView) return null;
   for (const [id, v] of Object.entries(views)) if (v === s.activeView) return id;
+  for (const [id, session] of Object.entries(readerSessions)) {
+    if (session && session.readerView === s.activeView) return id;
+  }
   return null;
 }
 
@@ -1226,7 +1704,8 @@ function createT(pIdx, win) {
       id,
       url: initialUrl,
       title: isIncognito ? localization.getIncognitoProfileName(locale) : localization.t(locale, "app.newTab"),
-      incognito: isIncognito
+      incognito: isIncognito,
+      readerMode: false
     });
     createV(id, initialUrl, isIncognito, pIdx);
     if (pendingUrl) delete win.pendingIncognitoUrl;
@@ -1251,7 +1730,8 @@ function getWindowTabSnapshot(pIdx) {
       id: tab.id || `p-${pIdx}-t-${index + 1}`,
       url: appUtils.normalizeInternalUrl(tab.url || "chrome://newtab", "chrome://newtab") || "chrome://newtab",
       title: tab.title || fallbackTitle,
-      incognito: !!tab.incognito
+      incognito: !!tab.incognito,
+      readerMode: !!tab.readerMode
     };
   });
 }
@@ -1261,7 +1741,7 @@ function ensureWindowBootstrapState(win) {
   const pIdx = win.profileIndex;
   if (!pTabs[pIdx]) pTabs[pIdx] = [];
   if (!states[pIdx]) {
-    states[pIdx] = { activeView: null, metrics: { top: 76, left: 0 }, visible: true };
+    states[pIdx] = { activeView: null, metrics: { top: 76, left: 0 }, visible: true, readerMode: false, readerTabId: null };
   }
 
   if (!pTabs[pIdx].length) createT(pIdx, win);
@@ -1447,13 +1927,15 @@ function createV(id, url, inc, pIdx) {
 function switchT(id, pIdx) {
   const win = windows[pIdx];
   const s = states[pIdx];
-  if (!win || !views[id]) return;
-  if (s.activeView && s.activeView !== views[id] && s.visible) {
+  const session = getReaderSession(id);
+  const nextView = session && session.active && session.readerView ? session.readerView : views[id];
+  if (!win || !nextView) return;
+  if (s.activeView && s.activeView !== nextView && s.visible) {
     try {
       win.contentView.removeChildView(s.activeView);
     } catch (e) { }
   }
-  s.activeView = views[id];
+  s.activeView = nextView;
   if (s.visible && s.activeView && !s.activeView.webContents.isDestroyed()) {
     try {
       win.contentView.addChildView(s.activeView);
@@ -1461,12 +1943,18 @@ function switchT(id, pIdx) {
     } catch (e) { }
   }
   if (win && !win.isDestroyed() && s.activeView && !s.activeView.webContents.isDestroyed()) {
-    const currentRawUrl = s.activeView.webContents.getURL() || views[id].tUrl || "";
+    const tabRecord = pTabs[pIdx].find((tab) => tab.id === id) || {};
+    const currentRawUrl = session && session.active
+      ? (session.sourceUrl || tabRecord.url || "")
+      : (s.activeView.webContents.getURL() || views[id].tUrl || "");
+    const currentTitle = session && session.active
+      ? (session.sourceTitle || tabRecord.title || "")
+      : s.activeView.webContents.getTitle();
     const payload = tabState.buildTabSwitchPayload(
       pTabs[pIdx],
       id,
       getDisplayUrlForTab(id, currentRawUrl, views[id].tUrl || currentRawUrl),
-      getDisplayTitleForTab(id, s.activeView.webContents.getTitle())
+      getDisplayTitleForTab(id, currentTitle)
     );
     if (payload.url) views[id].tUrl = payload.url;
     win.webContents.send("tab-switched", payload);
@@ -1484,18 +1972,29 @@ function closeTab(pIdx, id, win) {
   const w = win || windows[pIdx];
   const s = states[pIdx];
   if (!views[id] || !w) return;
+  const session = getReaderSession(id);
   const closingTab = pTabs[pIdx].find((t) => t.id === id);
   rememberClosedTab(pIdx, {
     url: views[id].tUrl || (closingTab && closingTab.url) || views[id].webContents.getURL(),
     title: views[id].webContents.getTitle() || (closingTab && closingTab.title) || "",
     incognito: closingTab ? closingTab.incognito : false
   });
-  const wasA = s.activeView === views[id];
+  const wasA = s.activeView === views[id] || (session && session.readerView && s.activeView === session.readerView);
   try {
-    w.contentView.removeChildView(views[id]);
+    if (s.activeView) w.contentView.removeChildView(s.activeView);
   } catch (e) { }
   views[id].webContents.destroy();
   delete views[id];
+  if (session && session.readerView && !session.readerView.webContents.isDestroyed()) {
+    try {
+      session.readerView.webContents.destroy();
+    } catch (_error) { }
+  }
+  if (session && session.readerView && readerViewTabs[session.readerView.webContents.id]) {
+    delete readerViewTabs[session.readerView.webContents.id];
+  }
+  delete readerViews[id];
+  delete readerSessions[id];
   clearOfflineTabContext(id);
   pTabs[pIdx] = pTabs[pIdx].filter((t) => t.id !== id);
   if (wasA) {
@@ -1593,6 +2092,26 @@ ipcMain.handle("get-window-bootstrap-state", withTrustedSender((e) => {
   if (!w) return null;
   return ensureWindowBootstrapState(w);
 }, null));
+ipcMain.handle("get-reader-content", withTrustedSender((e) => {
+  const session = readerViewTabs[e.sender.id] ? readerSessions[readerViewTabs[e.sender.id]] : null;
+  return session && session.snapshot ? session.snapshot : null;
+}, null));
+ipcMain.handle("close-reader", withTrustedSender((e) => {
+  const w = getSenderWindow(e.sender);
+  if (!w) return { active: false, available: true };
+  const tabId = readerViewTabs[e.sender.id] || getActiveT(w.profileIndex);
+  if (!tabId) return { active: false, available: true };
+  return exitReaderMode(w.profileIndex, tabId);
+}, { active: false, available: true }));
+ipcMain.handle("toggle-reader-mode", withTrustedSender((e) => {
+  const w = getSenderWindow(e.sender);
+  if (!w) return { active: false, available: false };
+  const tabId = getActiveT(w.profileIndex);
+  if (!tabId) return { active: false, available: false };
+  const session = getReaderSession(tabId);
+  if (session && session.active) return exitReaderMode(w.profileIndex, tabId);
+  return enterReaderMode(w.profileIndex, tabId);
+}, { active: false, available: false }));
 ipcMain.on("fetch-and-show-history", withTrustedSender((e, q) => {
   e.reply("history-data-received", getH(q));
 }));
@@ -1826,9 +2345,10 @@ ipcMain.handle("get-updater-state", withTrustedSender(() => {
 ipcMain.handle("get-language-settings", withTrustedSender(() => {
   return {
     locale: getCurrentLocale(),
-    onboardingCompleted: getOnboardingCompleted()
+    onboardingCompleted: getOnboardingCompleted(),
+    platform: getCurrentUiPlatform()
   };
-}, () => ({ locale: null, onboardingCompleted: true })));
+}, () => ({ locale: null, onboardingCompleted: true, platform: getCurrentUiPlatform() })));
 ipcMain.handle("set-language", withTrustedSender((e, locale) => {
   const nextState = appUtils.resolveLanguageSettingsState({
     currentLocale: getCurrentLocale(),
@@ -1847,15 +2367,34 @@ ipcMain.handle("set-language", withTrustedSender((e, locale) => {
 ipcMain.handle("check-for-updates", withTrustedSender((e) => {
   return checkForUpdates("manual");
 }, null));
+ipcMain.handle("get-adblock-state", withTrustedSender(() => {
+  return adblockManager ? adblockManager.getState() : {
+    customRules: "",
+    hasCustomRules: false,
+    lists: [],
+    syncState: {
+      status: "idle",
+      message: "Adblock is initializing.",
+      lastSyncAt: null,
+      lastError: null
+    },
+    defaults: {
+      refreshIntervalMs: null,
+      builtInListCount: 0
+    }
+  };
+}, null));
 ipcMain.handle("update-adblock-rules", withTrustedSender((e, r) => {
-  adRules = (r || "")
-    .split("\n")
-    .map((line) => line.trim())
-    .map((line) => {
-      if (!line || line.startsWith("!")) return "";
-      return line.replace(/\s*!.*$/, "").trim();
-    })
-    .filter((x) => x);
+  return adblockManager ? adblockManager.updateCustomRules(r || "") : null;
+}, null));
+ipcMain.handle("set-adblock-list-enabled", withTrustedSender((e, { listId, enabled }) => {
+  return adblockManager ? adblockManager.setListEnabled(listId, enabled) : null;
+}, null));
+ipcMain.handle("refresh-adblock-lists", withTrustedSender(async () => {
+  return adblockManager ? adblockManager.refreshBuiltInLists({ force: true }) : null;
+}, null));
+ipcMain.handle("reset-adblock-defaults", withTrustedSender(() => {
+  return adblockManager ? adblockManager.resetToDefaults() : null;
 }, null));
 
 app.on("window-all-closed", () => {
@@ -1865,6 +2404,11 @@ app.on("window-all-closed", () => {
 app.whenReady().then(() => {
   registerAppProtocol();
   setMacDockIcon();
+  adblockManager = adblock.createAdblockManager({
+    userDataDir: app.getPath("userData")
+  });
+  adblockManager.initialize();
+  void adblockManager.refreshBuiltInLists({ reason: "startup" });
   createW(0);
   configureAutoUpdater();
   setTimeout(() => {

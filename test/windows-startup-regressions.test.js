@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 
 const appUtils = require("../app-utils");
 
-const TRUSTED_PAGE_FILES = new Set(["index.html", "newtab.html", "offline.html", "extensions.html"]);
+const TRUSTED_PAGE_FILES = new Set(["index.html", "newtab.html", "offline.html", "extensions.html", "reader.html"]);
 
 test("getAppPageFileName handles Orion protocol URLs", () => {
   assert.equal(
@@ -44,6 +44,10 @@ test("trusted Orion page recognition requires the custom app origin", () => {
   );
   assert.equal(
     appUtils.isTrustedAppPage("orion://app/offline.html?game=tetris", TRUSTED_PAGE_FILES),
+    true
+  );
+  assert.equal(
+    appUtils.isTrustedAppPage("orion://app/reader.html", TRUSTED_PAGE_FILES),
     true
   );
   assert.equal(
@@ -89,6 +93,30 @@ test("bundled file pages are trusted only inside the packaged app root", () => {
     ),
     false
   );
+  assert.equal(
+    appUtils.isTrustedBundledFilePage(
+      "file:///C:/Program%20Files/Orion/resources/app.asar/offline.html?game=snake",
+      TRUSTED_PAGE_FILES,
+      packagedRoot
+    ),
+    true
+  );
+  assert.equal(
+    appUtils.isTrustedBundledFilePage(
+      "file:///C:/Program%20Files/Orion/resources/app.asar/extensions.html",
+      TRUSTED_PAGE_FILES,
+      packagedRoot
+    ),
+    true
+  );
+  assert.equal(
+    appUtils.isTrustedBundledFilePage(
+      "file:///C:/Program%20Files/Orion/resources/app.asar/reader.html",
+      TRUSTED_PAGE_FILES,
+      packagedRoot
+    ),
+    true
+  );
 });
 
 test("internal Orion URLs normalize to chrome aliases across protocol and legacy file paths", () => {
@@ -109,6 +137,13 @@ test("internal Orion URLs normalize to chrome aliases across protocol and legacy
       "fallback"
     ),
     "chrome://offline"
+  );
+  assert.equal(
+    appUtils.normalizeInternalUrl(
+      "file:///C:/Program%20Files/Orion/resources/app.asar/reader.html",
+      "fallback"
+    ),
+    "chrome://reader"
   );
 });
 

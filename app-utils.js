@@ -11,7 +11,8 @@
   const INTERNAL_PAGE_ALIASES = Object.freeze({
     "newtab.html": "chrome://newtab",
     "extensions.html": "chrome://extensions",
-    "offline.html": "chrome://offline"
+    "offline.html": "chrome://offline",
+    "reader.html": "chrome://reader"
   });
   const APP_INVOKE_CHANNELS = Object.freeze([
     "add-new-profile",
@@ -20,8 +21,10 @@
     "delete-history-item",
     "clear-other-tabs",
     "close-tab",
+    "close-reader",
     "create-tab",
     "get-language-settings",
+    "get-reader-content",
     "get-window-bootstrap-state",
     "open-incognito-window",
     "find-in-page",
@@ -34,10 +37,15 @@
     "reload-page",
     "reopen-closed-tab",
     "set-language",
+    "get-adblock-state",
+    "refresh-adblock-lists",
+    "reset-adblock-defaults",
+    "set-adblock-list-enabled",
     "select-extension-folder",
     "stop-find-in-page",
     "switch-profile",
     "switch-tab",
+    "toggle-reader-mode",
     "update-adblock-rules"
   ]);
   const APP_SEND_CHANNELS = Object.freeze([
@@ -60,6 +68,7 @@
     "keyboard-shortcut",
     "profile-changed",
     "profile-list-updated",
+    "reader-mode-changed",
     "tab-closed",
     "tab-created",
     "tab-switched",
@@ -98,6 +107,14 @@
     }),
     "offline.html": Object.freeze({
       invoke: OFFLINE_INVOKE_CHANNELS,
+      send: EMPTY_CHANNELS.send,
+      on: EMPTY_CHANNELS.on
+    }),
+    "reader.html": Object.freeze({
+      invoke: Object.freeze([
+        "close-reader",
+        "get-reader-content"
+      ]),
       send: EMPTY_CHANNELS.send,
       on: EMPTY_CHANNELS.on
     }),
@@ -328,6 +345,10 @@
       tab.incognito = !!patch.incognito;
     }
 
+    if (Object.prototype.hasOwnProperty.call(patch, "readerMode")) {
+      tab.readerMode = !!patch.readerMode;
+    }
+
     return tab;
   }
 
@@ -340,7 +361,8 @@
         id: tabLike.id,
         url: normalizeInternalUrl(tabLike.url, "chrome://newtab") || "chrome://newtab",
         title: tabLike.title || "Loading...",
-        incognito: !!tabLike.incognito
+        incognito: !!tabLike.incognito,
+        readerMode: !!tabLike.readerMode
       };
       tabList.push(tab);
       return tab;
@@ -371,6 +393,7 @@
     element.className = "tab";
     element.dataset.id = tab.id || "";
     if (tab.incognito) element.dataset.incognito = "true";
+    if (tab.readerMode) element.dataset.readerMode = "true";
 
     const titleWrap = doc.createElement("span");
     titleWrap.className = "tab-title-wrap";

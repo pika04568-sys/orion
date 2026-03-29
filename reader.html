@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data: blob:; media-src 'self' https: data: blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none';">
+  <title>Reader</title>
+  <style>
+    :root {
+      --page-bg: #f3e8d8;
+      --page-surface: rgba(255, 252, 246, 0.92);
+      --page-border: rgba(60, 47, 30, 0.12);
+      --page-text: #1f1a14;
+      --page-muted: #6d5d4f;
+      --page-accent: #8a5d2b;
+      --page-width: 760px;
+      --page-font-size: 20px;
+      --page-line-height: 1.78;
+      --page-font-family: Georgia, "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
+      --chrome-bg: rgba(24, 18, 12, 0.72);
+      --chrome-border: rgba(255, 255, 255, 0.12);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      height: 100%;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--page-text);
+      background:
+        radial-gradient(circle at top right, rgba(255, 210, 138, 0.22), transparent 34%),
+        radial-gradient(circle at bottom left, rgba(92, 62, 34, 0.16), transparent 38%),
+        linear-gradient(180deg, #f8efe2 0%, var(--page-bg) 100%);
+      font-family: "Avenir Next", "Segoe UI", sans-serif;
+      overflow: auto;
+    }
+
+    body[data-theme="night"] {
+      --page-bg: #0f141a;
+      --page-surface: rgba(16, 22, 29, 0.95);
+      --page-border: rgba(255, 255, 255, 0.08);
+      --page-text: #eef2f7;
+      --page-muted: #9bacbb;
+      --page-accent: #8bc4ff;
+      --chrome-bg: rgba(8, 12, 18, 0.8);
+      --chrome-border: rgba(255, 255, 255, 0.1);
+    }
+
+    body[data-theme="sepia"] {
+      --page-bg: #f2e4cf;
+      --page-surface: rgba(255, 249, 240, 0.94);
+      --page-text: #2c2218;
+      --page-muted: #776352;
+      --page-accent: #8a5d2b;
+    }
+
+    body[data-theme="light"] {
+      --page-bg: #f6f7fb;
+      --page-surface: rgba(255, 255, 255, 0.95);
+      --page-text: #16181d;
+      --page-muted: #647187;
+      --page-accent: #2864ff;
+    }
+
+    .chrome {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 18px;
+      padding: 18px 22px;
+      background: var(--chrome-bg);
+      border-bottom: 1px solid var(--chrome-border);
+      backdrop-filter: blur(18px);
+      color: #fff;
+    }
+
+    .eyebrow {
+      text-transform: uppercase;
+      letter-spacing: 0.2em;
+      font-size: 0.72rem;
+      color: rgba(255, 255, 255, 0.68);
+      margin: 0 0 4px;
+    }
+
+    .title {
+      font-size: 1rem;
+      font-weight: 700;
+      margin: 0;
+    }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      justify-content: flex-end;
+    }
+
+    .segmented {
+      display: inline-flex;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 999px;
+      padding: 4px;
+      gap: 4px;
+    }
+
+    .chip,
+    .button {
+      border: none;
+      border-radius: 999px;
+      font: inherit;
+      cursor: pointer;
+      transition: transform 0.18s ease, background 0.18s ease, color 0.18s ease;
+    }
+
+    .chip {
+      padding: 8px 12px;
+      background: transparent;
+      color: rgba(255, 255, 255, 0.72);
+    }
+
+    .chip.active {
+      background: rgba(255, 255, 255, 0.14);
+      color: #fff;
+    }
+
+    .button {
+      padding: 10px 14px;
+      background: #fff;
+      color: #18130e;
+      font-weight: 700;
+    }
+
+    .button:hover,
+    .chip:hover {
+      transform: translateY(-1px);
+    }
+
+    .shell {
+      display: grid;
+      justify-items: center;
+      padding: 34px 18px 56px;
+    }
+
+    .card {
+      width: min(var(--page-width), calc(100vw - 32px));
+      background: var(--page-surface);
+      color: var(--page-text);
+      border: 1px solid var(--page-border);
+      border-radius: 30px;
+      box-shadow: 0 22px 60px rgba(23, 18, 10, 0.16);
+      backdrop-filter: blur(12px);
+      padding: 38px clamp(22px, 4vw, 54px) 42px;
+    }
+
+    .card.unavailable {
+      text-align: center;
+    }
+
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px 14px;
+      align-items: center;
+      color: var(--page-muted);
+      margin-top: 10px;
+      font-size: 0.94rem;
+    }
+
+    .source-link {
+      color: var(--page-accent);
+      text-decoration: none;
+      word-break: break-all;
+    }
+
+    .source-link:hover {
+      text-decoration: underline;
+    }
+
+    .display-title {
+      margin: 16px 0 18px;
+      font-family: var(--page-font-family);
+      font-size: clamp(2.2rem, 6vw, 4.4rem);
+      line-height: 1.02;
+      letter-spacing: -0.05em;
+    }
+
+    .subtitle {
+      margin: 0;
+      color: var(--page-muted);
+      line-height: 1.65;
+      font-size: 1.02rem;
+      max-width: 70ch;
+    }
+
+    .content {
+      margin-top: 28px;
+      font-size: var(--page-font-size);
+      line-height: var(--page-line-height);
+      font-family: var(--page-font-family);
+    }
+
+    .content p,
+    .content li,
+    .content blockquote {
+      margin: 0 0 1.1em;
+    }
+
+    .content h2,
+    .content h3,
+    .content h4 {
+      margin: 1.8em 0 0.6em;
+      line-height: 1.12;
+      letter-spacing: -0.03em;
+    }
+
+    .content blockquote {
+      padding: 0.2em 0 0.2em 1.2em;
+      border-left: 4px solid rgba(138, 93, 43, 0.32);
+      color: var(--page-muted);
+    }
+
+    .content ul,
+    .content ol {
+      padding-left: 1.3em;
+      margin: 0 0 1.1em;
+    }
+
+    figure {
+      margin: 28px 0;
+    }
+
+    figure img {
+      width: 100%;
+      border-radius: 18px;
+      display: block;
+      object-fit: cover;
+      border: 1px solid var(--page-border);
+      box-shadow: 0 18px 40px rgba(0, 0, 0, 0.12);
+    }
+
+    figcaption {
+      margin-top: 8px;
+      font-size: 0.92rem;
+      color: var(--page-muted);
+    }
+
+    .status {
+      display: inline-flex;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(138, 93, 43, 0.12);
+      color: var(--page-accent);
+      font-size: 0.88rem;
+      font-weight: 700;
+      margin-bottom: 18px;
+    }
+
+    .unavailable-copy {
+      margin: 0 auto 22px;
+      max-width: 58ch;
+      color: var(--page-muted);
+      line-height: 1.65;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    .font-controls {
+      display: inline-flex;
+      gap: 6px;
+      align-items: center;
+      padding: 4px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .font-controls button {
+      border: none;
+      border-radius: 999px;
+      padding: 8px 10px;
+      background: transparent;
+      color: rgba(255, 255, 255, 0.78);
+      cursor: pointer;
+      font: inherit;
+      font-weight: 700;
+    }
+
+    .font-controls button:hover {
+      background: rgba(255, 255, 255, 0.12);
+      color: #fff;
+    }
+
+    @media (max-width: 720px) {
+      .chrome {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .controls {
+        justify-content: flex-start;
+      }
+
+      .card {
+        width: min(100vw - 20px, var(--page-width));
+        padding: 28px 18px 32px;
+        border-radius: 22px;
+      }
+    }
+  </style>
+</head>
+
+<body data-theme="sepia">
+  <header class="chrome">
+    <div>
+      <p class="eyebrow">Reader mode</p>
+      <p class="title" id="page-label">Loading article</p>
+    </div>
+    <div class="controls">
+      <div class="segmented" role="group" aria-label="Theme">
+        <button class="chip active" data-theme="sepia" type="button">Sepia</button>
+        <button class="chip" data-theme="light" type="button">Light</button>
+        <button class="chip" data-theme="night" type="button">Night</button>
+      </div>
+      <div class="font-controls" aria-label="Font size">
+        <button id="font-smaller" type="button">A−</button>
+        <button id="font-reset" type="button">A</button>
+        <button id="font-larger" type="button">A+</button>
+      </div>
+      <button class="button" id="exit-reader" type="button">Back to page</button>
+    </div>
+  </header>
+
+  <main class="shell">
+    <article class="card" id="reader-card">
+      <div id="reader-state" class="status hidden"></div>
+      <p class="eyebrow" id="site-name"></p>
+      <h1 class="display-title" id="reader-title">Loading…</h1>
+      <p class="subtitle" id="reader-subtitle"></p>
+      <div class="meta" id="reader-meta"></div>
+      <div class="content" id="reader-content"></div>
+    </article>
+  </main>
+
+  <script src="reader.js"></script>
+</body>
+
+</html>

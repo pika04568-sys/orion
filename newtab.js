@@ -32,6 +32,7 @@
   const defaultShortcutUrlSet = new Set(defaultShortcuts.map((entry) => entry.url));
 
   let currentLocale = localization.resolveLocale(safeLocalStorageGet(LOCALE_KEY));
+  let currentPlatform = getBrowserUiPlatform();
   let clockTimer = null;
 
   function safeLocalStorageGet(key) {
@@ -144,7 +145,30 @@
   }
 
   function t(key, vars = {}) {
-    return localization.t(currentLocale, key, vars);
+    return localization.t(currentLocale, key, getUiTextVars(vars));
+  }
+
+  function getBrowserUiPlatform() {
+    if (typeof navigator === 'undefined') return localization.normalizeUiPlatform('');
+
+    const candidates = [];
+    try {
+      if (navigator.userAgentData && typeof navigator.userAgentData.platform === 'string') {
+        candidates.push(navigator.userAgentData.platform);
+      }
+    } catch (_error) {}
+    if (typeof navigator.platform === 'string') candidates.push(navigator.platform);
+    if (typeof navigator.userAgent === 'string') candidates.push(navigator.userAgent);
+
+    const platformCandidate = candidates.find((value) => typeof value === 'string' && value.trim());
+    return localization.normalizeUiPlatform(platformCandidate || '');
+  }
+
+  function getUiTextVars(vars = {}) {
+    return {
+      ...localization.getUiPlatformText(currentLocale, currentPlatform),
+      ...vars
+    };
   }
 
   function applyTranslations() {
@@ -339,6 +363,7 @@
       if (pageBridge && typeof pageBridge.getLanguageSettings === 'function') {
         const response = await pageBridge.getLanguageSettings();
         const locale = localization.sanitizeLocale(response && response.locale);
+        currentPlatform = localization.normalizeUiPlatform(response && response.platform ? response.platform : currentPlatform);
         if (locale) {
           currentLocale = locale;
           safeLocalStorageSet(LOCALE_KEY, locale);

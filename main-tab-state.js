@@ -27,14 +27,16 @@ function buildTabSwitchPayload(profileTabs, tabId, rawUrl, rawTitle) {
   const title = rawTitle || (currentTab && currentTab.title) || normalizedUrl || "New Tab";
   const updatedTab = appUtils.syncTabRecord(tabs, tabId, {
     url: normalizedUrl,
-    title
+    title,
+    readerMode: !!(currentTab && currentTab.readerMode)
   });
 
   return {
     tabId,
     url: (updatedTab && updatedTab.url) || normalizedUrl,
     title: (updatedTab && updatedTab.title) || title,
-    incognito: !!(currentTab && currentTab.incognito)
+    incognito: !!(currentTab && currentTab.incognito),
+    readerMode: !!(updatedTab && updatedTab.readerMode)
   };
 }
 

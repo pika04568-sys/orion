@@ -1,7 +1,7 @@
 (() => {
   const pageBridge = window.orionPage || {
     getExtensions: async () => [],
-    getLanguageSettings: async () => ({ locale: null }),
+    getLanguageSettings: async () => ({ locale: null, platform: null }),
     loadExtension: async () => ({ success: false, error: "Not running in Orion." }),
     removeExtension: async () => {},
     selectExtensionFolder: async () => null,
@@ -14,8 +14,32 @@
   const pathInput = document.getElementById("ext-path");
   const list = document.getElementById("ext-list");
   let currentLocale = localization.resolveLocale(localStorage.getItem("orion-locale"));
+  let currentPlatform = getBrowserUiPlatform();
 
-  const t = (key, vars = {}) => localization.t(currentLocale, key, vars);
+  const t = (key, vars = {}) => localization.t(currentLocale, key, getUiTextVars(vars));
+
+  function getBrowserUiPlatform() {
+    if (typeof navigator === "undefined") return localization.normalizeUiPlatform("");
+
+    const candidates = [];
+    try {
+      if (navigator.userAgentData && typeof navigator.userAgentData.platform === "string") {
+        candidates.push(navigator.userAgentData.platform);
+      }
+    } catch (_error) {}
+    if (typeof navigator.platform === "string") candidates.push(navigator.platform);
+    if (typeof navigator.userAgent === "string") candidates.push(navigator.userAgent);
+
+    const platformCandidate = candidates.find((value) => typeof value === "string" && value.trim());
+    return localization.normalizeUiPlatform(platformCandidate || "");
+  }
+
+  function getUiTextVars(vars = {}) {
+    return {
+      ...localization.getUiPlatformText(currentLocale, currentPlatform),
+      ...vars
+    };
+  }
 
   function renderEmptyState(message) {
     const empty = document.createElement("div");
@@ -43,6 +67,7 @@
     try {
       const response = await pageBridge.getLanguageSettings();
       const locale = localization.sanitizeLocale(response && response.locale);
+      currentPlatform = localization.normalizeUiPlatform(response && response.platform ? response.platform : currentPlatform);
       if (locale) {
         currentLocale = locale;
         try {

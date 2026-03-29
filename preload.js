@@ -9,11 +9,13 @@ const APP_INVOKE_CHANNELS = Object.freeze([
   "clear-history-range",
   "clear-other-tabs",
   "close-tab",
+  "close-reader",
   "create-tab",
   "delete-history-item",
   "find-in-page",
   "get-app-version",
   "get-language-settings",
+  "get-reader-content",
   "get-updater-state",
   "get-window-bootstrap-state",
   "go-back",
@@ -23,9 +25,14 @@ const APP_INVOKE_CHANNELS = Object.freeze([
   "reload-page",
   "reopen-closed-tab",
   "set-language",
+  "get-adblock-state",
+  "refresh-adblock-lists",
+  "reset-adblock-defaults",
+  "set-adblock-list-enabled",
   "stop-find-in-page",
   "switch-profile",
   "switch-tab",
+  "toggle-reader-mode",
   "update-adblock-rules"
 ]);
 
@@ -50,6 +57,7 @@ const APP_ON_CHANNELS = Object.freeze([
   "keyboard-shortcut",
   "profile-changed",
   "profile-list-updated",
+  "reader-mode-changed",
   "tab-closed",
   "tab-created",
   "tab-switched",
@@ -122,6 +130,13 @@ function createInternalBridge(page) {
     });
   }
 
+  if (page === "reader.html") {
+    return Object.freeze({
+      closeReader: () => ipcRenderer.invoke("close-reader"),
+      getReaderContent: () => ipcRenderer.invoke("get-reader-content")
+    });
+  }
+
   if (page === "offline.html") {
     return Object.freeze({
       navigateTo: (value) => ipcRenderer.invoke("navigate-to", value)
@@ -135,6 +150,6 @@ const currentPage = getAppPageFileName(window.location.href);
 
 if (currentPage === "index.html") {
   contextBridge.exposeInMainWorld("electron", createIndexBridge());
-} else if (currentPage === "newtab.html" || currentPage === "offline.html" || currentPage === "extensions.html") {
+} else if (currentPage === "newtab.html" || currentPage === "offline.html" || currentPage === "extensions.html" || currentPage === "reader.html") {
   contextBridge.exposeInMainWorld("orionPage", createInternalBridge(currentPage));
 }

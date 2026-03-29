@@ -2,12 +2,15 @@ const ipcRenderer = window.electron || { invoke: async () => { }, send: () => { 
 const appUtils = window.OrionAppUtils;
 const localization = window.OrionLocalization;
 
-let tabBar, newTabBtn, clearTabsBtn, addressBar, backBtn, forwardBtn, reloadBtn, historyBtn, historySidebar, closeHistoryBtn, historyList, chromeContainer, profileBtn, profileMenu, profileListContainer, addProfileBtn, settingsBtn, settingsSidebar, closeSettingsBtn, profileColorPicker, renameModal, renameInput, renameSaveBtn, renameCancelBtn, pendingRenameProfileId = null, bookmarkBtn, bookmarksSidebar, closeBookmarksBtn, bookmarksList, downloadsBtn, downloadsSidebar, closeDownloadsBtn, downloadsList, findBar, findInput, findResults, findPrev, findNext, findClose, openExtensionsBtn, progressBarContainer, progressBar, addBookmarkBtn, bookmarksBar, bookmarkDestModal, addToBarBtn, addToNewTabBtn, addToBothBtn, cancelBookmarkBtn, checkUpdatesBtn, versionEl, updateStatusEl, startupOverlay, startupLanguagePicker, settingsLanguagePicker, metrics = () => { }, pendingBookmark = null, activeTabId = null, activeProfile = 0, isIncognitoWindow = false, tabs = [], profiles = [];
+let tabBar, newTabBtn, clearTabsBtn, addressBar, backBtn, forwardBtn, reloadBtn, readerBtn, historyBtn, historySidebar, closeHistoryBtn, historyList, chromeContainer, profileBtn, profileMenu, profileListContainer, addProfileBtn, settingsBtn, settingsSidebar, closeSettingsBtn, profileColorPicker, renameModal, renameInput, renameSaveBtn, renameCancelBtn, pendingRenameProfileId = null, bookmarkBtn, bookmarksSidebar, closeBookmarksBtn, bookmarksList, downloadsBtn, downloadsSidebar, closeDownloadsBtn, downloadsList, findBar, findInput, findResults, findPrev, findNext, findClose, openExtensionsBtn, progressBarContainer, progressBar, addBookmarkBtn, bookmarksBar, bookmarkDestModal, addToBarBtn, addToNewTabBtn, addToBothBtn, cancelBookmarkBtn, checkUpdatesBtn, versionEl, updateStatusEl, startupOverlay, startupLanguagePicker, settingsLanguagePicker, readerToast, metrics = () => { }, pendingBookmark = null, activeTabId = null, activeProfile = 0, isIncognitoWindow = false, tabs = [], profiles = [];
 let updaterState = { state: 'idle', message: localization.t(localization.DEFAULT_LOCALE, 'updates.ready') };
 let currentLocale = localization.DEFAULT_LOCALE;
+let currentPlatform = getBrowserUiPlatform();
 let hasStartedRenderer = false;
 let discoInterval = null;
 let discoModeBtn = null;
+let adblockState = null;
+let adblockElements = null;
 
 const SEARCH_ENGINES = [
   { id: 'google', label: 'Google', searchUrl: 'https://www.google.com/search?q=', homeUrl: 'https://www.google.com/' },
@@ -25,7 +28,30 @@ const S_ENG = Object.fromEntries(SEARCH_ENGINES.map(({ id, searchUrl }) => [id, 
 const S_HOME = Object.fromEntries(SEARCH_ENGINES.map(({ id, homeUrl }) => [id, homeUrl]));
 
 function t(key, vars = {}) {
-  return localization.t(currentLocale, key, vars);
+  return localization.t(currentLocale, key, getUiTextVars(vars));
+}
+
+function getBrowserUiPlatform() {
+  if (typeof navigator === 'undefined') return localization.normalizeUiPlatform('');
+
+  const candidates = [];
+  try {
+    if (navigator.userAgentData && typeof navigator.userAgentData.platform === 'string') {
+      candidates.push(navigator.userAgentData.platform);
+    }
+  } catch (_error) {}
+  if (typeof navigator.platform === 'string') candidates.push(navigator.platform);
+  if (typeof navigator.userAgent === 'string') candidates.push(navigator.userAgent);
+
+  const platformCandidate = candidates.find((value) => typeof value === 'string' && value.trim());
+  return localization.normalizeUiPlatform(platformCandidate || '');
+}
+
+function getUiTextVars(vars = {}) {
+  return {
+    ...localization.getUiPlatformText(currentLocale, currentPlatform),
+    ...vars
+  };
 }
 
 function setLocale(locale) {
@@ -68,6 +94,121 @@ function updateDynamicTranslationContent() {
   if (discoModeBtn) discoModeBtn.textContent = discoInterval ? t('settings.stopDisco') : t('settings.discoMode');
 }
 
+function formatAdblockTimestamp(value) {
+  if (!value) return t('adblock.syncNever');
+  try {
+    return new Date(value).toLocaleString(currentLocale);
+  } catch (_error) {
+    return t('adblock.syncNever');
+  }
+}
+
+function renderAdblockState() {
+  if (!adblockElements || !adblockState) return;
+
+  const { listStatus, customStatus, syncStatus, customRules, saveButton, refreshButton, resetButton, listToggles } = adblockElements;
+  const lists = Array.isArray(adblockState.lists) ? adblockState.lists : [];
+  const enabledLists = lists.filter((list) => list.enabled).length;
+  const customCount = (adblockState.customRules || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith('!'))
+    .length;
+
+  if (customRules && document.activeElement !== customRules && customRules.value !== (adblockState.customRules || '')) {
+    customRules.value = adblockState.customRules || '';
+  }
+
+  if (listStatus) {
+    listStatus.innerHTML = '';
+    lists.forEach((list) => {
+      const row = document.createElement('label');
+      row.className = 'adblock-toggle-row';
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.checked = !!list.enabled;
+      checkbox.onchange = async () => {
+        const nextState = await ipcRenderer.invoke('set-adblock-list-enabled', {
+          listId: list.id,
+          enabled: checkbox.checked
+        });
+        if (nextState) {
+          adblockState = nextState;
+          renderAdblockState();
+        }
+      };
+      const title = document.createElement('span');
+      title.className = 'adblock-toggle-title';
+      title.textContent = list.name;
+      const details = document.createElement('span');
+      details.className = 'adblock-toggle-meta';
+      const ruleCount = Number.isFinite(list.ruleCount) ? list.ruleCount : 0;
+      const updatedLabel = list.lastUpdatedAt ? formatAdblockTimestamp(list.lastUpdatedAt) : t('adblock.syncNever');
+      details.textContent = `${list.enabled ? t('adblock.enabled') : t('adblock.disabled')} • ${ruleCount.toLocaleString()} ${t('adblock.rules')} • ${updatedLabel}`;
+      row.appendChild(checkbox);
+      row.appendChild(title);
+      row.appendChild(details);
+      listStatus.appendChild(row);
+    });
+  }
+
+  if (customStatus) {
+    customStatus.textContent = `${customCount.toLocaleString()} ${t('adblock.customRulesCount')} • ${enabledLists.toLocaleString()} ${t('adblock.listsEnabled')} • ${formatAdblockTimestamp(adblockState.syncState && adblockState.syncState.lastSyncAt)}`;
+  }
+
+  if (syncStatus) {
+    const syncState = adblockState.syncState || {};
+    syncStatus.textContent = `${syncState.message || t('adblock.syncIdle')}${syncState.lastError ? `\n${syncState.lastError}` : ''}`;
+  }
+
+  if (saveButton) saveButton.textContent = t('adblock.save');
+  if (refreshButton) refreshButton.textContent = t('adblock.refresh');
+  if (resetButton) resetButton.textContent = t('adblock.resetDefaults');
+}
+
+async function loadAdblockState() {
+  const state = await ipcRenderer.invoke('get-adblock-state');
+  if (!state) return;
+  adblockState = state;
+  const legacyRules = localStorage.getItem('adblock-rules') || '';
+  if ((!adblockState.customRules || !adblockState.customRules.trim()) && legacyRules.trim()) {
+    const migrated = await ipcRenderer.invoke('update-adblock-rules', legacyRules);
+    if (migrated) adblockState = migrated;
+  }
+  renderAdblockState();
+}
+
+function isReaderActiveTab() {
+  const tab = tabs.find((entry) => entry && entry.id === activeTabId);
+  return !!(tab && tab.readerMode);
+}
+
+function updateReaderButtonState() {
+  if (!readerBtn) return;
+  const active = isReaderActiveTab();
+  readerBtn.classList.toggle('reader-active', active);
+  readerBtn.setAttribute('aria-pressed', active ? 'true' : 'false');
+  readerBtn.title = active ? 'Exit Reader Mode' : 'Reader Mode';
+}
+
+function updateReaderShellState() {
+  document.body.classList.toggle('reader-mode', isReaderActiveTab());
+  updateReaderButtonState();
+}
+
+let readerToastTimer = null;
+function showReaderToast(message) {
+  if (!readerToast) return;
+  readerToast.textContent = message;
+  readerToast.hidden = false;
+  readerToast.classList.add('show');
+  if (readerToastTimer) clearTimeout(readerToastTimer);
+  readerToastTimer = window.setTimeout(() => {
+    readerToast.classList.remove('show');
+    readerToast.hidden = true;
+  }, 2600);
+}
+
 function renderLanguageButtons(container, finishOnboarding) {
   if (!container) return;
   container.innerHTML = '';
@@ -94,6 +235,8 @@ function applyTranslations() {
   renderProfileList();
   renderBookmarks();
   renderBookmarksBar();
+  renderAdblockState();
+  updateReaderButtonState();
   if (findResults && findResults.textContent === '0/0') findResults.textContent = t('find.empty');
 }
 
@@ -287,6 +430,7 @@ function init() {
   backBtn = document.getElementById('back-btn');
   forwardBtn = document.getElementById('forward-btn');
   reloadBtn = document.getElementById('reload-btn');
+  readerBtn = document.getElementById('reader-btn');
   historyBtn = document.getElementById('history-btn');
   historySidebar = document.getElementById('history-sidebar');
   closeHistoryBtn = document.getElementById('close-history');
@@ -335,14 +479,30 @@ function init() {
   startupOverlay = document.getElementById('startup-overlay');
   startupLanguagePicker = document.getElementById('startup-language-picker');
   settingsLanguagePicker = document.getElementById('settings-language-picker');
+  readerToast = document.getElementById('reader-toast');
 
   const adblockBtn = document.getElementById('adblock-btn');
   const adblockSidebar = document.getElementById('adblock-sidebar');
   const closeAdblockBtn = document.getElementById('close-adblock');
   const adblockText = document.getElementById('adblock-rules');
   const saveAdblockBtn = document.getElementById('save-adblock-rules');
+  const refreshAdblockBtn = document.getElementById('refresh-adblock-lists');
+  const resetAdblockBtn = document.getElementById('reset-adblock-defaults');
+  const adblockListStatus = document.getElementById('adblock-list-status');
+  const adblockCustomStatus = document.getElementById('adblock-custom-status');
+  const adblockSyncStatus = document.getElementById('adblock-sync-status');
 
-  ipcRenderer.invoke('update-adblock-rules', localStorage.getItem('adblock-rules') || '');
+  adblockElements = {
+    listStatus: adblockListStatus,
+    customStatus: adblockCustomStatus,
+    syncStatus: adblockSyncStatus,
+    customRules: adblockText,
+    saveButton: saveAdblockBtn,
+    refreshButton: refreshAdblockBtn,
+    resetButton: resetAdblockBtn
+  };
+
+  void loadAdblockState();
 
   const sidebars = [historySidebar, settingsSidebar, bookmarksSidebar, downloadsSidebar, adblockSidebar].filter(Boolean);
   const toggle = (s, v) => {
@@ -365,11 +525,30 @@ function init() {
   if (closeAdblockBtn) closeAdblockBtn.onclick = () => toggle(adblockSidebar, false);
   if (saveAdblockBtn) saveAdblockBtn.onclick = () => {
     localStorage.setItem('adblock-rules', adblockText.value);
-    ipcRenderer.invoke('update-adblock-rules', adblockText.value);
-    saveAdblockBtn.textContent = t('adblock.saved');
-    setTimeout(() => {
-      saveAdblockBtn.textContent = t('adblock.save');
-    }, 2000);
+    ipcRenderer.invoke('update-adblock-rules', adblockText.value).then((nextState) => {
+      if (nextState) {
+        adblockState = nextState;
+        renderAdblockState();
+      }
+      saveAdblockBtn.textContent = t('adblock.saved');
+      setTimeout(() => {
+        saveAdblockBtn.textContent = t('adblock.save');
+      }, 2000);
+    });
+  };
+  if (refreshAdblockBtn) refreshAdblockBtn.onclick = async () => {
+    const nextState = await ipcRenderer.invoke('refresh-adblock-lists');
+    if (nextState) {
+      adblockState = nextState;
+      renderAdblockState();
+    }
+  };
+  if (resetAdblockBtn) resetAdblockBtn.onclick = async () => {
+    const nextState = await ipcRenderer.invoke('reset-adblock-defaults');
+    if (nextState) {
+      adblockState = nextState;
+      renderAdblockState();
+    }
   };
 
   if (checkUpdatesBtn) {
@@ -436,6 +615,9 @@ function init() {
   forwardBtn.onclick = () => ipcRenderer.invoke('go-forward');
   reloadBtn.onclick = () => ipcRenderer.invoke('reload-page');
   document.getElementById('home-btn').onclick = () => ipcRenderer.invoke('navigate-to', 'chrome://newtab');
+  if (readerBtn) {
+    readerBtn.onclick = () => ipcRenderer.invoke('toggle-reader-mode');
+  }
   newTabBtn.onclick = () => ipcRenderer.invoke('create-tab', {
     tabId: `p-${activeProfile}-t-${Date.now()}`,
     url: 'chrome://newtab',
@@ -632,7 +814,7 @@ ipcRenderer.on('tab-created', (e, t) => {
   syncTabState(t);
   setActiveTab(t.id);
 });
-ipcRenderer.on('tab-switched', (e, { tabId, url, title, incognito }) => {
+ipcRenderer.on('tab-switched', (e, { tabId, url, title, incognito, readerMode }) => {
   if (!tabs.find((t) => t.id === tabId)) {
     addTabToUI({
       id: tabId,
@@ -641,7 +823,7 @@ ipcRenderer.on('tab-switched', (e, { tabId, url, title, incognito }) => {
       incognito: !!incognito
     });
   }
-  syncTabState({ id: tabId, url, title, incognito });
+  syncTabState({ id: tabId, url, title, incognito, readerMode: !!readerMode });
   setActiveTab(tabId);
   updateTabTitle(tabId, title);
 });
@@ -698,10 +880,25 @@ ipcRenderer.on('profile-changed', (e, { profileIndex, tabs: pTabs, incognitoWind
   tabs = [];
   pTabs.forEach((t) => addTabToUI(t));
   renderProfileList();
+  updateReaderShellState();
 });
 ipcRenderer.on('profile-list-updated', (e, d) => {
   profiles = d.profiles;
   renderProfileList();
+});
+ipcRenderer.on('reader-mode-changed', (e, d) => {
+  if (d && d.tabId) {
+    syncTabState({ id: d.tabId, readerMode: !!d.active });
+    if (d.active) {
+      const tab = tabs.find((entry) => entry.id === d.tabId);
+      if (tab && d.sourceUrl) tab.url = d.sourceUrl;
+      if (tab && d.sourceTitle) tab.title = d.sourceTitle;
+    }
+  }
+  updateReaderShellState();
+  if (d && d.available === false && d.reason) {
+    showReaderToast(d.reason);
+  }
 });
 ipcRenderer.on('updater-status', (e, status) => {
   updaterState = { ...updaterState, ...status };
@@ -799,6 +996,7 @@ function setActiveTab(id, opts = {}) {
   document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.id === id));
   const t = tabs.find((x) => x.id === id);
   if (t && addressBar) addressBar.value = formatUrl(t.url);
+  updateReaderShellState();
   const extras = Array.isArray(opts.alsoReveal) ? opts.alsoReveal : [];
   const revealIds = Array.from(new Set([id, ...extras].filter(Boolean)));
   ensureTabsVisible(revealIds);
@@ -1028,6 +1226,7 @@ async function bootstrap() {
     const response = await ipcRenderer.invoke('get-language-settings');
     persistedLocale = localization.sanitizeLocale(response && response.locale);
     onboardingCompleted = response && response.onboardingCompleted === false ? false : true;
+    currentPlatform = localization.normalizeUiPlatform(response && response.platform ? response.platform : currentPlatform);
   } catch (_error) { }
 
   const bootstrapState = appUtils.resolveRendererBootstrapState({
