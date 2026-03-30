@@ -16,6 +16,7 @@ const { autoUpdater } = require("electron-updater");
 const path = require("path");
 const fs = require("fs");
 const os = require("os");
+const { URL: NodeURL } = require("url");
 const browserSecurity = require("./browser-security");
 const appUtils = require("./app-utils");
 const adblock = require("./adblock");
@@ -178,14 +179,25 @@ function getContentType(filePath) {
 
 function resolveProtocolAssetPath(requestUrl) {
   try {
-    const parsed = new URL(requestUrl);
+    const parsed = new NodeURL(requestUrl);
     if (parsed.protocol !== appUtils.ORION_PROTOCOL || parsed.hostname !== appUtils.ORION_HOST) return null;
     const requestedPath = decodeURIComponent(parsed.pathname || "/").replace(/^\/+/, "").replace(/\\/g, "/");
     if (!requestedPath) return null;
-    const rootPath = path.resolve(__dirname);
+    
+    let basePath = __dirname;
+    if (basePath.endsWith(".asar") || basePath.endsWith(".asar" + path.sep)) {
+      if (process.resourcesPath) {
+        basePath = path.join(process.resourcesPath, "app.asar");
+      }
+    }
+    
+    const rootPath = path.resolve(basePath);
     const resolved = path.normalize(path.join(rootPath, requestedPath));
     const normalizedRoot = path.normalize(rootPath);
-    if (resolved !== normalizedRoot && !resolved.startsWith(normalizedRoot + path.sep)) return null;
+    
+    if (resolved !== normalizedRoot && !resolved.startsWith(normalizedRoot + path.sep) && !resolved.startsWith(normalizedRoot + "/")) {
+      return null;
+    }
     return resolved;
   } catch (_error) {
     return null;
@@ -196,39 +208,33 @@ function registerAppProtocolForSession(sess) {
   if (!sess || typeof sess.protocol !== "object") return;
   if (protocolSessions.has(sess)) return;
   protocolSessions.add(sess);
-  sess.protocol.handle(appUtils.ORION_SCHEME, async (request) => {
+  
+  sess.protocol.handle(appUtils.ORION_SCHEME, (request) => {
     const filePath = resolveProtocolAssetPath(request.url);
     const contentType = getContentType(filePath || "");
     if (!filePath) {
-      return new Response("Not found", {
-        status: 404,
-        headers: { "content-type": "text/plain; charset=utf-8" }
-      });
+      return net.fetch("data:text/plain,Not%20found");
     }
 
     try {
       const stats = fs.statSync(filePath);
       if (!stats.isFile()) {
-        return new Response("Not found", {
-          status: 404,
-          headers: { "content-type": "text/plain; charset=utf-8" }
-        });
+        return net.fetch("data:text/plain,Not%20found");
       }
-    } catch (_error) {
-      return new Response("Not found", {
-        status: 404,
-        headers: { "content-type": "text/plain; charset=utf-8" }
+      
+      const fileContent = fs.readFileSync(filePath);
+      const response = new Response(fileContent, {
+        status: 200,
+        headers: {
+          "content-type": /^(text\/|application\/(javascript|json))/.test(contentType)
+            ? `${contentType}; charset=utf-8`
+            : contentType
+        }
       });
+      return response;
+    } catch (_error) {
+      return net.fetch("data:text/plain,Not%20found");
     }
-
-    return new Response(fs.readFileSync(filePath), {
-      status: 200,
-      headers: {
-        "content-type": /^(text\/|application\/(javascript|json))/.test(contentType)
-          ? `${contentType}; charset=utf-8`
-          : contentType
-      }
-    });
   });
 }
 
@@ -1647,7 +1653,11 @@ function createW(pIdx = 0, opts = {}) {
   if (!pTabs[pIdx]) pTabs[pIdx] = [];
   pNames[pIdx] = isIncognito ? getDefaultProfileName(pIdx, { incognito: true }) : (pNames[pIdx] || getDefaultProfileName(pIdx));
   states[pIdx] = { activeView: null, metrics: { top: 76, left: 0 }, visible: true, readerMode: false, readerTabId: null };
-  win.loadURL(getAppPageUrl("index.html")).catch((error) => {
+  
+  // Use file:// protocol for main window for better Windows compatibility
+  const indexPath = path.join(__dirname, "index.html");
+  const fileUrl = `file://${indexPath.replace(/\\/g, "/")}`;
+  win.loadURL(fileUrl).catch((error) => {
     showHtmlLoadError("index.html", error);
     if (!win.isDestroyed()) win.destroy();
   });
