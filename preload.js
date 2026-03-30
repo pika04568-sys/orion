@@ -117,7 +117,13 @@ function createIndexBridge() {
 function createInternalBridge(page) {
   const newtabBridge = {
     getLanguageSettings: () => ipcRenderer.invoke("get-language-settings"),
-    navigateTo: (value) => ipcRenderer.invoke("navigate-to", value)
+    navigateTo: (value) => {
+      // Validate URL to prevent javascript: URLs
+      if (typeof value === "string" && value.toLowerCase().trim().startsWith("javascript:")) {
+        return Promise.reject(new Error("Invalid URL"));
+      }
+      return ipcRenderer.invoke("navigate-to", value);
+    }
   };
 
   if (page === "extensions.html") {
@@ -139,7 +145,13 @@ function createInternalBridge(page) {
 
   if (page === "offline.html") {
     return Object.freeze({
-      navigateTo: (value) => ipcRenderer.invoke("navigate-to", value)
+      navigateTo: (value) => {
+        // Validate URL to prevent javascript: URLs
+        if (typeof value === "string" && value.toLowerCase().trim().startsWith("javascript:")) {
+          return Promise.reject(new Error("Invalid URL"));
+        }
+        return ipcRenderer.invoke("navigate-to", value);
+      }
     });
   }
 

@@ -81,8 +81,15 @@
 
   async function removeExtension(id) {
     if (confirm(t("extension.removeConfirm"))) {
-      await pageBridge.removeExtension(id);
-      void refreshList();
+      try {
+        const result = await pageBridge.removeExtension(id);
+        if (result && result.error) {
+          alert(t("extension.removeFailure", { error: result.error }));
+        }
+        void refreshList();
+      } catch (error) {
+        alert(t("extension.removeFailure", { error: error && error.message ? error.message : "Unknown error" }));
+      }
     }
   }
 

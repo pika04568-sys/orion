@@ -184,6 +184,9 @@ function resolveProtocolAssetPath(requestUrl) {
     const requestedPath = decodeURIComponent(parsed.pathname || "/").replace(/^\/+/, "").replace(/\\/g, "/");
     if (!requestedPath) return null;
     
+    // Prevent path traversal attacks
+    if (requestedPath.includes("..")) return null;
+    
     let basePath = __dirname;
     if (basePath.endsWith(".asar") || basePath.endsWith(".asar" + path.sep)) {
       if (process.resourcesPath) {
@@ -195,9 +198,12 @@ function resolveProtocolAssetPath(requestUrl) {
     const resolved = path.normalize(path.join(rootPath, requestedPath));
     const normalizedRoot = path.normalize(rootPath);
     
-    if (resolved !== normalizedRoot && !resolved.startsWith(normalizedRoot + path.sep) && !resolved.startsWith(normalizedRoot + "/")) {
+    // Use path.relative for secure path validation
+    const relativePath = path.relative(normalizedRoot, resolved);
+    if (relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
       return null;
     }
+    
     return resolved;
   } catch (_error) {
     return null;
@@ -1462,7 +1468,11 @@ function attachBrowserShortcutHandler(webContents, getProfileIndex) {
 
 function isTrustedSender(webContents) {
   if (!webContents || webContents.isDestroyed()) return false;
-  return isTrustedInternalPageUrl(webContents.getURL(), TRUSTED_PAGE_FILES);
+  try {
+    return isTrustedInternalPageUrl(webContents.getURL(), TRUSTED_PAGE_FILES);
+  } catch (_error) {
+    return false;
+  }
 }
 
 function isInternalUrl(url) {
@@ -1901,7 +1911,17 @@ function createV(id, url, inc, pIdx) {
   });
   v.webContents.on("context-menu", (_e, p) => {
     const m = new Menu();
-    if (p.linkURL) {
+    // Validate URL to prevent javascript: and data: URL attacks
+    const isValidUrl = (url) => {
+      if (!url || typeof url !== "string") return false;
+      try {
+        const parsed = new NodeURL(url);
+        return parsed.protocol === "http:" || parsed.protocol === "https:";
+      } catch (_error) {
+        return false;
+      }
+    };
+    if (p.linkURL && isValidUrl(p.linkURL)) {
       m.append(
         new MenuItem({
           label: "Open in new tab",
@@ -1957,9 +1977,12 @@ function createV(id, url, inc, pIdx) {
 function switchT(id, pIdx) {
   const win = windows[pIdx];
   const s = states[pIdx];
+  if (!win || !s) return;
+  
   const session = getReaderSession(id);
   const nextView = session && session.active && session.readerView ? session.readerView : views[id];
-  if (!win || !nextView) return;
+  if (!nextView) return;
+  
   if (s.activeView && s.activeView !== nextView && s.visible) {
     try {
       win.contentView.removeChildView(s.activeView);
@@ -1973,20 +1996,20 @@ function switchT(id, pIdx) {
     } catch (e) { }
   }
   if (win && !win.isDestroyed() && s.activeView && !s.activeView.webContents.isDestroyed()) {
-    const tabRecord = pTabs[pIdx].find((tab) => tab.id === id) || {};
+    const tabRecord = pTabs[pIdx] && pTabs[pIdx].find((tab) => tab.id === id);
     const currentRawUrl = session && session.active
-      ? (session.sourceUrl || tabRecord.url || "")
-      : (s.activeView.webContents.getURL() || views[id].tUrl || "");
+      ? (session.sourceUrl || (tabRecord && tabRecord.url) || "")
+      : (s.activeView.webContents.getURL() || (views[id] && views[id].tUrl) || "");
     const currentTitle = session && session.active
-      ? (session.sourceTitle || tabRecord.title || "")
+      ? (session.sourceTitle || (tabRecord && tabRecord.title) || "")
       : s.activeView.webContents.getTitle();
     const payload = tabState.buildTabSwitchPayload(
       pTabs[pIdx],
       id,
-      getDisplayUrlForTab(id, currentRawUrl, views[id].tUrl || currentRawUrl),
+      getDisplayUrlForTab(id, currentRawUrl, (views[id] && views[id].tUrl) || currentRawUrl),
       getDisplayTitleForTab(id, currentTitle)
     );
-    if (payload.url) views[id].tUrl = payload.url;
+    if (payload.url && views[id]) views[id].tUrl = payload.url;
     win.webContents.send("tab-switched", payload);
   }
   setTimeout(() => updateB(pIdx), 100);
@@ -2001,21 +2024,32 @@ function openL(u, pIdx, inc = false) {
 function closeTab(pIdx, id, win) {
   const w = win || windows[pIdx];
   const s = states[pIdx];
-  if (!views[id] || !w) return;
+  const view = views[id] || null;
+  if (!view || !w) return;
+  
   const session = getReaderSession(id);
-  const closingTab = pTabs[pIdx].find((t) => t.id === id);
+  const profileTabs = pTabs[pIdx] || [];
+  const closingTab = profileTabs.find((t) => t && t.id === id);
   const closingIncognito = !!(closingTab ? closingTab.incognito : w.incognitoWindow);
+  
   rememberClosedTab(pIdx, {
-    url: views[id].tUrl || (closingTab && closingTab.url) || views[id].webContents.getURL(),
-    title: views[id].webContents.getTitle() || (closingTab && closingTab.title) || "",
+    url: view.tUrl || (closingTab && closingTab.url) || "",
+    title: (view.webContents && !view.webContents.isDestroyed()) ? view.webContents.getTitle() : (closingTab && closingTab.title) || "",
     incognito: closingIncognito
   });
-  const wasA = s.activeView === views[id] || (session && session.readerView && s.activeView === session.readerView);
+  
+  const wasA = (s && s.activeView === view) || (session && session.readerView && s && s.activeView === session.readerView);
   try {
-    if (s.activeView) w.contentView.removeChildView(s.activeView);
+    if (s && s.activeView) w.contentView.removeChildView(s.activeView);
   } catch (e) { }
-  views[id].webContents.destroy();
+  
+  if (view.webContents && !view.webContents.isDestroyed()) {
+    try {
+      view.webContents.destroy();
+    } catch (_error) { }
+  }
   delete views[id];
+  
   if (session && session.readerView && !session.readerView.webContents.isDestroyed()) {
     try {
       session.readerView.webContents.destroy();
@@ -2027,16 +2061,18 @@ function closeTab(pIdx, id, win) {
   delete readerViews[id];
   delete readerSessions[id];
   clearOfflineTabContext(id);
-  pTabs[pIdx] = pTabs[pIdx].filter((t) => t.id !== id);
-  if (wasA) {
+  pTabs[pIdx] = profileTabs.filter((t) => t && t.id !== id);
+  
+  if (wasA && s) {
     s.activeView = null;
     if (pTabs[pIdx].length) switchT(pTabs[pIdx][0].id, pIdx);
     else {
       const nid = `p-${pIdx}-t-${Date.now()}`;
+      const locale = getCurrentLocale() || localization.DEFAULT_LOCALE;
       pTabs[pIdx].push({
         id: nid,
         url: "chrome://newtab",
-        title: getDefaultTabTitle(pIdx, { incognito: closingIncognito }),
+        title: localization.t(locale, "app.newTab"),
         incognito: closingIncognito
       });
       createV(nid, "chrome://newtab", closingIncognito, pIdx);
@@ -2095,7 +2131,7 @@ function getSessionForWindow(win) {
 
 function withTrustedSender(handler, fallback) {
   return (e, ...args) => {
-    if (!isTrustedSender(e.sender)) {
+    if (!e || !isTrustedSender(e.sender)) {
       return typeof fallback === "function" ? fallback(e, ...args) : fallback;
     }
     return handler(e, ...args);
@@ -2322,9 +2358,12 @@ ipcMain.handle("stop-find-in-page", withTrustedSender((e, a) => {
   if (s && s.activeView) s.activeView.webContents.stopFindInPage(a || "clearSelection");
 }, null));
 ipcMain.handle("select-extension-folder", withTrustedSender(async (e) => {
-  return dialog
-    .showOpenDialog(getSenderWindow(e.sender), { properties: ["openDirectory"] })
-    .then((r) => (r.canceled ? null : r.filePaths[0]));
+  try {
+    const result = await dialog.showOpenDialog(getSenderWindow(e.sender), { properties: ["openDirectory"] });
+    return result.canceled ? null : result.filePaths[0];
+  } catch (_error) {
+    return null;
+  }
 }, null));
 ipcMain.handle("load-extension", withTrustedSender(async (e, p) => {
   const w = getSenderWindow(e.sender);
@@ -2342,9 +2381,9 @@ ipcMain.handle("load-extension", withTrustedSender(async (e, p) => {
     if (!extensionStore.includes(p)) extensionStore.push(p);
     storeExtensionMetadata(pIdx, p, inspection);
     saveS();
-    return { success: true, name: ext.name };
+    return { success: true, name: ext && ext.name ? ext.name : "Extension" };
   } catch (err) {
-    return { success: false, error: err.message };
+    return { success: false, error: err && err.message ? err.message : "Unknown error" };
   }
 }, { success: false, error: "Untrusted sender." }));
 ipcMain.handle("get-extensions", withTrustedSender((e) => {

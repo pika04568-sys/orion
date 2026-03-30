@@ -27,6 +27,24 @@ const SEARCH_ENGINES = [
 const S_ENG = Object.fromEntries(SEARCH_ENGINES.map(({ id, searchUrl }) => [id, searchUrl]));
 const S_HOME = Object.fromEntries(SEARCH_ENGINES.map(({ id, homeUrl }) => [id, homeUrl]));
 
+// Safe localStorage helpers to handle disabled/quota exceeded scenarios
+function safeGetStorage(key, defaultValue = null) {
+  try {
+    return localStorage.getItem(key) || defaultValue;
+  } catch (_error) {
+    return defaultValue;
+  }
+}
+
+function safeSetStorage(key, value) {
+  try {
+    localStorage.setItem(key, value);
+    return true;
+  } catch (_error) {
+    return false;
+  }
+}
+
 function t(key, vars = {}) {
   return localization.t(currentLocale, key, getUiTextVars(vars));
 }
@@ -170,7 +188,7 @@ async function loadAdblockState() {
   const state = await ipcRenderer.invoke('get-adblock-state');
   if (!state) return;
   adblockState = state;
-  const legacyRules = localStorage.getItem('adblock-rules') || '';
+  const legacyRules = safeGetStorage('adblock-rules', '');
   if ((!adblockState.customRules || !adblockState.customRules.trim()) && legacyRules.trim()) {
     const migrated = await ipcRenderer.invoke('update-adblock-rules', legacyRules);
     if (migrated) adblockState = migrated;
@@ -260,7 +278,7 @@ function ensureRendererStarted() {
 
 function getStoredLocale() {
   try {
-    return localization.sanitizeLocale(localStorage.getItem('orion-locale'));
+    return localization.sanitizeLocale(safeGetStorage('orion-locale'));
   } catch (_error) {
     return null;
   }
@@ -278,7 +296,7 @@ async function changeLanguage(locale, options = {}) {
   }
 
   try {
-    localStorage.setItem('orion-locale', currentLocale);
+    safeSetStorage('orion-locale', currentLocale);
   } catch (_error) { }
 
   applyTranslations();
@@ -409,7 +427,7 @@ function applyColor(c) {
   if (!match) return;
   const [r, g, b] = match;
   ipcRenderer.send('apply-browser-color', color);
-  localStorage.setItem('browser-theme-color', color);
+  safeSetStorage('browser-theme-color', color);
   const bright = (r * 299 + g * 587 + b * 114) / 1000;
   const dark = bright < 128;
   const primary = dark ? '#f4f8ff' : '#10213a';
@@ -519,12 +537,12 @@ function init() {
   };
 
   if (adblockBtn) adblockBtn.onclick = () => {
-    adblockText.value = localStorage.getItem('adblock-rules') || '';
+    adblockText.value = safeGetStorage('adblock-rules', '');
     toggle(adblockSidebar, true);
   };
   if (closeAdblockBtn) closeAdblockBtn.onclick = () => toggle(adblockSidebar, false);
   if (saveAdblockBtn) saveAdblockBtn.onclick = () => {
-    localStorage.setItem('adblock-rules', adblockText.value);
+    safeSetStorage('adblock-rules', adblockText.value);
     ipcRenderer.invoke('update-adblock-rules', adblockText.value).then((nextState) => {
       if (nextState) {
         adblockState = nextState;
@@ -591,41 +609,44 @@ function init() {
   setInterval(metrics, 1000);
   metrics();
 
-  const savedColor = localStorage.getItem('browser-theme-color');
+  const savedColor = safeGetStorage('browser-theme-color');
   if (savedColor) applyColor(savedColor);
-  const storedLocale = localization.sanitizeLocale(localStorage.getItem('orion-locale'));
+  const storedLocale = localization.sanitizeLocale(safeGetStorage('orion-locale'));
   if (storedLocale) setLocale(storedLocale);
   renderProfileList();
   renderBookmarksBar();
 
-  addressBar.onkeydown = (e) => {
-    if (e.key === 'Enter') {
-      let url = addressBar.value.trim();
-      if (url && !url.includes('.') && !url.includes('://')) {
-        url = (S_ENG[localStorage.getItem('default-search-engine') || 'google'] || S_ENG.google) + encodeURIComponent(url);
+  if (addressBar) {
+    addressBar.onkeydown = (e) => {
+      if (e.key === 'Enter') {
+        let url = addressBar.value.trim();
+        if (url && !url.includes('.') && !url.includes('://')) {
+          url = (S_ENG[safeGetStorage('default-search-engine', 'google')] || S_ENG.google) + encodeURIComponent(url);
+        }
+        ipcRenderer.invoke('navigate-to', url);
+        addressBar.blur();
       }
-      ipcRenderer.invoke('navigate-to', url);
-      addressBar.blur();
-    }
-  };
-  clearTabsBtn.onclick = () => {
+    };
+  }
+  if (clearTabsBtn) clearTabsBtn.onclick = () => {
     if (activeTabId) ipcRenderer.invoke('clear-other-tabs', activeTabId);
   };
-  backBtn.onclick = () => ipcRenderer.invoke('go-back');
-  forwardBtn.onclick = () => ipcRenderer.invoke('go-forward');
-  reloadBtn.onclick = () => ipcRenderer.invoke('reload-page');
-  document.getElementById('home-btn').onclick = () => ipcRenderer.invoke('navigate-to', 'chrome://newtab');
+  if (backBtn) backBtn.onclick = () => ipcRenderer.invoke('go-back');
+  if (forwardBtn) forwardBtn.onclick = () => ipcRenderer.invoke('go-forward');
+  if (reloadBtn) reloadBtn.onclick = () => ipcRenderer.invoke('reload-page');
+  const homeBtn = document.getElementById('home-btn');
+  if (homeBtn) homeBtn.onclick = () => ipcRenderer.invoke('navigate-to', 'chrome://newtab');
   if (readerBtn) {
     readerBtn.onclick = () => ipcRenderer.invoke('toggle-reader-mode');
   }
-  newTabBtn.onclick = () => ipcRenderer.invoke('create-tab', {
+  if (newTabBtn) newTabBtn.onclick = () => ipcRenderer.invoke('create-tab', {
     tabId: `p-${activeProfile}-t-${Date.now()}`,
     url: 'chrome://newtab',
     inc: isIncognitoWindow
   });
   const incognitoTabBtn = document.getElementById('incognito-tab-btn');
   if (incognitoTabBtn) incognitoTabBtn.onclick = () => ipcRenderer.invoke('open-incognito-window', 'chrome://newtab');
-  addBookmarkBtn.onclick = () => openBookmarkModal();
+  if (addBookmarkBtn) addBookmarkBtn.onclick = () => openBookmarkModal();
 
   const saveBm = (target) => {
     if (pendingBookmark) {
@@ -635,15 +656,15 @@ function init() {
     }
   };
 
-  addToBarBtn.onclick = () => saveBm('bar');
-  addToNewTabBtn.onclick = () => saveBm('newtab');
-  addToBothBtn.onclick = () => saveBm('both');
-  cancelBookmarkBtn.onclick = () => bookmarkDestModal.classList.remove('show');
-  historyBtn.onclick = () => {
+  if (addToBarBtn) addToBarBtn.onclick = () => saveBm('bar');
+  if (addToNewTabBtn) addToNewTabBtn.onclick = () => saveBm('newtab');
+  if (addToBothBtn) addToBothBtn.onclick = () => saveBm('both');
+  if (cancelBookmarkBtn) cancelBookmarkBtn.onclick = () => bookmarkDestModal.classList.remove('show');
+  if (historyBtn) historyBtn.onclick = () => {
     toggle(historySidebar, true);
     ipcRenderer.send('fetch-and-show-history');
   };
-  closeHistoryBtn.onclick = () => toggle(historySidebar, false);
+  if (closeHistoryBtn) closeHistoryBtn.onclick = () => toggle(historySidebar, false);
   ['all', 'hour', 'today', 'week'].forEach((r) => {
     const b = document.getElementById(`clear-history-${r}`);
     if (b) b.onclick = async () => {
@@ -653,74 +674,78 @@ function init() {
       }
     };
   });
-  profileBtn.onclick = (e) => {
+  if (profileBtn && profileMenu) profileBtn.onclick = (e) => {
     e.stopPropagation();
     const show = !profileMenu.classList.contains('show');
     profileMenu.classList.toggle('show', show);
     if (!show) ipcRenderer.send('toggle-browser-view', true);
   };
-  document.onclick = () => {
-    if (profileMenu.classList.contains('show')) {
-      profileMenu.classList.remove('show');
-      ipcRenderer.send('toggle-browser-view', true);
-    }
-  };
-  addProfileBtn.onclick = async (e) => {
+  if (profileMenu) {
+    document.onclick = () => {
+      if (profileMenu.classList.contains('show')) {
+        profileMenu.classList.remove('show');
+        ipcRenderer.send('toggle-browser-view', true);
+      }
+    };
+  }
+  if (addProfileBtn) addProfileBtn.onclick = async (e) => {
     e.stopPropagation();
     await ipcRenderer.invoke('add-new-profile');
     profileMenu.classList.remove('show');
     ipcRenderer.send('toggle-browser-view', true);
   };
-  renameSaveBtn.onclick = () => {
+  if (renameSaveBtn) renameSaveBtn.onclick = () => {
     const n = renameInput.value.trim();
     if (n && pendingRenameProfileId !== null) {
       ipcRenderer.send('rename-profile', { profileIndex: pendingRenameProfileId, newName: n });
       renameModal.classList.remove('show');
     }
   };
-  renameCancelBtn.onclick = () => renameModal.classList.remove('show');
-  bookmarkBtn.onclick = () => {
+  if (renameCancelBtn) renameCancelBtn.onclick = () => renameModal.classList.remove('show');
+  if (bookmarkBtn) bookmarkBtn.onclick = () => {
     const show = !bookmarksSidebar.classList.contains('open');
     toggle(bookmarksSidebar, show);
     if (show) renderBookmarks();
   };
-  closeBookmarksBtn.onclick = () => toggle(bookmarksSidebar, false);
-  settingsBtn.onclick = () => {
+  if (closeBookmarksBtn) closeBookmarksBtn.onclick = () => toggle(bookmarksSidebar, false);
+  if (settingsBtn) settingsBtn.onclick = () => {
     toggle(settingsSidebar, true);
     const hero = document.getElementById('settings-hero');
-    const opened = localStorage.getItem('settings-opened-once') === 'true';
+    const opened = safeGetStorage('settings-opened-once', 'false') === 'true';
     if (hero) {
       hero.style.display = opened ? 'none' : '';
-      if (!opened) localStorage.setItem('settings-opened-once', 'true');
+      if (!opened) safeSetStorage('settings-opened-once', 'true');
     }
   };
-  closeSettingsBtn.onclick = () => toggle(settingsSidebar, false);
-  openExtensionsBtn.onclick = () => {
+  if (closeSettingsBtn) closeSettingsBtn.onclick = () => toggle(settingsSidebar, false);
+  if (openExtensionsBtn) openExtensionsBtn.onclick = () => {
     settingsSidebar.classList.remove('open');
     ipcRenderer.invoke('navigate-to', 'chrome://extensions');
     ipcRenderer.send('toggle-browser-view', true);
   };
-  downloadsBtn.onclick = () => toggle(downloadsSidebar, !downloadsSidebar.classList.contains('open'));
-  closeDownloadsBtn.onclick = () => toggle(downloadsSidebar, false);
-  findInput.oninput = () => {
-    const v = findInput.value.trim();
-    if (v) ipcRenderer.invoke('find-in-page', v);
-    else {
-      ipcRenderer.invoke('stop-find-in-page', 'clearSelection');
-      findResults.textContent = t('find.empty');
-    }
-  };
-  findInput.onkeydown = (e) => {
-    if (e.key === 'Enter') ipcRenderer.invoke('find-in-page', findInput.value.trim(), { forward: !e.shiftKey, findNext: true });
-    else if (e.key === 'Escape') {
-      findBar.style.display = 'none';
-      ipcRenderer.invoke('stop-find-in-page', 'clearSelection');
-    }
-  };
-  findNext.onclick = () => ipcRenderer.invoke('find-in-page', findInput.value.trim(), { forward: true, findNext: true });
-  findPrev.onclick = () => ipcRenderer.invoke('find-in-page', findInput.value.trim(), { forward: false, findNext: true });
-  findClose.onclick = () => {
-    findBar.style.display = 'none';
+  if (downloadsBtn) downloadsBtn.onclick = () => toggle(downloadsSidebar, !downloadsSidebar.classList.contains('open'));
+  if (closeDownloadsBtn) closeDownloadsBtn.onclick = () => toggle(downloadsSidebar, false);
+  if (findInput) {
+    findInput.oninput = () => {
+      const v = findInput.value.trim();
+      if (v) ipcRenderer.invoke('find-in-page', v);
+      else {
+        ipcRenderer.invoke('stop-find-in-page', 'clearSelection');
+        if (findResults) findResults.textContent = t('find.empty');
+      }
+    };
+    findInput.onkeydown = (e) => {
+      if (e.key === 'Enter') ipcRenderer.invoke('find-in-page', findInput.value.trim(), { forward: !e.shiftKey, findNext: true });
+      else if (e.key === 'Escape') {
+        if (findBar) findBar.style.display = 'none';
+        ipcRenderer.invoke('stop-find-in-page', 'clearSelection');
+      }
+    };
+  }
+  if (findNext) findNext.onclick = () => ipcRenderer.invoke('find-in-page', findInput.value.trim(), { forward: true, findNext: true });
+  if (findPrev) findPrev.onclick = () => ipcRenderer.invoke('find-in-page', findInput.value.trim(), { forward: false, findNext: true });
+  if (findClose) findClose.onclick = () => {
+    if (findBar) findBar.style.display = 'none';
     ipcRenderer.invoke('stop-find-in-page', 'clearSelection');
   };
   initSettings();
@@ -729,6 +754,8 @@ function init() {
 
 function initSettings() {
   const colors = ['#e9e9f0', '#ffffff', '#f0f4f8', '#e3f2fd', '#e8f5e9', '#fff3e0', '#fce4ec', '#f3e5f5', '#202124', '#3c4043', '#E0115F'];
+  if (!profileColorPicker) return;
+  
   profileColorPicker.innerHTML = '';
   const pCon = document.createElement('div');
   pCon.className = 'color-picker';
@@ -1007,19 +1034,31 @@ function updateTabTitle(id, title) {
   if (el) el.textContent = nextTitle;
   appUtils.syncTabRecord(tabs, id, { title: nextTitle });
 }
-const getBms = () => JSON.parse(localStorage.getItem('browser-bookmarks') || '[]');
-function saveBookmark(u, t, target = 'both') {
-  const bms = getBms();
-  const idx = bms.findIndex((b) => b.url === u);
-  if (idx !== -1) {
-    bms[idx].target = target;
-    bms[idx].title = t || bms[idx].title;
-  } else {
-    bms.push({ url: u, title: t || u, id: Date.now(), target });
+
+function getBms() {
+  try {
+    return JSON.parse(safeGetStorage('browser-bookmarks', '[]'));
+  } catch (_error) {
+    return [];
   }
-  localStorage.setItem('browser-bookmarks', JSON.stringify(bms));
-  renderBookmarks();
-  renderBookmarksBar();
+}
+
+function saveBookmark(u, t, target = 'both') {
+  try {
+    const bms = getBms();
+    const idx = bms.findIndex((b) => b.url === u);
+    if (idx !== -1) {
+      bms[idx].target = target;
+      bms[idx].title = t || bms[idx].title;
+    } else {
+      bms.push({ url: u, title: t || u, id: Date.now(), target });
+    }
+    safeSetStorage('browser-bookmarks', JSON.stringify(bms));
+    renderBookmarks();
+    renderBookmarksBar();
+  } catch (_error) {
+    // Silently fail if localStorage is unavailable
+  }
 }
 function getFaviconHost(url) {
   try {
