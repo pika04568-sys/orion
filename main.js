@@ -180,11 +180,12 @@ function resolveProtocolAssetPath(requestUrl) {
   try {
     const parsed = new URL(requestUrl);
     if (parsed.protocol !== appUtils.ORION_PROTOCOL || parsed.hostname !== appUtils.ORION_HOST) return null;
-    const requestedPath = decodeURIComponent(parsed.pathname || "/").replace(/^\/+/, "");
+    const requestedPath = decodeURIComponent(parsed.pathname || "/").replace(/^\/+/, "").replace(/\\/g, "/");
     if (!requestedPath) return null;
     const rootPath = path.resolve(__dirname);
-    const resolved = path.resolve(__dirname, requestedPath);
-    if (resolved !== rootPath && !resolved.startsWith(`${rootPath}${path.sep}`)) return null;
+    const resolved = path.normalize(path.join(rootPath, requestedPath));
+    const normalizedRoot = path.normalize(rootPath);
+    if (resolved !== normalizedRoot && !resolved.startsWith(normalizedRoot + path.sep)) return null;
     return resolved;
   } catch (_error) {
     return null;
@@ -198,7 +199,22 @@ function registerAppProtocolForSession(sess) {
   sess.protocol.handle(appUtils.ORION_SCHEME, async (request) => {
     const filePath = resolveProtocolAssetPath(request.url);
     const contentType = getContentType(filePath || "");
-    if (!filePath || !fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+    if (!filePath) {
+      return new Response("Not found", {
+        status: 404,
+        headers: { "content-type": "text/plain; charset=utf-8" }
+      });
+    }
+
+    try {
+      const stats = fs.statSync(filePath);
+      if (!stats.isFile()) {
+        return new Response("Not found", {
+          status: 404,
+          headers: { "content-type": "text/plain; charset=utf-8" }
+        });
+      }
+    } catch (_error) {
       return new Response("Not found", {
         status: 404,
         headers: { "content-type": "text/plain; charset=utf-8" }

@@ -23,6 +23,10 @@
             --tab-inactive-bg: rgba(244, 249, 255, 0.9);
             --glass-bg: rgba(255, 255, 255, 0.76);
             --glass-border: rgba(255, 255, 255, 0.62);
+            --address-shell-bg: linear-gradient(135deg, rgba(255, 255, 255, .78), rgba(255, 255, 255, .5));
+            --address-shell-border: rgba(255, 255, 255, .72);
+            --address-shell-shadow: 0 16px 34px rgba(10, 24, 48, .12);
+            --address-shell-highlight: rgba(255, 255, 255, .72);
             --chrome-top: 82px;
             --tab-rail-width: 240px
         }
@@ -42,7 +46,11 @@
                 --tab-active-bg: #1e3352;
                 --tab-inactive-bg: #14253f;
                 --glass-bg: rgba(11, 20, 38, 0.74);
-                --glass-border: rgba(154, 185, 226, 0.22)
+                --glass-border: rgba(154, 185, 226, 0.22);
+                --address-shell-bg: linear-gradient(135deg, rgba(11, 20, 38, .82), rgba(15, 23, 42, .56));
+                --address-shell-border: rgba(154, 185, 226, .24);
+                --address-shell-shadow: 0 18px 38px rgba(0, 0, 0, .28);
+                --address-shell-highlight: rgba(255, 255, 255, .14)
             }
 
             body {
@@ -91,7 +99,7 @@
             #incognito-tab-btn,
             #clear-tabs-btn,
             .bookmarks-bar-item,
-            #address-bar {
+            #address-bar-container {
                 background: rgba(11, 20, 38, .58)
             }
 
@@ -119,10 +127,6 @@
                 background: rgba(11, 20, 38, .7)
             }
 
-            #address-bar {
-                background: rgba(11, 20, 38, .62)
-            }
-
             .bookmarks-bar-item,
             .dropdown-item {
                 color: var(--text-primary)
@@ -131,7 +135,11 @@
 
         body.incognito-window {
             background: #0a0a0a;
-            color: #e8e8e8
+            color: #e8e8e8;
+            --address-shell-bg: linear-gradient(135deg, rgba(26, 26, 26, .9), rgba(17, 17, 17, .72));
+            --address-shell-border: rgba(68, 68, 68, .72);
+            --address-shell-shadow: 0 18px 38px rgba(0, 0, 0, .42);
+            --address-shell-highlight: rgba(255, 255, 255, .08)
         }
 
         body.incognito-window::before {
@@ -215,16 +223,16 @@
         }
 
         body.incognito-window #address-bar {
-            background: #1a1a1a;
-            border-color: #2a2a2a;
+            background: transparent;
+            border: 0;
             color: #e8e8e8;
-            box-shadow: inset 0 1px 2px rgba(0, 0, 0, .3)
+            box-shadow: none
         }
 
         body.incognito-window #address-bar:focus {
-            border-color: #444;
-            box-shadow: 0 0 0 3px rgba(255, 255, 255, .08);
-            background: #222
+            border-color: transparent;
+            box-shadow: none;
+            background: transparent
         }
 
         body.incognito-window #address-bar-container::before,
@@ -683,7 +691,15 @@
             position: relative;
             display: flex;
             align-items: center;
-            min-width: 0
+            min-width: 0;
+            border-radius: 18px;
+            padding: 1px;
+            background: var(--address-shell-bg);
+            border: 1px solid var(--address-shell-border);
+            backdrop-filter: blur(22px) saturate(1.35);
+            box-shadow: inset 0 1px 0 var(--address-shell-highlight), var(--address-shell-shadow);
+            overflow: hidden;
+            transition: transform .2s, box-shadow .2s, border-color .2s, background .2s
         }
 
         #address-bar-container::before {
@@ -695,7 +711,8 @@
             border: 2px solid var(--text-secondary);
             border-radius: 50%;
             opacity: .8;
-            pointer-events: none
+            pointer-events: none;
+            z-index: 2
         }
 
         #address-bar-container::after {
@@ -708,27 +725,34 @@
             transform: rotate(35deg);
             border-radius: 99px;
             opacity: .8;
-            pointer-events: none
+            pointer-events: none;
+            z-index: 2
+        }
+
+        #address-bar-container:focus-within {
+            border-color: rgba(15, 107, 255, .34);
+            box-shadow:
+                inset 0 1px 0 rgba(255, 255, 255, .82),
+                0 0 0 3px rgba(15, 107, 255, .12),
+                0 18px 40px rgba(15, 107, 255, .16);
+            transform: translateY(-1px)
         }
 
         #address-bar {
             width: 100%;
             padding: 9px 48px 9px 42px;
-            border-radius: 14px;
-            border: 1px solid var(--border-color);
-            background: rgba(255, 255, 255, .68);
-            backdrop-filter: blur(14px);
+            border-radius: 17px;
+            border: 0;
+            background: transparent;
+            backdrop-filter: none;
             color: var(--text-primary);
             font-size: 14px;
             outline: 0;
-            transition: border-color .2s, box-shadow .2s, background-color .2s;
-            box-shadow: inset 0 1px 2px rgba(0, 0, 0, .04), 0 8px 20px rgba(11, 31, 58, .08)
+            transition: color .2s, background-color .2s
         }
 
         #address-bar:focus {
-            border-color: var(--accent-color);
-            box-shadow: 0 0 0 3px rgba(15, 107, 255, .16), inset 0 1px 2px rgba(0, 0, 0, .05), 0 14px 34px rgba(15, 107, 255, .16);
-            background: rgba(255, 255, 255, .94)
+            background: transparent
         }
 
         #add-bookmark-btn {
