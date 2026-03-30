@@ -796,7 +796,6 @@ function initSettings() {
       localStorage.setItem('default-search-engine', eng);
       const url = S_HOME[eng] || S_HOME.google;
       ipcRenderer.send('update-default-search-engine', url);
-      if (activeTabId) ipcRenderer.invoke('navigate-to', url);
     };
   }
 

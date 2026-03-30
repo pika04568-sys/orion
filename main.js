@@ -1495,7 +1495,11 @@ function normalizeHttpUrl(raw) {
 function loadInternal(webContents, url) {
   const file = INTERNAL_PAGES.get(url);
   const targetFile = file || "newtab.html";
-  return webContents.loadURL(getAppPageUrl(targetFile)).catch((error) => {
+  return webContents.loadFile(getAppHtmlPath(targetFile)).catch((error) => {
+    const errorCode = error && (error.code || error.message || "");
+    if (typeof errorCode === "string" && errorCode.includes("ERR_ABORTED")) {
+      return;
+    }
     showHtmlLoadError(targetFile, error);
   });
 }
