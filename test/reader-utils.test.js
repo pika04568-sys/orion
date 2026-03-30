@@ -56,3 +56,27 @@ test("reader snapshots reject boilerplate-heavy pages", () => {
   assert.equal(snapshot.images.length, 0);
   assert.ok(snapshot.reason.length > 0);
 });
+
+test("reader snapshots accept shorter article-like pages when the structure is strong", () => {
+  const snapshot = readerUtils.buildReaderSnapshot({
+    sourceUrl: "https://example.com/article",
+    title: "Short Feature",
+    siteName: "Example News",
+    byline: "Lin Chen",
+    blocks: [
+      { type: "heading", text: "A compact lead with enough context" },
+      { type: "paragraph", text: "The opening paragraph still carries enough substance to read comfortably in reader mode." },
+      { type: "paragraph", text: "A second paragraph with context, detail, and a clear article flow keeps the page useful." }
+    ],
+    textLength: 360,
+    paragraphCount: 2,
+    headingCount: 1,
+    linkDensity: 0.12,
+    semanticRoot: "article",
+    structureBonus: 6
+  });
+
+  assert.equal(snapshot.readable, true);
+  assert.equal(snapshot.byline, "Lin Chen");
+  assert.equal(snapshot.blocks.length, 3);
+});

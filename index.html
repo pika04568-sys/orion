@@ -1037,6 +1037,7 @@
             gap: 22px;
             opacity: 0;
             pointer-events: none;
+            overflow-y: auto;
             transform: translateY(10px) scale(.98)
         }
 
@@ -1193,7 +1194,8 @@
             display: flex;
             flex-direction: column;
             gap: 10px;
-            font-size: 13px
+            font-size: 13px;
+            color: var(--text-primary)
         }
 
         .adblock-toggle-row {
@@ -1263,22 +1265,29 @@
         #adblock-rules {
             width: 100%;
             min-height: 52vh;
-            font-size: 13px;
+            font-size: 14px;
             font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-            line-height: 1.55;
-            letter-spacing: .01em;
-            color: var(--text-primary);
+            line-height: 1.7;
+            letter-spacing: 0;
+            color: #10213a;
+            -webkit-text-fill-color: #10213a;
+            caret-color: #10213a;
             border: 1px solid var(--border-color);
             border-radius: 14px;
-            background: rgba(15, 23, 42, .04);
+            background: rgba(248, 250, 252, .97);
             padding: 14px 16px;
             resize: vertical;
-            outline: 0
+            outline: 0;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, .7), 0 1px 0 rgba(2, 6, 23, .03)
         }
 
         #adblock-rules:focus {
             border-color: var(--accent-color);
-            box-shadow: 0 0 0 3px rgba(15, 107, 255, .12)
+            box-shadow: 0 0 0 3px rgba(15, 107, 255, .14), inset 0 1px 0 rgba(255, 255, 255, .8), 0 1px 0 rgba(2, 6, 23, .03)
+        }
+
+        #adblock-rules::placeholder {
+            color: #6c7f99
         }
 
         .adblock-sample {
@@ -1301,6 +1310,28 @@
             justify-content: flex-end;
             flex-wrap: wrap;
             gap: 10px
+        }
+
+        .adblock-actions {
+            position: sticky;
+            bottom: 0;
+            padding-top: 10px;
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0), var(--bg-color) 34px);
+        }
+
+        .adblock-toggle-row {
+            padding: 10px 12px;
+            border-radius: 12px;
+            background: rgba(148, 163, 184, .08);
+            border: 1px solid rgba(148, 163, 184, .1)
+        }
+
+        .adblock-toggle-row:hover {
+            background: rgba(148, 163, 184, .14)
+        }
+
+        .adblock-status-title {
+            color: var(--accent-color)
         }
 
         #refresh-adblock-lists,
@@ -2277,10 +2308,6 @@
                     </div>
                 </div><textarea id="adblock-rules"
                     placeholder="||ads.example.com^\n@@||trusted-site.com^\n||tracker.example.net^\n! comment lines start with !" data-i18n-placeholder="adblock.placeholder"></textarea>
-                <div class="adblock-help" data-i18n="adblock.tip">Tip: lines starting with "!" are comments. Inline comments are allowed after
-                    a rule.</div>
-                <div class="adblock-sample">
-                    <code>||ads.example.com^</code><code>@@||trusted-site.com^</code><code>! note</code></div>
                 <div class="adblock-actions"><button id="save-adblock-rules" data-i18n="adblock.save">Save &amp; Apply Rules</button></div>
             </div>
         </div>

@@ -1505,12 +1505,19 @@ function normalizeHttpUrl(raw) {
 function loadInternal(webContents, url) {
   const file = INTERNAL_PAGES.get(url);
   const targetFile = file || "newtab.html";
-  return webContents.loadFile(getAppHtmlPath(targetFile)).catch((error) => {
+  const targetUrl = appUtils.getAppPageUrl(targetFile);
+  return webContents.loadURL(targetUrl).catch((error) => {
     const errorCode = error && (error.code || error.message || "");
     if (typeof errorCode === "string" && errorCode.includes("ERR_ABORTED")) {
       return;
     }
-    showHtmlLoadError(targetFile, error);
+    return webContents.loadFile(getAppHtmlPath(targetFile)).catch((fallbackError) => {
+      const fallbackCode = fallbackError && (fallbackError.code || fallbackError.message || "");
+      if (typeof fallbackCode === "string" && fallbackCode.includes("ERR_ABORTED")) {
+        return;
+      }
+      showHtmlLoadError(targetFile, fallbackError);
+    });
   });
 }
 

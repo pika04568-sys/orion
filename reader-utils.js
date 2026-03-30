@@ -131,10 +131,10 @@ function buildReaderSnapshot(analysis = {}) {
   const paragraphCount = Math.max(0, Math.floor(Number(analysis.paragraphCount) || blocks.filter((block) => block.type === "paragraph" || block.type === "quote").length));
 
   const readable = (
-    confidence >= 0.58 &&
-    textLength >= 420 &&
-    paragraphCount >= 3 &&
-    blocks.length >= 3
+    confidence >= 0.45 &&
+    textLength >= 260 &&
+    paragraphCount >= 2 &&
+    blocks.length >= 2
   );
 
   return {
