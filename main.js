@@ -2004,10 +2004,11 @@ function closeTab(pIdx, id, win) {
   if (!views[id] || !w) return;
   const session = getReaderSession(id);
   const closingTab = pTabs[pIdx].find((t) => t.id === id);
+  const closingIncognito = !!(closingTab ? closingTab.incognito : w.incognitoWindow);
   rememberClosedTab(pIdx, {
     url: views[id].tUrl || (closingTab && closingTab.url) || views[id].webContents.getURL(),
     title: views[id].webContents.getTitle() || (closingTab && closingTab.title) || "",
-    incognito: closingTab ? closingTab.incognito : false
+    incognito: closingIncognito
   });
   const wasA = s.activeView === views[id] || (session && session.readerView && s.activeView === session.readerView);
   try {
@@ -2035,9 +2036,10 @@ function closeTab(pIdx, id, win) {
       pTabs[pIdx].push({
         id: nid,
         url: "chrome://newtab",
-        title: localization.t(getCurrentLocale() || localization.DEFAULT_LOCALE, "app.newTab")
+        title: getDefaultTabTitle(pIdx, { incognito: closingIncognito }),
+        incognito: closingIncognito
       });
-      createV(nid, "chrome://newtab", false, pIdx);
+      createV(nid, "chrome://newtab", closingIncognito, pIdx);
       switchT(nid, pIdx);
     }
   }
