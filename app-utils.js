@@ -29,6 +29,7 @@
     "open-incognito-window",
     "find-in-page",
     "get-app-version",
+    "get-browser-settings",
     "get-updater-state",
     "go-back",
     "go-forward",
@@ -41,6 +42,7 @@
     "refresh-adblock-lists",
     "reset-adblock-defaults",
     "set-adblock-list-enabled",
+    "set-browser-settings",
     "select-extension-folder",
     "stop-find-in-page",
     "switch-profile",
@@ -66,6 +68,7 @@
     "history-loaded",
     "history-updated",
     "keyboard-shortcut",
+    "browser-settings-changed",
     "profile-changed",
     "profile-list-updated",
     "reader-mode-changed",
@@ -77,6 +80,7 @@
   ]);
   const NEWTAB_INVOKE_CHANNELS = Object.freeze([
     "get-language-settings",
+    "get-browser-settings",
     "navigate-to"
   ]);
   const OFFLINE_INVOKE_CHANNELS = Object.freeze([
@@ -94,6 +98,9 @@
     send: Object.freeze([]),
     on: Object.freeze([])
   });
+  const NEWTAB_ON_CHANNELS = Object.freeze([
+    "browser-settings-changed"
+  ]);
   const ELECTRON_PAGE_CHANNELS = Object.freeze({
     "index.html": Object.freeze({
       invoke: APP_INVOKE_CHANNELS,
@@ -103,7 +110,7 @@
     "newtab.html": Object.freeze({
       invoke: NEWTAB_INVOKE_CHANNELS,
       send: EMPTY_CHANNELS.send,
-      on: EMPTY_CHANNELS.on
+      on: NEWTAB_ON_CHANNELS
     }),
     "offline.html": Object.freeze({
       invoke: OFFLINE_INVOKE_CHANNELS,
@@ -137,8 +144,18 @@
           .filter(Boolean)
           .pop();
       } else if (parsed.protocol === "file:") {
-        const decodedPath = decodeURIComponent(parsed.pathname || "").replace(/\\/g, "/");
-        file = decodedPath.split("/").filter(Boolean).pop();
+        // Handle Windows file URLs which may have format like /C:/path/to/file.html
+        let pathname = parsed.pathname || "";
+        // Decode URI component first
+        pathname = decodeURIComponent(pathname);
+        // On Windows, pathname may start with / followed by drive letter, e.g., /C:/path
+        // Remove leading slash for Windows paths
+        if (/^\/[A-Za-z]:/.test(pathname)) {
+          pathname = pathname.slice(1);
+        }
+        // Normalize backslashes to forward slashes
+        pathname = pathname.replace(/\\/g, "/");
+        file = pathname.split("/").filter(Boolean).pop();
       } else {
         return null;
       }
@@ -151,13 +168,28 @@
   function normalizeFilePathCandidates(value) {
     if (!value || typeof value !== "string") return [];
 
-    const normalized = value
+    let normalized = value
       .replace(/\\/g, "/")
       .replace(/\/+/g, "/")
       .replace(/\/$/, "");
-    const driveNormalized = normalized.replace(/^\/([A-Za-z]:\/)/, "$1");
-
-    return Array.from(new Set([normalized, driveNormalized].filter(Boolean)));
+    
+    // Handle Windows file URL paths that start with /C:/
+    if (/^\/[A-Za-z]:/.test(normalized)) {
+      normalized = normalized.slice(1);
+    }
+    
+    // Create variants: normalized, lowercase, and drive-letter normalized
+    const variants = [normalized];
+    const lower = normalized.toLowerCase();
+    if (lower !== normalized) variants.push(lower);
+    
+    // Add variant with leading slash for comparison
+    if (!normalized.startsWith("/")) {
+      variants.push("/" + normalized);
+      if (!lower.startsWith("/")) variants.push("/" + lower);
+    }
+    
+    return Array.from(new Set(variants.filter(Boolean)));
   }
 
   function isTrustedBundledFilePage(url, trustedFiles, rootPath) {
@@ -173,13 +205,22 @@
       if (!file || !trustedFiles.has(file)) return false;
 
       const rootCandidates = normalizeFilePathCandidates(rootPath);
-      const fileCandidates = normalizeFilePathCandidates(decodeURIComponent(parsed.pathname || ""));
+      // Get the full pathname from URL, handling Windows format
+      let urlPathname = decodeURIComponent(parsed.pathname || "");
+      // Handle Windows file URL format /C:/path
+      if (/^\/[A-Za-z]:/.test(urlPathname)) {
+        urlPathname = urlPathname.slice(1);
+      }
+      const fileCandidates = normalizeFilePathCandidates(urlPathname);
 
       return fileCandidates.some((filePath) => {
         const lowerFilePath = filePath.toLowerCase();
         return rootCandidates.some((rootCandidate) => {
           const lowerRoot = rootCandidate.toLowerCase();
-          return lowerFilePath === lowerRoot || lowerFilePath.startsWith(`${lowerRoot}/`);
+          // Check if file path matches root or is inside root
+          return lowerFilePath === lowerRoot || 
+                 lowerFilePath.startsWith(lowerRoot + "/") ||
+                 lowerFilePath.startsWith(lowerRoot + "\\");
         });
       });
     } catch (_error) {

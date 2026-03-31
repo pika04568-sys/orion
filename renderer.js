@@ -45,6 +45,26 @@ function safeSetStorage(key, value) {
   }
 }
 
+async function resolveShowSecondsSetting() {
+  const storedValue = safeGetStorage('show-seconds', null);
+  const storedBool = storedValue === 'true';
+
+  try {
+    const settings = await ipcRenderer.invoke('get-browser-settings');
+    if (settings && typeof settings.showSeconds === 'boolean') {
+      return settings.showSeconds;
+    }
+
+    if (storedValue != null) {
+      await ipcRenderer.invoke('set-browser-settings', { showSeconds: storedBool });
+    }
+  } catch (_error) {
+    // Fall back to the local setting when the shared browser setting store is unavailable.
+  }
+
+  return storedBool;
+}
+
 function t(key, vars = {}) {
   return localization.t(currentLocale, key, getUiTextVars(vars));
 }
@@ -818,8 +838,30 @@ function initSettings() {
     };
   }
   if (ss) {
-    ss.checked = safeGetStorage('show-seconds', 'false') === 'true';
-    ss.onchange = (e) => safeSetStorage('show-seconds', e.target.checked ? 'true' : 'false');
+    const applyShowSeconds = (enabled) => {
+      ss.checked = !!enabled;
+      safeSetStorage('show-seconds', enabled ? 'true' : 'false');
+    };
+
+    applyShowSeconds(safeGetStorage('show-seconds', 'false') === 'true');
+    void resolveShowSecondsSetting().then((enabled) => {
+      applyShowSeconds(enabled);
+    });
+
+    ss.onchange = async (e) => {
+      const enabled = e.target.checked;
+      applyShowSeconds(enabled);
+      try {
+        await ipcRenderer.invoke('set-browser-settings', { showSeconds: enabled });
+      } catch (_error) {
+        // Keep the local toggle state even if the shared settings store is unavailable.
+      }
+    };
+
+    ipcRenderer.on('browser-settings-changed', (_event, settings) => {
+      if (!settings || typeof settings.showSeconds !== 'boolean') return;
+      applyShowSeconds(settings.showSeconds);
+    });
   }
   if (se) {
     se.innerHTML = SEARCH_ENGINES.map((engine) => `<option value="${engine.id}">${engine.label}</option>`).join('');

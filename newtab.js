@@ -34,6 +34,7 @@
   let currentLocale = localization.resolveLocale(safeLocalStorageGet(LOCALE_KEY));
   let currentPlatform = getBrowserUiPlatform();
   let clockTimer = null;
+  let showSecondsEnabled = null;
 
   function safeLocalStorageGet(key) {
     try {
@@ -178,8 +179,13 @@
   }
 
   function shouldShowSeconds() {
-    const value = safeLocalStorageGet(SHOW_SECONDS_KEY);
-    return value === 'true';
+    if (typeof showSecondsEnabled === 'boolean') return showSecondsEnabled;
+    return safeLocalStorageGet(SHOW_SECONDS_KEY) === 'true';
+  }
+
+  function applyShowSecondsSetting(enabled) {
+    showSecondsEnabled = !!enabled;
+    safeLocalStorageSet(SHOW_SECONDS_KEY, showSecondsEnabled ? 'true' : 'false');
   }
 
   function updateTime() {
@@ -385,11 +391,7 @@
     if (!event) return;
 
     if (event.key === SHOW_SECONDS_KEY) {
-      // Cancel any pending timer and immediately redraw with the latest setting.
-      if (clockTimer) {
-        clearTimeout(clockTimer);
-        clockTimer = null;
-      }
+      applyShowSecondsSetting(event.newValue === 'true');
       updateTime();
       scheduleClockTick();
       return;
@@ -408,6 +410,26 @@
     if (event.key === BOOKMARKS_KEY || event.key === HIDDEN_DEFAULT_SHORTCUTS_KEY) {
       renderShortcuts();
     }
+  }
+
+  async function syncShowSecondsSetting() {
+    try {
+      if (pageBridge && typeof pageBridge.getBrowserSettings === 'function') {
+        const response = await pageBridge.getBrowserSettings();
+        if (response && typeof response.showSeconds === 'boolean') {
+          applyShowSecondsSetting(response.showSeconds);
+          updateTime();
+          scheduleClockTick();
+          return;
+        }
+      }
+    } catch (_error) {
+      // Keep the locally resolved value when the shared settings store is unavailable.
+    }
+
+    applyShowSecondsSetting(safeLocalStorageGet(SHOW_SECONDS_KEY) === 'true');
+    updateTime();
+    scheduleClockTick();
   }
 
   function handleGridContextMenu(event) {
@@ -470,6 +492,7 @@
   scheduleClockTick();
   renderShortcuts();
   void syncLocale();
+  void syncShowSecondsSetting();
 
   document.addEventListener('click', handleDocumentClick);
   if (grid) {
@@ -477,6 +500,14 @@
   }
   if (search) {
     search.addEventListener('keydown', handleSearchKeydown);
+  }
+  if (pageBridge && typeof pageBridge.on === 'function') {
+    pageBridge.on('browser-settings-changed', (_event, settings) => {
+      if (!settings || typeof settings.showSeconds !== 'boolean') return;
+      applyShowSecondsSetting(settings.showSeconds);
+      updateTime();
+      scheduleClockTick();
+    });
   }
   window.addEventListener('storage', handleStorageEvent);
   startReducedMotionParallax();

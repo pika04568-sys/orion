@@ -71,15 +71,21 @@ test("index page allows renderer-ready send and startup/navigation invokes", () 
 
   const invokeResult = electron.invoke("navigate-to", "https://example.com");
   const bootstrapInvokeResult = electron.invoke("get-window-bootstrap-state");
+  const settingsInvokeResult = electron.invoke("get-browser-settings");
+  const settingsUpdateResult = electron.invoke("set-browser-settings", { showSeconds: true });
   electron.send("renderer-ready");
   const unsubscribe = electron.on("tab-created", () => {});
   unsubscribe();
 
   assert.equal(invokeResult, "invoke-result");
   assert.equal(bootstrapInvokeResult, "invoke-result");
-  assert.equal(runtime.invokeCalls.length, 2);
+  assert.equal(settingsInvokeResult, "invoke-result");
+  assert.equal(settingsUpdateResult, "invoke-result");
+  assert.equal(runtime.invokeCalls.length, 4);
   assert.deepEqual(runtime.invokeCalls[0], ["navigate-to", "https://example.com"]);
   assert.deepEqual(runtime.invokeCalls[1], ["get-window-bootstrap-state"]);
+  assert.deepEqual(runtime.invokeCalls[2], ["get-browser-settings"]);
+  assert.deepEqual(runtime.invokeCalls[3], ["set-browser-settings", { showSeconds: true }]);
   assert.equal(runtime.sendCalls.length, 1);
   assert.deepEqual(runtime.sendCalls[0], ["renderer-ready"]);
   assert.equal(runtime.onCalls.length, 1);
@@ -99,16 +105,25 @@ test("newtab page exposes only the scoped newtab helpers", async () => {
 
   const navigateResult = await orionPage.navigateTo("example query");
   const localeResult = await orionPage.getLanguageSettings();
+  const settingsResult = await orionPage.getBrowserSettings();
+  const unsubscribe = orionPage.on("browser-settings-changed", () => {});
+  unsubscribe();
 
   assert.equal(navigateResult, "invoke-result");
   assert.equal(localeResult, "invoke-result");
+  assert.equal(settingsResult, "invoke-result");
   assert.equal(typeof orionPage.loadExtension, "undefined");
   assert.deepEqual(runtime.invokeCalls, [
     ["navigate-to", "example query"],
-    ["get-language-settings"]
+    ["get-language-settings"],
+    ["get-browser-settings"]
   ]);
   assert.equal(runtime.sendCalls.length, 0);
-  assert.equal(runtime.onCalls.length, 0);
+  assert.equal(runtime.onCalls.length, 1);
+  assert.equal(runtime.onCalls[0][0], "browser-settings-changed");
+  assert.equal(typeof runtime.onCalls[0][1], "function");
+  assert.equal(runtime.removeCalls.length, 1);
+  assert.equal(runtime.removeCalls[0][0], "browser-settings-changed");
 });
 
 test("packaged file index page keeps the shell bridge", () => {
@@ -130,9 +145,11 @@ test("packaged file newtab page keeps the scoped newtab bridge", async () => {
   assert.equal(electron, undefined);
   assert.ok(orionPage);
   assert.equal(await orionPage.getLanguageSettings(), "invoke-result");
+  assert.equal(await orionPage.getBrowserSettings(), "invoke-result");
   assert.equal(await orionPage.navigateTo("example query"), "invoke-result");
   assert.deepEqual(runtime.invokeCalls, [
     ["get-language-settings"],
+    ["get-browser-settings"],
     ["navigate-to", "example query"]
   ]);
 });

@@ -26,9 +26,11 @@ const APP_INVOKE_CHANNELS = Object.freeze([
   "reopen-closed-tab",
   "set-language",
   "get-adblock-state",
+  "get-browser-settings",
   "refresh-adblock-lists",
   "reset-adblock-defaults",
   "set-adblock-list-enabled",
+  "set-browser-settings",
   "stop-find-in-page",
   "switch-profile",
   "switch-tab",
@@ -55,6 +57,7 @@ const APP_ON_CHANNELS = Object.freeze([
   "history-loaded",
   "history-updated",
   "keyboard-shortcut",
+  "browser-settings-changed",
   "profile-changed",
   "profile-list-updated",
   "reader-mode-changed",
@@ -74,8 +77,18 @@ function getAppPageFileName(url) {
     if (parsed.protocol === ORION_PROTOCOL && parsed.hostname === ORION_HOST) {
       file = (parsed.pathname || "").split("/").filter(Boolean).pop();
     } else if (parsed.protocol === "file:") {
-      const decodedPath = decodeURIComponent(parsed.pathname || "").replace(/\\/g, "/");
-      file = decodedPath.split("/").filter(Boolean).pop();
+      // Handle Windows file URLs which may have format like /C:/path/to/file.html
+      let pathname = parsed.pathname || "";
+      // Decode URI component first
+      pathname = decodeURIComponent(pathname);
+      // On Windows, pathname may start with / followed by drive letter, e.g., /C:/path
+      // Remove leading slash for Windows paths
+      if (/^\/[A-Za-z]:/.test(pathname)) {
+        pathname = pathname.slice(1);
+      }
+      // Normalize backslashes to forward slashes
+      pathname = pathname.replace(/\\/g, "/");
+      file = pathname.split("/").filter(Boolean).pop();
     } else {
       return null;
     }
@@ -117,12 +130,19 @@ function createIndexBridge() {
 function createInternalBridge(page) {
   const newtabBridge = {
     getLanguageSettings: () => ipcRenderer.invoke("get-language-settings"),
+    getBrowserSettings: () => ipcRenderer.invoke("get-browser-settings"),
     navigateTo: (value) => {
       // Validate URL to prevent javascript: URLs
       if (typeof value === "string" && value.toLowerCase().trim().startsWith("javascript:")) {
         return Promise.reject(new Error("Invalid URL"));
       }
       return ipcRenderer.invoke("navigate-to", value);
+    },
+    on: (channel, listener) => {
+      if (channel !== "browser-settings-changed" || typeof listener !== "function") return () => {};
+      const subscription = (event, ...args) => listener(event, ...args);
+      ipcRenderer.on(channel, subscription);
+      return () => ipcRenderer.removeListener(channel, subscription);
     }
   };
 

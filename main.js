@@ -48,6 +48,7 @@ const INTERNAL_PAGES = new Map([
 ]);
 const TRUSTED_PAGE_FILES = new Set(["index.html", "newtab.html", "offline.html", "extensions.html", "reader.html"]);
 const INTERNAL_PAGES_FILE_SET = new Set(["newtab.html", "offline.html", "extensions.html", "reader.html"]);
+const BROWSER_SETTINGS_CHANGED_CHANNEL = "browser-settings-changed";
 const MIME_TYPES = Object.freeze({
   ".html": "text/html",
   ".ico": "image/x-icon",
@@ -183,27 +184,29 @@ function resolveProtocolAssetPath(requestUrl) {
     if (parsed.protocol !== appUtils.ORION_PROTOCOL || parsed.hostname !== appUtils.ORION_HOST) return null;
     const requestedPath = decodeURIComponent(parsed.pathname || "/").replace(/^\/+/, "").replace(/\\/g, "/");
     if (!requestedPath) return null;
-    
+
     // Prevent path traversal attacks
     if (requestedPath.includes("..")) return null;
-    
+
     let basePath = __dirname;
-    if (basePath.endsWith(".asar") || basePath.endsWith(".asar" + path.sep)) {
+    // Handle ASAR archive detection on all platforms
+    const normalizedBase = basePath.replace(/\\/g, "/");
+    if (normalizedBase.endsWith(".asar") || basePath.endsWith(".asar")) {
       if (process.resourcesPath) {
         basePath = path.join(process.resourcesPath, "app.asar");
       }
     }
-    
+
     const rootPath = path.resolve(basePath);
     const resolved = path.normalize(path.join(rootPath, requestedPath));
     const normalizedRoot = path.normalize(rootPath);
-    
+
     // Use path.relative for secure path validation
     const relativePath = path.relative(normalizedRoot, resolved);
     if (relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
       return null;
     }
-    
+
     return resolved;
   } catch (_error) {
     return null;
@@ -486,6 +489,7 @@ function loadS() {
         profileExtensionMetadata: sanitizeProfileExtensionMetadata(s.profileExtensionMetadata),
         sitePermissions: browserSecurity.sanitizePermissionStore(s.sitePermissions),
         locale: localization.sanitizeLocale(s.locale),
+        showSeconds: typeof s.showSeconds === "boolean" ? s.showSeconds : undefined,
         onboardingCompleted: typeof s.onboardingCompleted === "boolean" ? s.onboardingCompleted : true
       };
     }
@@ -496,12 +500,52 @@ function loadS() {
     profileExtensions: {},
     sitePermissions: {},
     locale: null,
+    showSeconds: undefined,
     onboardingCompleted: false
   };
 }
 
 function saveS() {
   try { fs.writeFileSync(sPath, JSON.stringify(bSett)); } catch (e) {}
+}
+
+function getBrowserSettings() {
+  return {
+    showSeconds: typeof bSett.showSeconds === "boolean" ? bSett.showSeconds : undefined
+  };
+}
+
+function broadcastBrowserSettings() {
+  const payload = getBrowserSettings();
+  Object.values(windows).forEach((win) => {
+    if (win && !win.isDestroyed()) {
+      win.webContents.send(BROWSER_SETTINGS_CHANGED_CHANNEL, payload);
+    }
+  });
+  Object.values(views).forEach((view) => {
+    if (view && view.webContents && !view.webContents.isDestroyed()) {
+      view.webContents.send(BROWSER_SETTINGS_CHANGED_CHANNEL, payload);
+    }
+  });
+}
+
+function updateBrowserSettings(patch = {}) {
+  let changed = false;
+
+  if (Object.prototype.hasOwnProperty.call(patch, "showSeconds")) {
+    const nextShowSeconds = !!patch.showSeconds;
+    if (bSett.showSeconds !== nextShowSeconds) {
+      bSett.showSeconds = nextShowSeconds;
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    saveS();
+    broadcastBrowserSettings();
+  }
+
+  return getBrowserSettings();
 }
 
 function sanitizeProfileExtensions(rawExtensions) {
@@ -1859,7 +1903,16 @@ function createW(pIdx = 0, opts = {}) {
   
   // Use file:// protocol for main window for better Windows compatibility
   const indexPath = path.join(__dirname, "index.html");
-  const fileUrl = `file://${indexPath.replace(/\\/g, "/")}`;
+  // On Windows packaged builds, ensure proper file URL format
+  let fileUrl;
+  if (process.platform === "win32") {
+    // Windows requires file:///C:/path format with forward slashes
+    const normalizedPath = indexPath.replace(/\\/g, "/");
+    // Ensure the path starts with / for drive letter paths
+    fileUrl = `file:///${normalizedPath.replace(/^\/+/, "")}`;
+  } else {
+    fileUrl = `file://${indexPath}`;
+  }
   win.loadURL(fileUrl).catch((error) => {
     showHtmlLoadError("index.html", error);
     if (!win.isDestroyed()) win.destroy();
@@ -2355,6 +2408,9 @@ ipcMain.handle("get-window-bootstrap-state", withTrustedSender((e) => {
   if (!w) return null;
   return ensureWindowBootstrapState(w);
 }, null));
+ipcMain.handle("get-browser-settings", withTrustedSender(() => {
+  return getBrowserSettings();
+}, () => getBrowserSettings()));
 ipcMain.handle("get-reader-content", withTrustedSender((e) => {
   const session = readerViewTabs[e.sender.id] ? readerSessions[readerViewTabs[e.sender.id]] : null;
   return session && session.snapshot ? session.snapshot : null;
@@ -2375,6 +2431,9 @@ ipcMain.handle("toggle-reader-mode", withTrustedSender((e) => {
   if (session && session.active) return exitReaderMode(w.profileIndex, tabId);
   return enterReaderMode(w.profileIndex, tabId);
 }, { active: false, available: false }));
+ipcMain.handle("set-browser-settings", withTrustedSender((e, patch) => {
+  return updateBrowserSettings(patch || {});
+}, () => getBrowserSettings()));
 ipcMain.on("fetch-and-show-history", withTrustedSender((e, q) => {
   e.reply("history-data-received", getH(q));
 }));
