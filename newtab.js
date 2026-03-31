@@ -178,15 +178,17 @@
   }
 
   function shouldShowSeconds() {
-    return safeLocalStorageGet(SHOW_SECONDS_KEY) === 'true';
+    const value = safeLocalStorageGet(SHOW_SECONDS_KEY);
+    return value === 'true';
   }
 
   function updateTime() {
     if (!clock || !dateE) return;
 
     const now = new Date();
+    const showSeconds = shouldShowSeconds();
     const timeOpts = { hour: '2-digit', minute: '2-digit', hour12: false };
-    if (shouldShowSeconds()) timeOpts.second = '2-digit';
+    if (showSeconds) timeOpts.second = '2-digit';
 
     const intlLocale = localization.getIntlLocale(currentLocale);
     clock.textContent = now.toLocaleTimeString(intlLocale, timeOpts);
@@ -380,9 +382,14 @@
   }
 
   function handleStorageEvent(event) {
-    if (!event || event.storageArea !== localStorage) return;
+    if (!event) return;
 
     if (event.key === SHOW_SECONDS_KEY) {
+      // Cancel any pending timer and immediately redraw with the latest setting.
+      if (clockTimer) {
+        clearTimeout(clockTimer);
+        clockTimer = null;
+      }
       updateTime();
       scheduleClockTick();
       return;

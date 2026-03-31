@@ -80,3 +80,28 @@ test("reader snapshots accept shorter article-like pages when the structure is s
   assert.equal(snapshot.byline, "Lin Chen");
   assert.equal(snapshot.blocks.length, 3);
 });
+
+test("reader snapshots accept BBC-style editorial pages with strong article signals", () => {
+  const snapshot = readerUtils.buildReaderSnapshot({
+    sourceUrl: "https://www.bbc.com/news/world-12345678",
+    title: "World Update",
+    siteName: "BBC News",
+    byline: "BBC News",
+    publishedDate: "2026-03-29T14:00:00.000Z",
+    blocks: [
+      { type: "heading", text: "A concise lead that still reads like an article" },
+      { type: "paragraph", text: "The first paragraph explains the development in enough detail to be readable in reader mode." },
+      { type: "paragraph", text: "A second paragraph adds context, background, and a little more depth for the story." }
+    ],
+    textLength: 560,
+    paragraphCount: 2,
+    headingCount: 1,
+    linkDensity: 0.68,
+    boilerplatePenalty: 28,
+    structureBonus: 4
+  });
+
+  assert.equal(snapshot.readable, true);
+  assert.equal(snapshot.siteName, "BBC News");
+  assert.equal(snapshot.byline, "BBC News");
+});

@@ -117,19 +117,37 @@
   }
 
   function renderImages(snapshot) {
-    snapshot.images.forEach((image) => {
+    if (!snapshot.images || snapshot.images.length === 0) return;
+    
+    snapshot.images.forEach((image, index) => {
       const figure = document.createElement("figure");
+      figure.className = "reader-image";
+      
       const img = document.createElement("img");
       img.src = image.src;
       img.alt = image.alt || snapshot.title || "Article image";
-      img.loading = "lazy";
+      img.loading = index === 0 ? "eager" : "lazy";
+      img.decoding = "async";
+      
+      // Add error handling for broken images
+      img.onerror = () => {
+        figure.remove();
+      };
+      
       figure.appendChild(img);
+      
       if (image.alt) {
         const caption = document.createElement("figcaption");
         caption.textContent = image.alt;
         figure.appendChild(caption);
       }
-      readerContentEl.appendChild(figure);
+      
+      // Insert first image after title, rest at the end
+      if (index === 0 && readerSubtitleEl) {
+        readerSubtitleEl.parentNode.insertBefore(figure, readerSubtitleEl.nextSibling);
+      } else {
+        readerContentEl.appendChild(figure);
+      }
     });
   }
 

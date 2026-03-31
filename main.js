@@ -909,6 +909,66 @@ function collectReaderAnalysisInPage() {
     "",
     120
   );
+  const flattenJsonLd = (value) => {
+    if (!value) return [];
+    if (Array.isArray(value)) return value.flatMap(flattenJsonLd);
+    if (typeof value !== "object") return [];
+    if (Array.isArray(value["@graph"])) return value["@graph"].flatMap(flattenJsonLd);
+    return [value];
+  };
+  const getJsonLdAuthor = (author) => {
+    if (!author) return "";
+    if (typeof author === "string") return cleanText(author, 180);
+    if (Array.isArray(author)) {
+      return cleanText(author.map((entry) => (entry && typeof entry === "object" ? entry.name || entry["@id"] || "" : "")).filter(Boolean).join(", "), 180);
+    }
+    if (typeof author === "object") return cleanText(author.name || author["@id"] || "", 180);
+    return "";
+  };
+  const getJsonLdImage = (image) => {
+    if (!image) return [];
+    if (Array.isArray(image)) return image.flatMap(getJsonLdImage);
+    if (typeof image === "string") return [resolveUrl(image, document.location.href)].filter(Boolean);
+    if (typeof image === "object") {
+      return [resolveUrl(image.url || image.contentUrl || image.thumbnailUrl || "", document.location.href)].filter(Boolean);
+    }
+    return [];
+  };
+  const jsonLdNodes = Array.from(document.querySelectorAll('script[type="application/ld+json"]'))
+    .flatMap((script) => {
+      try {
+        return flattenJsonLd(JSON.parse(script.textContent || ""));
+      } catch (_error) {
+        return [];
+      }
+    });
+  const jsonLdArticle = jsonLdNodes.find((node) => {
+    const typeValue = node && node["@type"];
+    const types = Array.isArray(typeValue) ? typeValue : [typeValue];
+    return types.some((type) => typeof type === "string" && /article|newsarticle|blogposting|reportagearticle|liveblogposting|analysisnewsarticle/i.test(type));
+  }) || null;
+  const jsonLdBody = cleanText(
+    jsonLdArticle && (jsonLdArticle.articleBody || jsonLdArticle.description || ""),
+    12000
+  );
+  const jsonLdTitle = cleanText(
+    jsonLdArticle && (jsonLdArticle.headline || jsonLdArticle.name || ""),
+    180
+  );
+  const jsonLdSiteName = cleanText(
+    jsonLdArticle && ((jsonLdArticle.publisher && jsonLdArticle.publisher.name) || jsonLdArticle.sourceOrganization || ""),
+    160
+  );
+  const jsonLdByline = getJsonLdAuthor(jsonLdArticle && jsonLdArticle.author);
+  const jsonLdPublishedDate = cleanText(
+    jsonLdArticle && (jsonLdArticle.datePublished || ""),
+    120
+  );
+  const jsonLdModifiedDate = cleanText(
+    jsonLdArticle && (jsonLdArticle.dateModified || ""),
+    120
+  );
+  const jsonLdImages = jsonLdArticle ? getJsonLdImage(jsonLdArticle.image).slice(0, 8) : [];
   const isReadableSelector = (el) => {
     if (!el || !el.tagName) return false;
     const tag = el.tagName.toLowerCase();
@@ -969,6 +1029,13 @@ function collectReaderAnalysisInPage() {
   addCandidate(document.querySelector("main"), "main");
   addCandidate(document.querySelector('[role="main"]'), "main");
   addCandidate(document.querySelector("body"), "content");
+  
+  // BBC-specific selectors for article content
+  addCandidate(document.querySelector('[data-testid="card-text-container"]'), "content");
+  addCandidate(document.querySelector('.lx-recipe-content'), "content");
+  addCandidate(document.querySelector('.article-body'), "article");
+  addCandidate(document.querySelector('[class*="article-body"]'), "article");
+  addCandidate(document.querySelector('[class*="story-body"]'), "article");
 
   Array.from(document.querySelectorAll("section,div")).slice(0, 40).forEach((el) => {
     const text = cleanText(el.innerText || el.textContent || "");
@@ -978,9 +1045,39 @@ function collectReaderAnalysisInPage() {
     if (goodPattern.test(className) || /article|content|story|post|entry/i.test(className) || el.querySelector("p")) addCandidate(el, "content");
   });
 
+  if (jsonLdBody && jsonLdBody.length >= 120) {
+    const jsonLdParagraphs = jsonLdBody
+      .split(/\n{2,}|\n+/)
+      .map((entry) => cleanText(entry, 1800))
+      .filter((entry) => entry.length > 40);
+    if (jsonLdParagraphs.length) {
+      candidates.push({
+        el: document.body,
+        semanticRoot: "article",
+        text: jsonLdBody,
+        textLength: jsonLdBody.length,
+        paragraphCount: jsonLdParagraphs.length,
+        headingCount: jsonLdTitle ? 1 : 0,
+        images: jsonLdImages,
+        linkDensity: 0,
+        score: Math.min(
+          100,
+          56 +
+          Math.min(20, jsonLdBody.length / 180) +
+          Math.min(16, jsonLdParagraphs.length * 4) +
+          (jsonLdByline ? 4 : 0) +
+          (jsonLdPublishedDate ? 4 : 0) +
+          (canonicalUrl ? 3 : 0) +
+          (jsonLdSiteName ? 2 : 0)
+        ),
+        jsonLd: true
+      });
+    }
+  }
+
   candidates.sort((left, right) => right.score - left.score);
   const chosen = candidates[0] || null;
-  const root = chosen ? chosen.el : document.body;
+  const root = chosen && !chosen.jsonLd ? chosen.el : document.body;
   const baseUrl = document.location.href;
   const blocks = [];
   const seen = new Set();
@@ -993,7 +1090,51 @@ function collectReaderAnalysisInPage() {
     blocks.push({ type, text: cleaned });
   };
 
-  if (root) {
+  // Collect images from the root element
+  const collectImagesFromElement = (el) => {
+    if (!el) return [];
+    const imgs = [];
+    // Get images from img tags
+    el.querySelectorAll('img[src], img[data-src], img[data-lazy-src]').forEach((img) => {
+      const src = resolveUrl(img.currentSrc || img.src || img.getAttribute('data-src') || img.getAttribute('data-lazy-src') || '', baseUrl);
+      if (src) imgs.push(src);
+    });
+    // Get images from figure elements
+    el.querySelectorAll('figure img, figure picture source').forEach((img) => {
+      const src = resolveUrl(img.currentSrc || img.src || img.getAttribute('srcset')?.split(',')[0] || '', baseUrl);
+      if (src) imgs.push(src);
+    });
+    // Get images from picture elements
+    el.querySelectorAll('picture source[srcset]').forEach((source) => {
+      const src = resolveUrl(source.getAttribute('srcset')?.split(',')[0] || '', baseUrl);
+      if (src) imgs.push(src);
+    });
+    // Get background images from elements with inline styles
+    el.querySelectorAll('[style*="background-image"]').forEach((bgEl) => {
+      const style = bgEl.getAttribute('style') || '';
+      const match = style.match(/url\(['"]?([^'")\s]+)['"]?\)/);
+      if (match && match[1]) {
+        const src = resolveUrl(match[1], baseUrl);
+        if (src) imgs.push(src);
+      }
+    });
+    return imgs.filter(Boolean);
+  };
+
+  const rootImages = root ? collectImagesFromElement(root) : [];
+  const allImages = rootImages.length > 0 ? rootImages : (chosen ? chosen.images : []);
+  // Collect all unique images (no limit)
+  const uniqueImages = Array.from(new Set(allImages));
+
+  if (chosen && chosen.jsonLd && jsonLdBody) {
+    jsonLdBody
+      .split(/\n{2,}|\n+/)
+      .map((entry) => cleanText(entry, 6000))
+      .filter((entry) => entry.length >= 20)
+      .forEach((entry, index) => {
+        pushBlock(index === 0 && jsonLdTitle ? "heading" : "paragraph", entry);
+      });
+  } else if (root) {
     const blockNodes = root.querySelectorAll("h1,h2,h3,h4,h5,h6,p,li,blockquote");
     if (blockNodes.length) {
       blockNodes.forEach((node) => {
@@ -1014,19 +1155,18 @@ function collectReaderAnalysisInPage() {
     }
   }
 
-  const imageUrls = chosen ? chosen.images.slice(0, 8) : [];
   const excerpt = blocks[0] ? blocks[0].text : cleanText(root && (root.innerText || root.textContent) || "", 360);
 
   return {
     sourceUrl: baseUrl,
     canonicalUrl,
-    title: documentTitle,
-    siteName,
-    byline,
-    publishedDate,
-    modifiedDate,
+    title: jsonLdTitle || documentTitle,
+    siteName: jsonLdSiteName || siteName,
+    byline: jsonLdByline || byline,
+    publishedDate: jsonLdPublishedDate || publishedDate,
+    modifiedDate: jsonLdModifiedDate || modifiedDate,
     blocks,
-    images: imageUrls.map((src) => ({ src })),
+    images: uniqueImages.map((src) => ({ src })),
     textLength: chosen ? chosen.textLength : excerpt.length,
     paragraphCount: chosen ? chosen.paragraphCount : blocks.filter((block) => block.type === "paragraph" || block.type === "quote").length,
     headingCount: chosen ? chosen.headingCount : blocks.filter((block) => block.type === "heading").length,
@@ -1045,9 +1185,38 @@ function collectReaderAnalysisInPage() {
 async function extractReaderSnapshot(webContents) {
   if (!webContents || webContents.isDestroyed()) return null;
   try {
+    // Wait for page to be fully loaded
+    if (webContents.isLoading()) {
+      await new Promise((resolve) => {
+        const onDidStopLoading = () => {
+          webContents.removeListener('did-stop-loading', onDidStopLoading);
+          resolve();
+        };
+        webContents.once('did-stop-loading', onDidStopLoading);
+        // Timeout after 3 seconds
+        setTimeout(resolve, 3000);
+      });
+    }
+    
     const analysis = await webContents.executeJavaScript(`(${collectReaderAnalysisInPage.toString()})()`, true);
-    return readerUtils.buildReaderSnapshot(analysis || {});
-  } catch (_error) {
+    const snapshot = readerUtils.buildReaderSnapshot(analysis || {});
+    // Log for debugging
+    if (snapshot && !snapshot.readable) {
+      console.log('[Reader] Page not readable:', {
+        url: webContents.getURL(),
+        score: snapshot.score,
+        textLength: snapshot.textLength,
+        paragraphCount: snapshot.paragraphCount,
+        blocks: snapshot.blocks.length,
+        siteName: snapshot.siteName,
+        byline: snapshot.byline,
+        publishedDate: snapshot.publishedDate,
+        reason: snapshot.reason
+      });
+    }
+    return snapshot;
+  } catch (error) {
+    console.error('[Reader] Failed to extract content:', error);
     return null;
   }
 }
@@ -1118,7 +1287,7 @@ function ensureReaderView(tabId, pIdx) {
     readerSessions[tabId] = session;
   }
 
-  if (!session.readerView || session.readerView.webContents.isDestroyed()) {
+  if (!session.readerView || !session.readerView.webContents || session.readerView.webContents.isDestroyed()) {
     const win = windows[pIdx];
     const partition = getPartitionForProfile(pIdx, !!session.incognito);
     const webP = {
@@ -1150,14 +1319,14 @@ function ensureReaderView(tabId, pIdx) {
       return { action: "deny" };
     });
     readerViews[tabId] = readerView;
-    readerViewTabs[readerView.webContents.id] = tabId;
-    session.readerView = readerView;
-    if (win && !win.isDestroyed()) {
-      // The reader surface is shown through the window content view, just like a tab view.
+    if (readerView.webContents) {
+      readerViewTabs[readerView.webContents.id] = tabId;
     }
+    session.readerView = readerView;
+    readerSession.attachReaderView(session, readerView);
   }
 
-  return session.readerView;
+  return session;
 }
 
 function attachViewToWindow(pIdx, view) {
@@ -1185,7 +1354,11 @@ function detachViewFromWindow(pIdx, view) {
 async function enterReaderMode(pIdx, tabId) {
   const sourceView = getSourceViewForTab(tabId);
   const tab = pTabs[pIdx] && pTabs[pIdx].find((entry) => entry && entry.id === tabId) || null;
+  
+  console.log('[Reader] enterReaderMode called for tab:', tabId);
+  
   if (!sourceView || !sourceView.webContents || sourceView.webContents.isDestroyed()) {
+    console.log('[Reader] Source view not available');
     sendReaderModeState(pIdx, tabId, {
       active: false,
       available: false,
@@ -1194,7 +1367,11 @@ async function enterReaderMode(pIdx, tabId) {
     return { active: false, available: false };
   }
 
-  if (!isHttpUrl(sourceView.webContents.getURL())) {
+  const currentUrl = sourceView.webContents.getURL();
+  console.log('[Reader] Current URL:', currentUrl);
+  
+  if (!isHttpUrl(currentUrl)) {
+    console.log('[Reader] Not an HTTP URL');
     sendReaderModeState(pIdx, tabId, {
       active: false,
       available: false,
@@ -1204,6 +1381,8 @@ async function enterReaderMode(pIdx, tabId) {
   }
 
   const snapshot = await extractReaderSnapshot(sourceView.webContents);
+  console.log('[Reader] Snapshot result:', snapshot ? { readable: snapshot.readable, score: snapshot.score } : 'null');
+  
   if (!snapshot || !snapshot.readable) {
     sendReaderModeState(pIdx, tabId, {
       active: false,
@@ -1214,7 +1393,8 @@ async function enterReaderMode(pIdx, tabId) {
   }
 
   const session = ensureReaderView(tabId, pIdx);
-  if (!session) {
+  if (!session || !session.readerView || !session.readerView.webContents || session.readerView.webContents.isDestroyed()) {
+    console.log('[Reader] Reader view creation failed');
     sendReaderModeState(pIdx, tabId, {
       active: false,
       available: false,
@@ -1225,7 +1405,7 @@ async function enterReaderMode(pIdx, tabId) {
 
   readerSession.setReaderSnapshot(session, snapshot);
   readerSession.setSourceState(session, {
-    sourceUrl: tab && tab.url ? tab.url : sourceView.webContents.getURL(),
+    sourceUrl: tab && tab.url ? tab.url : currentUrl,
     sourceTitle: tab && tab.title ? tab.title : sourceView.webContents.getTitle() || ""
   });
   readerSession.activateReaderSession(session);
@@ -1246,6 +1426,7 @@ async function enterReaderMode(pIdx, tabId) {
     updateB(pIdx);
   }
 
+  console.log('[Reader] Reader mode activated successfully');
   sendReaderModeState(pIdx, tabId, {
     active: true,
     available: true,
@@ -1277,9 +1458,10 @@ function exitReaderMode(pIdx, tabId, options = {}) {
   updateReaderTabRecord(pIdx, tabId, false);
 
   if (s && win && !win.isDestroyed()) {
+    const readerView = session.readerView && session.readerView.webContents ? session.readerView : null;
     const needsAttach = !!(sourceView && s.activeView !== sourceView);
-    if (s.activeView && session.readerView && s.activeView === session.readerView) {
-      detachViewFromWindow(pIdx, session.readerView);
+    if (s.activeView && readerView && s.activeView === readerView) {
+      detachViewFromWindow(pIdx, readerView);
     }
     s.activeView = sourceView;
     s.readerMode = false;
@@ -1303,7 +1485,7 @@ function exitReaderMode(pIdx, tabId, options = {}) {
 
 function getTabReaderView(tabId) {
   const session = getReaderSession(tabId);
-  return session ? session.readerView : null;
+  return session && session.readerView && session.readerView.webContents ? session.readerView : null;
 }
 
 function getProfileTabList(pIdx) {
@@ -1709,6 +1891,12 @@ function getProfileListSnapshot() {
     }));
 }
 
+function getNextAvailableProfileIndex() {
+  let n = 0;
+  while (Object.prototype.hasOwnProperty.call(pTabs, n)) n++;
+  return n;
+}
+
 function broadcast() {
   const p = getProfileListSnapshot();
   Object.values(windows).forEach((w) => {
@@ -2057,12 +2245,12 @@ function closeTab(pIdx, id, win) {
   }
   delete views[id];
   
-  if (session && session.readerView && !session.readerView.webContents.isDestroyed()) {
+  if (session && session.readerView && session.readerView.webContents && !session.readerView.webContents.isDestroyed()) {
     try {
       session.readerView.webContents.destroy();
     } catch (_error) { }
   }
-  if (session && session.readerView && readerViewTabs[session.readerView.webContents.id]) {
+  if (session && session.readerView && session.readerView.webContents && readerViewTabs[session.readerView.webContents.id]) {
     delete readerViewTabs[session.readerView.webContents.id];
   }
   delete readerViews[id];
@@ -2221,11 +2409,16 @@ ipcMain.on("toggle-browser-view", withTrustedSender((e, v) => {
   }
 }));
 ipcMain.handle("add-new-profile", withTrustedSender((e) => {
-  let n = 0;
-  while (pTabs[n]) n++;
+  const n = getNextAvailableProfileIndex();
   pTabs[n] = [];
   pNames[n] = getDefaultProfileName(n);
-  createW(n);
+  const win = createW(n);
+  if (win && !win.isDestroyed()) {
+    try {
+      win.show();
+      win.focus();
+    } catch (_error) { }
+  }
   return n;
 }, null));
 function openIncognitoWindow(url) {

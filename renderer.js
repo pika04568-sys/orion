@@ -678,7 +678,7 @@ function init() {
     e.stopPropagation();
     const show = !profileMenu.classList.contains('show');
     profileMenu.classList.toggle('show', show);
-    if (!show) ipcRenderer.send('toggle-browser-view', true);
+    ipcRenderer.send('toggle-browser-view', !show);
   };
   if (profileMenu) {
     document.onclick = () => {
@@ -690,9 +690,15 @@ function init() {
   }
   if (addProfileBtn) addProfileBtn.onclick = async (e) => {
     e.stopPropagation();
-    await ipcRenderer.invoke('add-new-profile');
-    profileMenu.classList.remove('show');
-    ipcRenderer.send('toggle-browser-view', true);
+    try {
+      const profileIndex = await ipcRenderer.invoke('add-new-profile');
+      if (typeof profileIndex === 'number') {
+        await ipcRenderer.invoke('switch-profile', profileIndex);
+      }
+    } finally {
+      profileMenu.classList.remove('show');
+      ipcRenderer.send('toggle-browser-view', true);
+    }
   };
   if (renameSaveBtn) renameSaveBtn.onclick = () => {
     const n = renameInput.value.trim();
@@ -812,8 +818,8 @@ function initSettings() {
     };
   }
   if (ss) {
-    ss.checked = localStorage.getItem('show-seconds') === 'true';
-    ss.onchange = (e) => localStorage.setItem('show-seconds', e.target.checked);
+    ss.checked = safeGetStorage('show-seconds', 'false') === 'true';
+    ss.onchange = (e) => safeSetStorage('show-seconds', e.target.checked ? 'true' : 'false');
   }
   if (se) {
     se.innerHTML = SEARCH_ENGINES.map((engine) => `<option value="${engine.id}">${engine.label}</option>`).join('');

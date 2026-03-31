@@ -61,7 +61,6 @@ function sanitizeImages(images = [], baseUrl = "") {
   const result = [];
   const seen = new Set();
   for (const image of images) {
-    if (result.length >= 8) break;
     const rawSrc = typeof image === "string" ? image : image && (image.src || image.url || image.currentSrc || image.data);
     const src = sanitizeUrl(rawSrc, baseUrl);
     if (!src || seen.has(src)) continue;
@@ -80,6 +79,10 @@ function computeReaderScore(analysis = {}) {
   const headingCount = Math.max(0, Math.floor(Number(analysis.headingCount) || 0));
   const imageCount = Math.max(0, Math.floor(Number(analysis.imageCount) || 0));
   const linkDensity = clampNumber(analysis.linkDensity, 0, 1);
+  const siteName = String(analysis.siteName || "").toLowerCase();
+  
+  // Check if this is a known news site that typically has high link density
+  const isKnownNewsSite = /bbc|cnn|reuters|associated press|ap news|nytimes|new york times|washington post|guardian|bloomberg|forbes|wsj|wall street journal/i.test(siteName);
 
   let score = 0;
 
@@ -96,9 +99,15 @@ function computeReaderScore(analysis = {}) {
   score += Math.min(8, headingCount * 1.5);
   score += Math.min(6, imageCount * 1.2);
 
-  if (linkDensity > 0.5) score -= 20;
-  else if (linkDensity > 0.35) score -= 12;
-  else if (linkDensity > 0.22) score -= 6;
+  // Reduce link density penalty for known news sites
+  if (isKnownNewsSite) {
+    if (linkDensity > 0.65) score -= 12;
+    else if (linkDensity > 0.5) score -= 6;
+  } else {
+    if (linkDensity > 0.5) score -= 20;
+    else if (linkDensity > 0.35) score -= 12;
+    else if (linkDensity > 0.22) score -= 6;
+  }
 
   score -= clampNumber(analysis.boilerplatePenalty, 0, 35);
   score += clampNumber(analysis.structureBonus, 0, 20);
@@ -129,12 +138,35 @@ function buildReaderSnapshot(analysis = {}) {
   const confidence = score / 100;
   const textLength = Math.max(0, Math.floor(Number(analysis.textLength) || blocks.reduce((total, block) => total + block.text.length, 0)));
   const paragraphCount = Math.max(0, Math.floor(Number(analysis.paragraphCount) || blocks.filter((block) => block.type === "paragraph" || block.type === "quote").length));
+  
+  // Check for known news sites (BBC, CNN, etc.) - these should have easier reader mode activation
+  const lowerSiteName = siteName.toLowerCase();
+  const isKnownNewsSite = /bbc|cnn|reuters|ap news|associated press|nytimes|new york times|washington post|guardian|bloomberg|forbes|wsj|wall street journal|nbc|abc|cbs|pbs|al jazeera|sky news|euronews/i.test(lowerSiteName);
+  const hasNewsKeywords = /(?:news|story|feature|article|report|live|blog|analysis|update|exclusive|interview)/i.test(siteName || title);
+  const hasStrongArticleSignals = !!byline || !!publishedDate || isKnownNewsSite || hasNewsKeywords;
 
   const readable = (
     confidence >= 0.45 &&
     textLength >= 260 &&
     paragraphCount >= 2 &&
     blocks.length >= 2
+  ) || (
+    hasStrongArticleSignals &&
+    textLength >= 360 &&
+    paragraphCount >= 2 &&
+    blocks.length >= 2
+  ) || (
+    hasStrongArticleSignals &&
+    confidence >= 0.28 &&
+    textLength >= 220 &&
+    paragraphCount >= 2 &&
+    blocks.length >= 2
+  ) || (
+    // Extra fallback for known news sites with substantial content
+    isKnownNewsSite &&
+    textLength >= 500 &&
+    paragraphCount >= 3 &&
+    blocks.length >= 3
   );
 
   return {
