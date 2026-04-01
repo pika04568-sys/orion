@@ -191,8 +191,13 @@ function resolveProtocolAssetPath(requestUrl) {
     let basePath = __dirname;
     // Handle ASAR archive detection on all platforms
     const normalizedBase = basePath.replace(/\\/g, "/");
-    if (normalizedBase.endsWith(".asar") || basePath.endsWith(".asar")) {
-      if (process.resourcesPath) {
+    // Check if we're running from an ASAR archive
+    if (normalizedBase.endsWith(".asar") || basePath.endsWith(".asar") || process.execPath.endsWith(".asar")) {
+      // In packaged builds, __dirname points inside the ASAR
+      // We need to use it directly, not try to reconstruct the path
+      // Only use process.resourcesPath if __dirname is not already in the right place
+      if (process.resourcesPath && !basePath.includes("app.asar")) {
+        console.log(`Reconstructing ASAR path: ${basePath} -> ${path.join(process.resourcesPath, "app.asar")}`);
         basePath = path.join(process.resourcesPath, "app.asar");
       }
     }
@@ -200,15 +205,23 @@ function resolveProtocolAssetPath(requestUrl) {
     const rootPath = path.resolve(basePath);
     const resolved = path.normalize(path.join(rootPath, requestedPath));
     const normalizedRoot = path.normalize(rootPath);
+    
+    console.log(`resolveProtocolAssetPath: requestedPath=${requestedPath}, basePath=${basePath}, resolved=${resolved}`);
 
     // Use path.relative for secure path validation
-    const relativePath = path.relative(normalizedRoot, resolved);
-    if (relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
+    // Normalize both paths to use forward slashes for consistent comparison on Windows
+    const relativePath = path.relative(normalizedRoot, resolved).replace(/\\/g, "/");
+    const normalizedRelative = relativePath.replace(/\\/g, "/");
+    
+    // Check if the resolved path is within the root directory
+    if (normalizedRelative.startsWith("..") || path.isAbsolute(relativePath.replace(/\//g, path.sep))) {
+      console.log(`Path validation failed: ${relativePath}`);
       return null;
     }
 
     return resolved;
   } catch (_error) {
+    console.error(`resolveProtocolAssetPath error: ${_error.message}`);
     return null;
   }
 }
@@ -220,17 +233,20 @@ function registerAppProtocolForSession(sess) {
   
   sess.protocol.handle(appUtils.ORION_SCHEME, (request) => {
     const filePath = resolveProtocolAssetPath(request.url);
+    console.log(`orion:// request: ${request.url} -> filePath: ${filePath}`);
     const contentType = getContentType(filePath || "");
     if (!filePath) {
+      console.error(`orion:// file not found: ${request.url}`);
       return net.fetch("data:text/plain,Not%20found");
     }
 
     try {
       const stats = fs.statSync(filePath);
       if (!stats.isFile()) {
+        console.error(`orion:// path is not a file: ${filePath}`);
         return net.fetch("data:text/plain,Not%20found");
       }
-      
+
       const fileContent = fs.readFileSync(filePath);
       const response = new Response(fileContent, {
         status: 200,
@@ -242,6 +258,7 @@ function registerAppProtocolForSession(sess) {
       });
       return response;
     } catch (_error) {
+      console.error(`orion:// read error: ${_error.message}`);
       return net.fetch("data:text/plain,Not%20found");
     }
   });
@@ -1900,22 +1917,46 @@ function createW(pIdx = 0, opts = {}) {
   if (!pTabs[pIdx]) pTabs[pIdx] = [];
   pNames[pIdx] = isIncognito ? getDefaultProfileName(pIdx, { incognito: true }) : (pNames[pIdx] || getDefaultProfileName(pIdx));
   states[pIdx] = { activeView: null, metrics: { top: 76, left: 0 }, visible: true, readerMode: false, readerTabId: null };
-  
-  // Use file:// protocol for main window for better Windows compatibility
+
+  // Use file:// protocol for main window with proper cross-platform URL handling
   const indexPath = path.join(__dirname, "index.html");
-  // On Windows packaged builds, ensure proper file URL format
+  // Use pathToFileURL for proper file URL construction on all platforms
   let fileUrl;
-  if (process.platform === "win32") {
-    // Windows requires file:///C:/path format with forward slashes
-    const normalizedPath = indexPath.replace(/\\/g, "/");
-    // Ensure the path starts with / for drive letter paths
-    fileUrl = `file:///${normalizedPath.replace(/^\/+/, "")}`;
-  } else {
-    fileUrl = `file://${indexPath}`;
+  try {
+    // Use Node.js pathToFileURL for correct file URL format on all platforms
+    const { pathToFileURL } = require('url');
+    fileUrl = pathToFileURL(indexPath).href;
+  } catch (_error) {
+    // Fallback to manual construction if pathToFileURL fails
+    if (process.platform === "win32") {
+      // Windows requires file:///C:/path format with forward slashes
+      const normalizedPath = indexPath.replace(/\\/g, "/");
+      // Handle drive letter paths like C:/ -> /C:/
+      const withDriveSlash = normalizedPath.replace(/^([A-Za-z]):/, '/$1:');
+      fileUrl = `file://${withDriveSlash}`;
+    } else {
+      fileUrl = `file://${indexPath}`;
+    }
   }
+  console.log(`Loading index.html from: ${fileUrl}`);
+  console.log(`__dirname: ${__dirname}`);
+  console.log(`indexPath: ${indexPath}`);
+  console.log(`app.isPackaged: ${app.isPackaged}`);
+  console.log(`process.resourcesPath: ${process.resourcesPath}`);
   win.loadURL(fileUrl).catch((error) => {
+    console.error(`Failed to load index.html: ${error.message}`);
+    console.error(`Error code: ${error.code}`);
     showHtmlLoadError("index.html", error);
     if (!win.isDestroyed()) win.destroy();
+  });
+  
+  // Add load failure detection
+  win.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
+    console.error(`index.html failed to load: ${errorCode} - ${errorDescription}`);
+  });
+  
+  win.webContents.on('did-finish-load', () => {
+    console.log('index.html loaded successfully');
   });
   win.on("resize", () => updateB(pIdx));
   win.on("closed", () => {
