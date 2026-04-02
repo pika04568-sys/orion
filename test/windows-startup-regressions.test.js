@@ -295,6 +295,22 @@ test("browser shortcut resolver maps common navigation shortcuts", () => {
     "focus-address-bar"
   );
   assert.equal(
+    appUtils.resolveBrowserShortcutAction({ type: "keyDown", control: true, key: "c" }),
+    "copy"
+  );
+  assert.equal(
+    appUtils.resolveBrowserShortcutAction({ type: "keyDown", control: true, key: "x" }),
+    "cut"
+  );
+  assert.equal(
+    appUtils.resolveBrowserShortcutAction({ type: "keyDown", control: true, key: "v" }),
+    "paste"
+  );
+  assert.equal(
+    appUtils.resolveBrowserShortcutAction({ type: "keyDown", control: true, key: "a" }),
+    "select-all"
+  );
+  assert.equal(
     appUtils.resolveBrowserShortcutAction({ type: "keyDown", control: true, shift: true, key: "n" }),
     "new-incognito-tab"
   );

@@ -182,10 +182,32 @@ function resolveProtocolAssetPath(requestUrl) {
   try {
     const parsed = new NodeURL(requestUrl);
     if (parsed.protocol !== appUtils.ORION_PROTOCOL || parsed.hostname !== appUtils.ORION_HOST) return null;
-    const requestedPath = decodeURIComponent(parsed.pathname || "/").replace(/^\/+/, "").replace(/\\/g, "/");
+    
+    // Decode the pathname carefully
+    let requestedPath = parsed.pathname || "/";
+    
+    // Reject null bytes and other dangerous characters
+    if (requestedPath.includes("\0") || requestedPath.includes("%00")) return null;
+    
+    // Decode URI component safely
+    try {
+      requestedPath = decodeURIComponent(requestedPath);
+    } catch (_decodeError) {
+      return null; // Malformed URI
+    }
+    
+    // Normalize path separators and remove leading slashes
+    requestedPath = requestedPath.replace(/^\/+/, "").replace(/\\/g, "/");
     if (!requestedPath) return null;
 
-    // Prevent path traversal attacks
+    // Prevent path traversal attacks - check for .. in various forms
+    // Split by both forward and backward slashes to catch all variants
+    const pathSegments = requestedPath.split(/[\/\\]/);
+    if (pathSegments.some(segment => segment === ".." || segment === ".")) {
+      return null;
+    }
+    
+    // Additional check: decoded path should not contain ..
     if (requestedPath.includes("..")) return null;
 
     let basePath = __dirname;
@@ -203,19 +225,28 @@ function resolveProtocolAssetPath(requestUrl) {
     }
 
     const rootPath = path.resolve(basePath);
-    const resolved = path.normalize(path.join(rootPath, requestedPath));
+    const resolved = path.resolve(rootPath, requestedPath);
     const normalizedRoot = path.normalize(rootPath);
-    
+
     console.log(`resolveProtocolAssetPath: requestedPath=${requestedPath}, basePath=${basePath}, resolved=${resolved}`);
 
     // Use path.relative for secure path validation
     // Normalize both paths to use forward slashes for consistent comparison on Windows
     const relativePath = path.relative(normalizedRoot, resolved).replace(/\\/g, "/");
     const normalizedRelative = relativePath.replace(/\\/g, "/");
-    
+
     // Check if the resolved path is within the root directory
-    if (normalizedRelative.startsWith("..") || path.isAbsolute(relativePath.replace(/\//g, path.sep))) {
+    // Path is invalid if it goes outside root (starts with ..) or is absolute
+    if (normalizedRelative.startsWith("..") || normalizedRelative.startsWith("/") || path.isAbsolute(relativePath.replace(/\//g, path.sep))) {
       console.log(`Path validation failed: ${relativePath}`);
+      return null;
+    }
+    
+    // Final verification: resolved path must start with root path
+    const normalizedResolved = path.normalize(resolved).replace(/\\/g, "/");
+    const normalizedRootWithSlash = normalizedRoot.replace(/\\/g, "/") + "/";
+    if (!normalizedResolved.startsWith(normalizedRootWithSlash) && normalizedResolved !== normalizedRoot.replace(/\\/g, "/")) {
+      console.log(`Path validation failed (prefix check): ${normalizedResolved}`);
       return null;
     }
 
@@ -729,23 +760,31 @@ function formatExtensionPermissions(extensionInfo) {
 }
 
 async function confirmExtensionInstall(win, extensionPath, extensionInfo) {
+  const dangerousPerms = browserSecurity.getDangerousPermissions(extensionInfo.permissions);
+  const hasDangerous = dangerousPerms.length > 0;
+  
+  const permissionDetail = hasDangerous
+    ? `⚠️ WARNING: This extension requests elevated permissions:\n${dangerousPerms.join(", ")}\n\nThese permissions allow access to sensitive browser data and functionality.\n\nFull declared permissions:\n${formatExtensionPermissions(extensionInfo)}`
+    : `Declared permissions:\n${formatExtensionPermissions(extensionInfo)}`;
+  
   const detail = [
     `Path: ${extensionPath}`,
     extensionInfo.version ? `Version: ${extensionInfo.version}` : "Version: not specified",
     extensionInfo.manifestVersion ? `Manifest: v${extensionInfo.manifestVersion}` : "Manifest: not specified",
     "",
-    "Declared permissions:",
-    formatExtensionPermissions(extensionInfo),
+    permissionDetail,
     "",
-    "Only install unpacked extensions from sources you trust."
+    hasDangerous
+      ? "⚠️ SECURITY WARNING: Only install this extension if you fully trust its source."
+      : "Only install unpacked extensions from sources you trust."
   ].join("\n");
 
   const options = {
-    type: "warning",
+    type: hasDangerous ? "warning" : "warning",
     buttons: ["Install Extension", "Cancel"],
     defaultId: 1,
     cancelId: 1,
-    title: "Review Unpacked Extension",
+    title: hasDangerous ? "⚠️ High-Risk Extension" : "Review Unpacked Extension",
     message: `Install "${extensionInfo.name}"?`,
     detail
   };
@@ -1636,11 +1675,29 @@ function reopenClosedTab(pIdx) {
   });
 }
 
-function dispatchBrowserShortcutAction(pIdx, action) {
+function dispatchBrowserShortcutAction(pIdx, action, targetWebContents = null) {
   const win = windows[pIdx];
   if (!win || win.isDestroyed()) return false;
 
   switch (action) {
+    case "copy":
+    case "cut":
+    case "paste":
+    case "select-all": {
+      const s = states[pIdx];
+      const activeTarget =
+        (targetWebContents && !targetWebContents.isDestroyed())
+          ? targetWebContents
+          : (s && s.activeView && s.activeView.webContents && !s.activeView.webContents.isDestroyed())
+            ? s.activeView.webContents
+            : win.webContents;
+      if (!activeTarget || activeTarget.isDestroyed()) return false;
+      if (action === "copy") activeTarget.copy();
+      else if (action === "cut") activeTarget.cut();
+      else if (action === "paste") activeTarget.paste();
+      else activeTarget.selectAll();
+      return true;
+    }
     case "new-tab":
       openTabInProfile(pIdx, {
         url: "chrome://newtab",
@@ -1705,8 +1762,47 @@ function attachBrowserShortcutHandler(webContents, getProfileIndex) {
     const pIdx = typeof getProfileIndex === "function" ? getProfileIndex() : null;
     if (pIdx === null || typeof pIdx === "undefined") return;
     event.preventDefault();
-    dispatchBrowserShortcutAction(pIdx, action);
+    dispatchBrowserShortcutAction(pIdx, action, webContents);
   });
+}
+
+function appendClipboardMenuItems(menu, webContents, editFlags = {}) {
+  if (!menu || typeof menu.append !== "function" || !webContents || webContents.isDestroyed()) return;
+
+  const hasClipboardActions =
+    editFlags.canUndo ||
+    editFlags.canRedo ||
+    editFlags.canCut ||
+    editFlags.canCopy ||
+    editFlags.canPaste ||
+    editFlags.canSelectAll;
+
+  if (!hasClipboardActions) return;
+
+  if (editFlags.canUndo) {
+    menu.append(new MenuItem({ label: "Undo", click: () => webContents.undo() }));
+  }
+  if (editFlags.canRedo) {
+    menu.append(new MenuItem({ label: "Redo", click: () => webContents.redo() }));
+  }
+  if (editFlags.canUndo || editFlags.canRedo) {
+    menu.append(new MenuItem({ type: "separator" }));
+  }
+  if (editFlags.canCut) {
+    menu.append(new MenuItem({ label: "Cut", click: () => webContents.cut() }));
+  }
+  if (editFlags.canCopy) {
+    menu.append(new MenuItem({ label: "Copy", click: () => webContents.copy() }));
+  }
+  if (editFlags.canPaste) {
+    menu.append(new MenuItem({ label: "Paste", click: () => webContents.paste() }));
+  }
+  if (editFlags.canSelectAll) {
+    menu.append(new MenuItem({ label: "Select All", click: () => webContents.selectAll() }));
+  }
+  if (editFlags.canCut || editFlags.canCopy || editFlags.canPaste || editFlags.canSelectAll) {
+    menu.append(new MenuItem({ type: "separator" }));
+  }
 }
 
 function isTrustedSender(webContents) {
@@ -2200,6 +2296,7 @@ function createV(id, url, inc, pIdx) {
   });
   v.webContents.on("context-menu", (_e, p) => {
     const m = new Menu();
+    appendClipboardMenuItems(m, v.webContents, p.editFlags || {});
     // Validate URL to prevent javascript: and data: URL attacks
     const isValidUrl = (url) => {
       if (!url || typeof url !== "string") return false;
@@ -2581,6 +2678,17 @@ ipcMain.handle("navigate-to", withTrustedSender((e, u) => {
   const activeTabId = getActiveT(w.profileIndex);
   if (!activeTabId) return;
   const tu = (u || "").trim();
+  
+  // Security: Block dangerous URL schemes
+  const lowerUrl = tu.toLowerCase();
+  const dangerousSchemes = ["javascript:", "data:", "vbscript:", "file:"];
+  for (const scheme of dangerousSchemes) {
+    if (lowerUrl.startsWith(scheme) || lowerUrl.trim().startsWith(scheme)) {
+      console.warn(`Blocked navigation to dangerous URL scheme: ${scheme}`);
+      return;
+    }
+  }
+  
   if (tu === "chrome://extensions" || tu === "chrome://newtab" || tu === "chrome://offline") {
     return loadTabUrl(activeTabId, w.profileIndex, tu, {
       source: tu === "chrome://newtab" ? "new-tab" : "internal"

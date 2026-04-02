@@ -118,6 +118,49 @@ function shouldDenyPermissionByDefault(permission) {
   return DENIED_BY_DEFAULT_PERMISSIONS.includes(permission);
 }
 
+// Dangerous permissions that should trigger additional warnings
+const DANGEROUS_EXTENSION_PERMISSIONS = Object.freeze([
+  "webRequest",
+  "webRequestBlocking",
+  "proxy",
+  "tabs",
+  "webNavigation",
+  "cookies",
+  "history",
+  "bookmarks",
+  "downloads",
+  "management",
+  "privacy",
+  "storage",
+  "unlimitedStorage",
+  "clipboardRead",
+  "clipboardWrite",
+  "geolocation",
+  "notifications",
+  "<all_urls>",
+  "host:*/*",
+  "content-script:*/*"
+]);
+
+function hasDangerousPermissions(permissions) {
+  if (!Array.isArray(permissions)) return false;
+  const dangerousFound = permissions.some(
+    (perm) => DANGEROUS_EXTENSION_PERMISSIONS.includes(perm) ||
+              perm.startsWith("host:*") ||
+              perm.startsWith("content-script:*")
+  );
+  return dangerousFound;
+}
+
+function getDangerousPermissions(permissions) {
+  if (!Array.isArray(permissions)) return [];
+  return permissions.filter(
+    (perm) => DANGEROUS_EXTENSION_PERMISSIONS.includes(perm) ||
+              perm.startsWith("host:*") ||
+              perm.startsWith("content-script:*")
+  );
+}
+
 function collectManifestPermissions(manifest = {}) {
   const values = [];
   const maybePush = (entry, prefix = "") => {
@@ -144,24 +187,40 @@ function collectManifestPermissions(manifest = {}) {
 }
 
 function collectDirectoryFiles(rootDir, currentDir = rootDir, files = []) {
-  const entries = fs.readdirSync(currentDir, { withFileTypes: true })
+  const entries = fs.readdirSync(currentDir, { withFileTypes: true, throwIfNoEntry: false })
     .slice()
     .sort((left, right) => left.name.localeCompare(right.name));
 
   entries.forEach((entry) => {
     const fullPath = path.join(currentDir, entry.name);
-    const stats = fs.lstatSync(fullPath);
-
-    if (stats.isSymbolicLink()) {
-      throw new Error(`Symbolic links are not allowed in unpacked extensions: ${fullPath}`);
+    
+    // Check for symbolic links before accessing stats
+    try {
+      const lstats = fs.lstatSync(fullPath);
+      if (lstats.isSymbolicLink()) {
+        throw new Error(`Symbolic links are not allowed in unpacked extensions: ${fullPath}`);
+      }
+      
+      if (lstats.isDirectory()) {
+        collectDirectoryFiles(rootDir, fullPath, files);
+        return;
+      }
+      
+      if (lstats.isFile()) {
+        // Verify the file is actually within rootDir (prevent bind mount attacks)
+        const realPath = fs.realpathSync(fullPath);
+        const realRoot = fs.realpathSync(rootDir);
+        if (!realPath.startsWith(realRoot + path.sep) && realPath !== realRoot) {
+          throw new Error(`File outside extension directory: ${fullPath}`);
+        }
+        files.push(fullPath);
+      }
+    } catch (error) {
+      if (error.message.includes("Symbolic links") || error.message.includes("outside extension")) {
+        throw error;
+      }
+      // Skip files that can't be accessed
     }
-
-    if (stats.isDirectory()) {
-      collectDirectoryFiles(rootDir, fullPath, files);
-      return;
-    }
-
-    if (stats.isFile()) files.push(fullPath);
   });
 
   return files;
@@ -186,6 +245,27 @@ function inspectExtensionDirectory(rootDir) {
   if (!rootDir || !path.isAbsolute(rootDir)) {
     throw new Error("Extension path must be absolute.");
   }
+  
+  // Resolve to real path to prevent symlink attacks
+  let realRootDir;
+  try {
+    realRootDir = fs.realpathSync(rootDir);
+  } catch (_error) {
+    throw new Error("Extension path is not accessible or is a symbolic link.");
+  }
+  
+  // Verify the resolved path is still within allowed directories
+  // Extensions should only be loaded from user-selected locations, not system directories
+  const normalizedPath = realRootDir.replace(/\\/g, "/").toLowerCase();
+  const forbiddenPrefixes = [
+    "/system", "/proc", "/dev", "/bin", "/sbin", "/usr", 
+    "c:/windows", "c:/program files", "c:/programdata"
+  ];
+  
+  if (forbiddenPrefixes.some(prefix => normalizedPath.startsWith(prefix))) {
+    throw new Error("Extensions cannot be loaded from system directories.");
+  }
+  
   if (!fs.existsSync(rootDir) || !fs.statSync(rootDir).isDirectory()) {
     throw new Error("Extension folder does not exist.");
   }
@@ -225,12 +305,15 @@ function inspectExtensionDirectory(rootDir) {
 }
 
 module.exports = {
+  DANGEROUS_EXTENSION_PERMISSIONS,
   DENIED_BY_DEFAULT_PERMISSIONS,
   PERMISSION_DECISIONS,
   PROMPTABLE_PERMISSIONS,
   collectManifestPermissions,
   computeDirectoryHash,
+  getDangerousPermissions,
   getPermissionDecision,
+  hasDangerousPermissions,
   inspectExtensionDirectory,
   isPermissionPromptable,
   normalizePermissionOrigin,

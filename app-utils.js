@@ -286,6 +286,10 @@
     if (!primary && alt && (key === "arrowright" || code === "arrowright")) return "go-forward";
 
     if (primary && !alt && !shift && (key === "l" || key === "k")) return "focus-address-bar";
+    if (primary && !alt && !shift && key === "c") return "copy";
+    if (primary && !alt && !shift && key === "x") return "cut";
+    if (primary && !alt && !shift && key === "v") return "paste";
+    if (primary && !alt && !shift && key === "a") return "select-all";
     if (primary && !alt && !shift && key === "t") return "new-tab";
     if (primary && shift && key === "n") return "new-incognito-tab";
     if (primary && !alt && !shift && key === "w") return "close-tab";
