@@ -502,6 +502,15 @@
     return { card, nameEl, versionEl, descriptionEl, removeBtn };
   }
 
+  function getReaderButtonState(active, translate = (key) => key) {
+    const label = translate(active ? "reader.exitMode" : "reader.enterMode");
+    return {
+      title: label,
+      ariaLabel: label,
+      ariaPressed: active ? "true" : "false"
+    };
+  }
+
   return {
     APP_INVOKE_CHANNELS,
     APP_ON_CHANNELS,
@@ -522,6 +531,7 @@
     getAppPageUrl,
     getElectronPageChannels,
     getActiveTabBookmark,
+    getReaderButtonState,
     getLocalPageFileName: getAppPageFileName,
     resolveRendererBootstrapState,
     resolveLanguageSettingsState,

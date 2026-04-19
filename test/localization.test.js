@@ -45,3 +45,14 @@ test("UI platform text keeps Linux paths and localized modifier labels", () => {
     "Neuer Inkognito-Tab (Strg+Umschalt+N)"
   );
 });
+
+test("reader strings are localized for internal reader mode surfaces", () => {
+  assert.equal(localization.t("en", "reader.exitMode"), "Exit Reader Mode");
+  assert.equal(localization.t("fr", "reader.backToPage"), "Retour à la page");
+  assert.equal(localization.t("de", "reader.unavailable"), "Lesemodus nicht verfügbar");
+  assert.equal(localization.t("ja", "reader.openCanonicalSource"), "正規ソースを開く");
+  assert.equal(
+    localization.t("en", "reader.updated", { value: "April 18, 2026" }),
+    "Updated April 18, 2026"
+  );
+});

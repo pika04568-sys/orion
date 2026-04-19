@@ -224,9 +224,11 @@ function isReaderActiveTab() {
 function updateReaderButtonState() {
   if (!readerBtn) return;
   const active = isReaderActiveTab();
+  const state = appUtils.getReaderButtonState(active, (key) => t(key));
   readerBtn.classList.toggle('reader-active', active);
-  readerBtn.setAttribute('aria-pressed', active ? 'true' : 'false');
-  readerBtn.title = active ? 'Exit Reader Mode' : 'Reader Mode';
+  readerBtn.setAttribute('aria-pressed', state.ariaPressed);
+  readerBtn.setAttribute('aria-label', state.ariaLabel);
+  readerBtn.title = state.title;
 }
 
 function updateReaderShellState() {
@@ -555,6 +557,7 @@ function init() {
       ipcRenderer.invoke('stop-find-in-page', 'clearSelection');
     }
   };
+  const closePanels = () => toggle(null, false);
 
   if (adblockBtn) adblockBtn.onclick = () => {
     adblockText.value = safeGetStorage('adblock-rules', '');
@@ -701,12 +704,12 @@ function init() {
     ipcRenderer.send('toggle-browser-view', !show);
   };
   if (profileMenu) {
-    document.onclick = () => {
-      if (profileMenu.classList.contains('show')) {
+    document.addEventListener('click', (event) => {
+      if (profileMenu.classList.contains('show') && !event.target.closest('.profile-menu-wrap')) {
         profileMenu.classList.remove('show');
         ipcRenderer.send('toggle-browser-view', true);
       }
-    };
+    });
   }
   if (addProfileBtn) addProfileBtn.onclick = async (e) => {
     e.stopPropagation();
@@ -745,9 +748,8 @@ function init() {
   };
   if (closeSettingsBtn) closeSettingsBtn.onclick = () => toggle(settingsSidebar, false);
   if (openExtensionsBtn) openExtensionsBtn.onclick = () => {
-    settingsSidebar.classList.remove('open');
+    closePanels();
     ipcRenderer.invoke('navigate-to', 'chrome://extensions');
-    ipcRenderer.send('toggle-browser-view', true);
   };
   if (downloadsBtn) downloadsBtn.onclick = () => toggle(downloadsSidebar, !downloadsSidebar.classList.contains('open'));
   if (closeDownloadsBtn) closeDownloadsBtn.onclick = () => toggle(downloadsSidebar, false);
@@ -1161,8 +1163,7 @@ function renderHistory(h) {
     el.onclick = (e) => {
       if (e.target.closest('.remove-history-btn')) return;
       ipcRenderer.invoke('navigate-to', i.url);
-      historySidebar.classList.remove('open');
-      ipcRenderer.send('toggle-browser-view', true);
+      closePanels();
     };
     historyList.appendChild(el);
   });
@@ -1218,8 +1219,7 @@ function renderBookmarks() {
     el.onclick = (e) => {
       if (e.target === removeBtn) return;
       ipcRenderer.invoke('navigate-to', b.url);
-      bookmarksSidebar.classList.remove('open');
-      ipcRenderer.send('toggle-browser-view', true);
+      closePanels();
     };
     if (removeBtn) {
       removeBtn.onclick = (e) => {

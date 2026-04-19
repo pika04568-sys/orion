@@ -1,5 +1,7 @@
 (() => {
   const bridge = window.orionPage || {};
+  const localization = window.OrionLocalization;
+  const readerKicker = document.getElementById("reader-kicker");
   const pageLabel = document.getElementById("page-label");
   const siteNameEl = document.getElementById("site-name");
   const readerTitleEl = document.getElementById("reader-title");
@@ -10,6 +12,8 @@
   const readerCardEl = document.getElementById("reader-card");
   const exitBtn = document.getElementById("exit-reader");
   const themeButtons = Array.from(document.querySelectorAll(".chip[data-theme]"));
+  const themeControls = document.getElementById("reader-theme-controls");
+  const fontControls = document.getElementById("reader-font-controls");
   const fontSmaller = document.getElementById("font-smaller");
   const fontReset = document.getElementById("font-reset");
   const fontLarger = document.getElementById("font-larger");
@@ -20,8 +24,38 @@
   const MIN_FONT_SIZE = 17;
   const MAX_FONT_SIZE = 28;
 
-  let currentFontSize = Number.parseInt(localStorage.getItem(FONT_SIZE_KEY) || String(DEFAULT_FONT_SIZE), 10);
+  function safeGet(key) {
+    try {
+      return localStorage.getItem(key);
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  let currentFontSize = Number.parseInt(safeGet(FONT_SIZE_KEY) || String(DEFAULT_FONT_SIZE), 10);
   if (!Number.isFinite(currentFontSize)) currentFontSize = DEFAULT_FONT_SIZE;
+  const currentLocale = localization && typeof localization.sanitizeLocale === "function"
+    ? (localization.sanitizeLocale(safeGet("orion-locale")) || localization.DEFAULT_LOCALE || "en")
+    : "en";
+
+  function t(key, vars = {}) {
+    if (!localization || typeof localization.t !== "function") return key;
+    return localization.t(currentLocale, key, vars);
+  }
+
+  function formatDateTime(value) {
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return value;
+    try {
+      return parsed.toLocaleString(localization.getIntlLocale(currentLocale));
+    } catch (_error) {
+      return parsed.toLocaleString();
+    }
+  }
+
+  function clearRenderedImages() {
+    document.querySelectorAll(".reader-image").forEach((element) => element.remove());
+  }
 
   function safeSet(key, value) {
     try {
@@ -47,13 +81,9 @@
     const metaItems = [];
 
     if (snapshot.byline) metaItems.push(snapshot.byline);
-    if (snapshot.publishedDate) {
-      const parsed = new Date(snapshot.publishedDate);
-      metaItems.push(Number.isNaN(parsed.getTime()) ? snapshot.publishedDate : parsed.toLocaleString());
-    }
+    if (snapshot.publishedDate) metaItems.push(formatDateTime(snapshot.publishedDate));
     if (snapshot.modifiedDate && snapshot.modifiedDate !== snapshot.publishedDate) {
-      const parsed = new Date(snapshot.modifiedDate);
-      metaItems.push(`Updated ${Number.isNaN(parsed.getTime()) ? snapshot.modifiedDate : parsed.toLocaleString()}`);
+      metaItems.push(t("reader.updated", { value: formatDateTime(snapshot.modifiedDate) }));
     }
 
     if (snapshot.canonicalUrl && snapshot.canonicalUrl !== snapshot.sourceUrl) {
@@ -62,7 +92,7 @@
       sourceLink.href = snapshot.canonicalUrl;
       sourceLink.target = "_blank";
       sourceLink.rel = "noreferrer noopener";
-      sourceLink.textContent = "Open canonical source";
+      sourceLink.textContent = t("reader.openCanonicalSource");
       readerMetaEl.appendChild(sourceLink);
     }
 
@@ -117,32 +147,31 @@
   }
 
   function renderImages(snapshot) {
+    clearRenderedImages();
     if (!snapshot.images || snapshot.images.length === 0) return;
-    
+
     snapshot.images.forEach((image, index) => {
       const figure = document.createElement("figure");
       figure.className = "reader-image";
-      
+
       const img = document.createElement("img");
       img.src = image.src;
-      img.alt = image.alt || snapshot.title || "Article image";
+      img.alt = image.alt || snapshot.title || t("reader.untitledArticle");
       img.loading = index === 0 ? "eager" : "lazy";
       img.decoding = "async";
-      
-      // Add error handling for broken images
+
       img.onerror = () => {
         figure.remove();
       };
-      
+
       figure.appendChild(img);
-      
+
       if (image.alt) {
         const caption = document.createElement("figcaption");
         caption.textContent = image.alt;
         figure.appendChild(caption);
       }
-      
-      // Insert first image after title, rest at the end
+
       if (index === 0 && readerSubtitleEl) {
         readerSubtitleEl.parentNode.insertBefore(figure, readerSubtitleEl.nextSibling);
       } else {
@@ -153,16 +182,16 @@
 
   function renderUnavailable(snapshot) {
     readerCardEl.classList.add("unavailable");
-    readerStateEl.textContent = snapshot && snapshot.reason ? snapshot.reason : "Reader mode is unavailable for this page.";
+    clearRenderedImages();
+    readerStateEl.textContent = snapshot && snapshot.reason ? snapshot.reason : t("reader.unavailableState");
     readerStateEl.classList.remove("hidden");
-    document.title = "Reader unavailable";
-    pageLabel.textContent = "Reader unavailable";
+    document.title = t("reader.unavailable");
+    pageLabel.textContent = t("reader.unavailable");
     siteNameEl.textContent = snapshot && snapshot.siteName ? snapshot.siteName : "";
-    readerTitleEl.textContent = snapshot && snapshot.title ? snapshot.title : "This page could not be converted";
-    readerSubtitleEl.textContent = "Orion could not confidently extract a readable article from this page.";
+    readerTitleEl.textContent = snapshot && snapshot.title ? snapshot.title : t("reader.unavailableTitle");
+    readerSubtitleEl.textContent = t("reader.unavailableSubtitle");
     readerMetaEl.innerHTML = "";
     readerContentEl.innerHTML = "";
-    readerCardEl.classList.add("unavailable");
   }
 
   function renderSnapshot(snapshot) {
@@ -173,10 +202,10 @@
 
     readerCardEl.classList.remove("unavailable");
     readerStateEl.classList.add("hidden");
-    document.title = snapshot.title ? `${snapshot.title} • Reader` : "Reader";
-    pageLabel.textContent = snapshot.siteName || "Reader mode";
-    siteNameEl.textContent = snapshot.siteName || "Reader mode";
-    readerTitleEl.textContent = snapshot.title || "Untitled article";
+    document.title = snapshot.title ? `${snapshot.title} • ${t("reader.title")}` : t("reader.title");
+    pageLabel.textContent = snapshot.siteName || t("reader.modeLabel");
+    siteNameEl.textContent = snapshot.siteName || t("reader.modeLabel");
+    readerTitleEl.textContent = snapshot.title || t("reader.untitledArticle");
     readerSubtitleEl.textContent = snapshot.excerpt || "";
     renderMeta(snapshot);
     renderImages(snapshot);
@@ -189,8 +218,22 @@
   }
 
   function applySavedPreferences() {
-    setTheme(localStorage.getItem(THEME_KEY) || "sepia");
-    setFontSize(Number.parseInt(localStorage.getItem(FONT_SIZE_KEY) || String(DEFAULT_FONT_SIZE), 10));
+    setTheme(safeGet(THEME_KEY) || "sepia");
+    setFontSize(Number.parseInt(safeGet(FONT_SIZE_KEY) || String(DEFAULT_FONT_SIZE), 10));
+  }
+
+  function applyStaticTranslations() {
+    document.documentElement.lang = currentLocale;
+    if (readerKicker) readerKicker.textContent = t("reader.modeLabel");
+    if (pageLabel) pageLabel.textContent = t("reader.loadingArticle");
+    if (themeControls) themeControls.setAttribute("aria-label", t("reader.theme"));
+    if (fontControls) fontControls.setAttribute("aria-label", t("reader.fontSize"));
+    document.title = t("reader.title");
+
+    themeButtons.forEach((button) => {
+      button.textContent = t(`reader.theme${button.dataset.theme.charAt(0).toUpperCase()}${button.dataset.theme.slice(1)}`);
+    });
+    if (exitBtn) exitBtn.textContent = t("reader.backToPage");
   }
 
   async function loadSnapshot() {
@@ -198,14 +241,14 @@
       const snapshot = await bridge.getReaderContent();
       if (!snapshot) {
         renderUnavailable({
-          reason: "Reader data is not ready yet."
+          reason: t("reader.dataNotReady")
         });
         return;
       }
       renderSnapshot(snapshot);
     } catch (_error) {
       renderUnavailable({
-        reason: "Orion could not load reader mode for this page."
+        reason: t("reader.loadFailed")
       });
     }
   }
@@ -229,6 +272,7 @@
     }
   });
 
+  applyStaticTranslations();
   applySavedPreferences();
   void loadSnapshot();
 })();

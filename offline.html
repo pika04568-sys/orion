@@ -27,13 +27,14 @@
     body {
       margin: 0;
       min-height: 100vh;
+      min-height: 100dvh;
       font-family: "Avenir Next", "Trebuchet MS", "Segoe UI", sans-serif;
       color: var(--ink);
       background:
         radial-gradient(circle at top left, rgba(99, 184, 255, 0.22), transparent 36%),
         radial-gradient(circle at bottom right, rgba(255, 209, 102, 0.18), transparent 34%),
         linear-gradient(160deg, #060b17 0%, #0b1326 52%, #111929 100%);
-      overflow: hidden;
+      overflow: auto;
     }
 
     body::before,
@@ -67,6 +68,7 @@
 
     .shell {
       min-height: 100vh;
+      min-height: 100dvh;
       display: grid;
       grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
       gap: 24px;
@@ -88,6 +90,8 @@
       display: flex;
       flex-direction: column;
       gap: 18px;
+      max-height: calc(100dvh - 48px);
+      overflow-y: auto;
     }
 
     .eyebrow {
@@ -261,12 +265,12 @@
     }
 
     @media (max-width: 960px) {
-      body {
-        overflow: auto;
-      }
-
       .shell {
         grid-template-columns: 1fr;
+      }
+
+      .meta {
+        max-height: none;
       }
 
       .canvas-wrap {

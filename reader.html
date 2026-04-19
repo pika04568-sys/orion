@@ -35,6 +35,7 @@
     body {
       margin: 0;
       min-height: 100vh;
+      min-height: 100dvh;
       color: var(--page-text);
       background: var(--page-bg);
       font-family: "Avenir Next", "Segoe UI", sans-serif;
@@ -149,7 +150,7 @@
     .shell {
       display: grid;
       justify-items: center;
-      padding: 34px 18px 56px;
+      padding: 34px 18px max(40px, env(safe-area-inset-bottom, 0px));
     }
 
     .card {
@@ -321,7 +322,13 @@
       }
 
       .controls {
+        width: 100%;
         justify-content: flex-start;
+      }
+
+      .segmented,
+      .font-controls {
+        max-width: 100%;
       }
 
       .card {
@@ -336,16 +343,16 @@
 <body data-theme="sepia">
   <header class="chrome">
     <div>
-      <p class="eyebrow">Reader mode</p>
+      <p class="eyebrow" id="reader-kicker">Reader mode</p>
       <p class="title" id="page-label">Loading article</p>
     </div>
     <div class="controls">
-      <div class="segmented" role="group" aria-label="Theme">
-        <button class="chip active" data-theme="sepia" type="button">Sepia</button>
-        <button class="chip" data-theme="light" type="button">Light</button>
-        <button class="chip" data-theme="night" type="button">Night</button>
+      <div class="segmented" id="reader-theme-controls" role="group" aria-label="Theme">
+        <button class="chip active" id="theme-sepia" data-theme="sepia" type="button">Sepia</button>
+        <button class="chip" id="theme-light" data-theme="light" type="button">Light</button>
+        <button class="chip" id="theme-night" data-theme="night" type="button">Night</button>
       </div>
-      <div class="font-controls" aria-label="Font size">
+      <div class="font-controls" id="reader-font-controls" aria-label="Font size">
         <button id="font-smaller" type="button">A−</button>
         <button id="font-reset" type="button">A</button>
         <button id="font-larger" type="button">A+</button>
@@ -365,6 +372,7 @@
     </article>
   </main>
 
+  <script src="localization.js"></script>
   <script src="reader.js"></script>
 </body>
 
