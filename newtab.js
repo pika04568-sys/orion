@@ -319,12 +319,16 @@
     link.rel = 'noreferrer noopener';
 
     const displayTitle = clampText(shortcut.title || shortcut.name || shortcut.url || '?', MAX_TITLE_LENGTH) || shortcut.url || '?';
-    const label = document.createElement('b');
+    const label = document.createElement('span');
+    label.className = 'shortcut-badge';
     label.textContent = (shortcut.icon || displayTitle[0] || '?').toUpperCase();
 
-    const title = document.createElement('small');
+    const title = document.createElement('span');
+    title.className = 'shortcut-title';
     title.textContent = displayTitle;
 
+    link.setAttribute('aria-label', displayTitle);
+    link.title = displayTitle;
     link.append(label, title);
     link.addEventListener('click', (event) => {
       event.preventDefault();
