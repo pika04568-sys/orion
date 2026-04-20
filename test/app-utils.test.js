@@ -29,3 +29,29 @@ test("reader button state exposes translated labels and pressed state", () => {
     ariaPressed: "true"
   });
 });
+
+test("deferred startup controller runs window-ready work once and only once", () => {
+  const events = [];
+  const controller = appUtils.createDeferredStartupController();
+
+  controller.scheduleAfterWindowReady(() => events.push("queued"));
+  assert.equal(controller.markWindowReady(), true);
+  assert.equal(controller.markWindowReady(), false);
+
+  controller.scheduleAfterWindowReady(() => events.push("immediate"));
+
+  assert.deepEqual(events, ["queued", "immediate"]);
+});
+
+test("deferred startup controller triggers first-navigation work only for http urls", () => {
+  const events = [];
+  const controller = appUtils.createDeferredStartupController();
+
+  controller.scheduleOnFirstNavigation((url) => events.push(url));
+
+  assert.equal(controller.markNavigation("chrome://newtab"), false);
+  assert.equal(controller.markNavigation("https://example.com"), true);
+  assert.equal(controller.markNavigation("https://second.example.com"), false);
+
+  assert.deepEqual(events, ["https://example.com"]);
+});

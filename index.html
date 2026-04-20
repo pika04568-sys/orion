@@ -27,6 +27,18 @@
             --address-shell-border: rgba(255, 255, 255, .72);
             --address-shell-shadow: 0 16px 34px rgba(10, 24, 48, .12);
             --address-shell-highlight: rgba(255, 255, 255, .72);
+            --vista-btn-face: linear-gradient(180deg, rgba(255, 255, 255, .98) 0%, rgba(223, 238, 252, .96) 46%, rgba(180, 210, 243, .98) 100%);
+            --vista-btn-face-hover: linear-gradient(180deg, rgba(255, 255, 255, 1) 0%, rgba(235, 245, 255, .98) 42%, rgba(191, 221, 250, 1) 100%);
+            --vista-btn-face-active: linear-gradient(180deg, rgba(165, 202, 239, .98) 0%, rgba(214, 232, 251, .98) 100%);
+            --vista-btn-border: rgba(94, 136, 184, .68);
+            --vista-btn-border-strong: rgba(66, 111, 161, .86);
+            --vista-btn-highlight: rgba(255, 255, 255, .94);
+            --vista-btn-shadow: 0 1px 0 rgba(255, 255, 255, .92), 0 8px 18px rgba(50, 84, 123, .18);
+            --vista-btn-primary-face: linear-gradient(180deg, #fafdff 0%, #beddff 38%, #4c92e6 68%, #2d74cf 100%);
+            --vista-btn-primary-face-hover: linear-gradient(180deg, #ffffff 0%, #d0e9ff 34%, #5aa1f0 68%, #387fd8 100%);
+            --vista-btn-primary-face-active: linear-gradient(180deg, #2f73cb 0%, #6aa8ef 100%);
+            --vista-btn-primary-border: rgba(33, 87, 156, .92);
+            --vista-btn-primary-text: #f7fbff;
             --chrome-top: 82px;
             --tab-rail-width: 240px
         }
@@ -50,7 +62,19 @@
                 --address-shell-bg: linear-gradient(135deg, rgba(11, 20, 38, .82), rgba(15, 23, 42, .56));
                 --address-shell-border: rgba(154, 185, 226, .24);
                 --address-shell-shadow: 0 18px 38px rgba(0, 0, 0, .28);
-                --address-shell-highlight: rgba(255, 255, 255, .14)
+                --address-shell-highlight: rgba(255, 255, 255, .14);
+                --vista-btn-face: linear-gradient(180deg, rgba(45, 72, 112, .96) 0%, rgba(25, 43, 73, .98) 100%);
+                --vista-btn-face-hover: linear-gradient(180deg, rgba(56, 87, 132, .98) 0%, rgba(31, 53, 89, 1) 100%);
+                --vista-btn-face-active: linear-gradient(180deg, rgba(22, 37, 63, 1) 0%, rgba(50, 82, 123, .98) 100%);
+                --vista-btn-border: rgba(144, 184, 232, .42);
+                --vista-btn-border-strong: rgba(165, 203, 246, .62);
+                --vista-btn-highlight: rgba(255, 255, 255, .16);
+                --vista-btn-shadow: 0 1px 0 rgba(255, 255, 255, .08), 0 10px 20px rgba(0, 0, 0, .28);
+                --vista-btn-primary-face: linear-gradient(180deg, #82c5ff 0%, #3f84dd 54%, #214b92 100%);
+                --vista-btn-primary-face-hover: linear-gradient(180deg, #93d0ff 0%, #4f95eb 54%, #2a5aa8 100%);
+                --vista-btn-primary-face-active: linear-gradient(180deg, #20498f 0%, #5ba4f0 100%);
+                --vista-btn-primary-border: rgba(162, 208, 255, .72);
+                --vista-btn-primary-text: #f5fbff
             }
 
             body {
@@ -139,7 +163,19 @@
             --address-shell-bg: linear-gradient(135deg, rgba(26, 26, 26, .9), rgba(17, 17, 17, .72));
             --address-shell-border: rgba(68, 68, 68, .72);
             --address-shell-shadow: 0 18px 38px rgba(0, 0, 0, .42);
-            --address-shell-highlight: rgba(255, 255, 255, .08)
+            --address-shell-highlight: rgba(255, 255, 255, .08);
+            --vista-btn-face: linear-gradient(180deg, #303030 0%, #1c1c1c 100%);
+            --vista-btn-face-hover: linear-gradient(180deg, #3a3a3a 0%, #252525 100%);
+            --vista-btn-face-active: linear-gradient(180deg, #161616 0%, #343434 100%);
+            --vista-btn-border: rgba(120, 120, 120, .55);
+            --vista-btn-border-strong: rgba(160, 160, 160, .72);
+            --vista-btn-highlight: rgba(255, 255, 255, .08);
+            --vista-btn-shadow: 0 1px 0 rgba(255, 255, 255, .06), 0 10px 18px rgba(0, 0, 0, .32);
+            --vista-btn-primary-face: linear-gradient(180deg, #585858 0%, #303030 100%);
+            --vista-btn-primary-face-hover: linear-gradient(180deg, #666 0%, #3a3a3a 100%);
+            --vista-btn-primary-face-active: linear-gradient(180deg, #2a2a2a 0%, #525252 100%);
+            --vista-btn-primary-border: rgba(170, 170, 170, .6);
+            --vista-btn-primary-text: #f2f2f2
         }
 
         body.incognito-window::before {
@@ -625,23 +661,25 @@
         #incognito-tab-btn,
         #clear-tabs-btn {
             padding: 6px 10px;
-            border-radius: 10px;
+            border-radius: 11px;
             cursor: pointer;
-            color: var(--text-secondary);
+            color: #24415f;
             display: flex;
             align-items: center;
-            border: 1px solid transparent;
-            background: rgba(255, 255, 255, .55);
-            transition: transform .2s, border-color .2s, color .2s, background-color .2s
+            border: 1px solid var(--vista-btn-border);
+            background: var(--vista-btn-face);
+            box-shadow: inset 0 1px 0 var(--vista-btn-highlight), inset 0 -1px 0 rgba(95, 145, 203, .22), var(--vista-btn-shadow);
+            transition: transform .2s, border-color .2s, color .2s, background .2s, box-shadow .2s
         }
 
         #new-tab-btn:hover,
         #incognito-tab-btn:hover,
         #clear-tabs-btn:hover {
             transform: translateY(-1px);
-            border-color: rgba(15, 107, 255, .28);
-            color: var(--accent-color);
-            background: rgba(255, 255, 255, .88)
+            border-color: var(--vista-btn-border-strong);
+            color: #153757;
+            background: var(--vista-btn-face-hover);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, .98), inset 0 -1px 0 rgba(73, 134, 201, .26), 0 10px 22px rgba(61, 99, 143, .22)
         }
 
         #toolbar {
@@ -662,34 +700,55 @@
         .nav-btn {
             width: 32px;
             height: 32px;
-            border-radius: 10px;
+            border-radius: 11px;
             display: flex;
             align-items: center;
             justify-content: center;
             cursor: pointer;
-            color: var(--text-secondary);
-            border: 1px solid transparent;
-            background: rgba(255, 255, 255, .55);
-            transition: transform .2s, border-color .2s, color .2s, background-color .2s
+            color: #24415f;
+            border: 1px solid var(--vista-btn-border);
+            background: var(--vista-btn-face);
+            box-shadow: inset 0 1px 0 var(--vista-btn-highlight), inset 0 -1px 0 rgba(95, 145, 203, .22), var(--vista-btn-shadow);
+            transition: transform .2s, border-color .2s, color .2s, background .2s, box-shadow .2s
         }
 
         .nav-btn:hover {
-            background: rgba(255, 255, 255, .92);
-            border-color: rgba(15, 107, 255, .24);
-            color: var(--text-primary);
-            transform: translateY(-1px)
+            background: var(--vista-btn-face-hover);
+            border-color: var(--vista-btn-border-strong);
+            color: #153757;
+            transform: translateY(-1px);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, .98), inset 0 -1px 0 rgba(73, 134, 201, .26), 0 10px 22px rgba(61, 99, 143, .22)
         }
 
         .nav-btn.reader-active {
-            color: var(--accent-color);
-            border-color: rgba(15, 107, 255, .28);
-            background: rgba(15, 107, 255, .12)
+            color: var(--vista-btn-primary-text);
+            border-color: var(--vista-btn-primary-border);
+            background: var(--vista-btn-primary-face);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, .3), inset 0 -1px 0 rgba(7, 48, 103, .28), 0 12px 24px rgba(31, 95, 173, .32)
         }
 
         .nav-btn:focus-visible {
             outline: 0;
-            border-color: var(--accent-color);
-            box-shadow: 0 0 0 3px rgba(15, 107, 255, .16)
+            border-color: var(--vista-btn-border-strong);
+            box-shadow: 0 0 0 3px rgba(92, 168, 255, .22), inset 0 1px 0 rgba(255, 255, 255, .98), var(--vista-btn-shadow)
+        }
+
+        .nav-btn:active,
+        #new-tab-btn:active,
+        #incognito-tab-btn:active,
+        #clear-tabs-btn:active,
+        .bookmarks-bar-item:active,
+        .panel-close-btn:active,
+        .clear-history-btn:active,
+        .adblock-inline-actions button:active,
+        #refresh-adblock-lists:active,
+        #reset-adblock-defaults:active,
+        .modal-content button:active,
+        .settings-btn:active,
+        .language-choice-btn:active {
+            transform: translateY(1px);
+            background: var(--vista-btn-face-active);
+            box-shadow: inset 0 2px 6px rgba(46, 88, 135, .22), 0 1px 0 rgba(255, 255, 255, .65)
         }
 
         #address-bar-container {
@@ -804,20 +863,22 @@
             gap: 6px;
             padding: 5px 10px;
             border-radius: 999px;
-            border: 1px solid transparent;
+            border: 1px solid var(--vista-btn-border);
             cursor: pointer;
             font-size: 13px;
             white-space: nowrap;
-            color: var(--text-primary);
-            background: rgba(255, 255, 255, .55);
-            transition: border-color .2s, transform .2s, background-color .2s, color .2s
+            color: #23415f;
+            background: var(--vista-btn-face);
+            box-shadow: inset 0 1px 0 var(--vista-btn-highlight), inset 0 -1px 0 rgba(95, 145, 203, .2), 0 7px 14px rgba(50, 84, 123, .14);
+            transition: border-color .2s, transform .2s, background .2s, color .2s, box-shadow .2s
         }
 
         .bookmarks-bar-item:hover {
-            border-color: rgba(15, 107, 255, .25);
-            color: var(--accent-color);
+            border-color: var(--vista-btn-border-strong);
+            color: #153757;
             transform: translateY(-1px);
-            background: rgba(255, 255, 255, .92)
+            background: var(--vista-btn-face-hover);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, .98), inset 0 -1px 0 rgba(73, 134, 201, .24), 0 10px 18px rgba(61, 99, 143, .2)
         }
 
         .bookmarks-bar-item img {
@@ -1092,19 +1153,20 @@
             width: 40px;
             height: 40px;
             border-radius: 12px;
-            border: 1px solid var(--border-color);
-            background: var(--card-bg);
-            color: var(--text-secondary);
+            border: 1px solid var(--vista-btn-border);
+            background: var(--vista-btn-face);
+            color: #274465;
             font-size: 22px;
             line-height: 1;
-            box-shadow: 0 8px 20px rgba(2, 6, 23, .08);
-            transition: transform .2s, border-color .2s, color .2s, box-shadow .2s
+            box-shadow: inset 0 1px 0 var(--vista-btn-highlight), inset 0 -1px 0 rgba(95, 145, 203, .22), var(--vista-btn-shadow);
+            transition: transform .2s, border-color .2s, color .2s, box-shadow .2s, background .2s
         }
 
         .panel-close-btn:hover {
-            border-color: var(--accent-color);
-            color: var(--accent-color);
-            box-shadow: 0 12px 24px rgba(2, 6, 23, .12);
+            border-color: var(--vista-btn-border-strong);
+            color: #153757;
+            background: var(--vista-btn-face-hover);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, .98), inset 0 -1px 0 rgba(73, 134, 201, .24), 0 12px 24px rgba(61, 99, 143, .22);
             transform: translateY(-1px)
         }
 
@@ -1244,17 +1306,20 @@
             height: 38px;
             padding: 0 14px;
             border-radius: 12px;
-            border: 1px solid var(--border-color);
-            background: rgba(148, 163, 184, .08);
-            color: var(--text-primary);
+            border: 1px solid var(--vista-btn-border);
+            background: var(--vista-btn-face);
+            color: #23415f;
             font-size: 13px;
             font-weight: 600;
             cursor: pointer;
-            transition: background-color .2s, transform .2s, box-shadow .2s
+            box-shadow: inset 0 1px 0 var(--vista-btn-highlight), inset 0 -1px 0 rgba(95, 145, 203, .18), 0 7px 14px rgba(50, 84, 123, .14);
+            transition: background .2s, transform .2s, box-shadow .2s, border-color .2s
         }
 
         .adblock-inline-actions button:hover {
-            background: rgba(148, 163, 184, .16);
+            background: var(--vista-btn-face-hover);
+            border-color: var(--vista-btn-border-strong);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, .98), inset 0 -1px 0 rgba(73, 134, 201, .24), 0 10px 18px rgba(61, 99, 143, .18);
             transform: translateY(-1px)
         }
 
@@ -1348,18 +1413,21 @@
             padding: 0 18px;
             min-width: 180px;
             border-radius: 12px;
-            border: 1px solid var(--border-color);
+            border: 1px solid var(--vista-btn-border);
             font-size: 14px;
             font-weight: 600;
-            color: var(--text-primary);
-            background: rgba(148, 163, 184, .08);
+            color: #23415f;
+            background: var(--vista-btn-face);
+            box-shadow: inset 0 1px 0 var(--vista-btn-highlight), inset 0 -1px 0 rgba(95, 145, 203, .2), 0 8px 16px rgba(50, 84, 123, .14);
             cursor: pointer;
-            transition: transform .2s, background-color .2s, box-shadow .2s
+            transition: transform .2s, background .2s, box-shadow .2s, border-color .2s
         }
 
         #refresh-adblock-lists:hover,
         #reset-adblock-defaults:hover {
-            background: rgba(148, 163, 184, .16);
+            background: var(--vista-btn-face-hover);
+            border-color: var(--vista-btn-border-strong);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, .98), inset 0 -1px 0 rgba(73, 134, 201, .24), 0 12px 20px rgba(61, 99, 143, .18);
             transform: translateY(-1px)
         }
 
@@ -1368,20 +1436,21 @@
             padding: 0 20px;
             min-width: 220px;
             border-radius: 12px;
-            border: 0;
+            border: 1px solid var(--vista-btn-primary-border);
             font-size: 14px;
             font-weight: 600;
-            color: #fff;
-            background: var(--accent-color);
-            box-shadow: 0 12px 24px rgba(15, 107, 255, .25);
+            color: var(--vista-btn-primary-text);
+            background: var(--vista-btn-primary-face);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, .34), inset 0 -1px 0 rgba(7, 48, 103, .28), 0 14px 26px rgba(31, 95, 173, .3);
             cursor: pointer;
-            transition: transform .2s, box-shadow .2s, background-color .2s
+            transition: transform .2s, box-shadow .2s, background .2s, border-color .2s
         }
 
         #save-adblock-rules:hover {
-            background: var(--accent-hover);
+            background: var(--vista-btn-primary-face-hover);
+            border-color: var(--vista-btn-primary-border);
             transform: translateY(-1px);
-            box-shadow: 0 16px 32px rgba(15, 107, 255, .3)
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, .42), inset 0 -1px 0 rgba(7, 48, 103, .3), 0 18px 32px rgba(31, 95, 173, .34)
         }
 
         #save-adblock-rules:focus-visible {
@@ -1509,9 +1578,9 @@
         .clear-history-btn {
             padding: 8px 16px;
             border-radius: 10px;
-            border: 0;
-            background: 0;
-            color: var(--text-secondary);
+            border: 1px solid transparent;
+            background: transparent;
+            color: #33516f;
             font-size: 13px;
             font-weight: 500;
             cursor: pointer;
@@ -1520,9 +1589,10 @@
         }
 
         .clear-history-btn:hover {
-            background: rgba(255, 255, 255, .96);
-            color: var(--accent-color);
-            box-shadow: 0 8px 18px rgba(15, 107, 255, .18);
+            background: var(--vista-btn-face-hover);
+            border-color: var(--vista-btn-border-strong);
+            color: #153757;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, .98), inset 0 -1px 0 rgba(73, 134, 201, .22), 0 8px 18px rgba(61, 99, 143, .18);
             transform: translateY(-1px)
         }
 
@@ -1639,20 +1709,24 @@
         }
 
         .modal-content button {
-            border: 1px solid var(--border-color);
+            border: 1px solid var(--vista-btn-border);
             border-radius: 10px;
             height: 36px;
             padding: 0 14px;
             font-size: 13px;
             font-weight: 600;
-            color: var(--text-primary);
-            background: rgba(255, 255, 255, .86);
+            color: #23415f;
+            background: var(--vista-btn-face);
             cursor: pointer;
-            transition: transform .2s, border-color .2s, background-color .2s
+            box-shadow: inset 0 1px 0 var(--vista-btn-highlight), inset 0 -1px 0 rgba(95, 145, 203, .2), 0 7px 14px rgba(50, 84, 123, .14);
+            transition: transform .2s, border-color .2s, background .2s, box-shadow .2s
         }
 
         .modal-content button:hover {
-            transform: translateY(-1px)
+            transform: translateY(-1px);
+            border-color: var(--vista-btn-border-strong);
+            background: var(--vista-btn-face-hover);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, .98), inset 0 -1px 0 rgba(73, 134, 201, .24), 0 10px 18px rgba(61, 99, 143, .18)
         }
 
         #rename-input {
@@ -1674,14 +1748,14 @@
 
         #rename-save-btn,
         #add-to-both-btn {
-            background: var(--accent-color);
-            border-color: transparent;
-            color: #fff
+            background: var(--vista-btn-primary-face);
+            border-color: var(--vista-btn-primary-border);
+            color: var(--vista-btn-primary-text)
         }
 
         #rename-save-btn:hover,
         #add-to-both-btn:hover {
-            background: var(--accent-hover)
+            background: var(--vista-btn-primary-face-hover)
         }
 
         #bookmark-dest-modal .modal-content {
@@ -1863,17 +1937,23 @@
         }
 
         .settings-btn {
-            border: 0;
+            border: 1px solid var(--vista-btn-border);
             border-radius: 12px;
             padding: 10px 14px;
             font-size: 13px;
             font-weight: 600;
             cursor: pointer;
-            transition: transform .2s, box-shadow .2s
+            color: #23415f;
+            background: var(--vista-btn-face);
+            box-shadow: inset 0 1px 0 var(--vista-btn-highlight), inset 0 -1px 0 rgba(95, 145, 203, .2), 0 8px 16px rgba(50, 84, 123, .14);
+            transition: transform .2s, box-shadow .2s, background .2s, border-color .2s
         }
 
         .settings-btn:hover {
-            transform: translateY(-1px)
+            transform: translateY(-1px);
+            border-color: var(--vista-btn-border-strong);
+            background: var(--vista-btn-face-hover);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, .98), inset 0 -1px 0 rgba(73, 134, 201, .24), 0 12px 20px rgba(61, 99, 143, .18)
         }
 
         .settings-btn:disabled {
@@ -1884,15 +1964,15 @@
         }
 
         .settings-btn-primary {
-            background: var(--accent-color);
-            color: #fff;
-            box-shadow: 0 10px 26px rgba(15, 107, 255, .25)
+            background: var(--vista-btn-primary-face);
+            border-color: var(--vista-btn-primary-border);
+            color: var(--vista-btn-primary-text);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, .34), inset 0 -1px 0 rgba(7, 48, 103, .28), 0 14px 24px rgba(31, 95, 173, .28)
         }
 
         .settings-btn-secondary {
-            background: rgba(148, 163, 184, .15);
-            color: var(--text-primary);
-            border: 1px solid var(--border-color)
+            background: var(--vista-btn-face);
+            color: #23415f
         }
 
         .settings-version {
@@ -2043,27 +2123,29 @@
         .language-choice-btn {
             min-height: 58px;
             border-radius: 16px;
-            border: 1px solid var(--border-color);
-            background: rgba(255, 255, 255, .78);
-            color: var(--text-primary);
+            border: 1px solid var(--vista-btn-border);
+            background: var(--vista-btn-face);
+            color: #23415f;
             font-family: inherit;
             font-size: 16px;
             font-weight: 700;
             cursor: pointer;
-            transition: transform .2s, border-color .2s, box-shadow .2s, background-color .2s
+            box-shadow: inset 0 1px 0 var(--vista-btn-highlight), inset 0 -1px 0 rgba(95, 145, 203, .2), 0 12px 22px rgba(50, 84, 123, .14);
+            transition: transform .2s, border-color .2s, box-shadow .2s, background .2s
         }
 
         .language-choice-btn:hover {
             transform: translateY(-1px);
-            border-color: rgba(15, 107, 255, .34);
-            box-shadow: 0 14px 28px rgba(9, 26, 52, .12)
+            border-color: var(--vista-btn-border-strong);
+            background: var(--vista-btn-face-hover);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, .98), inset 0 -1px 0 rgba(73, 134, 201, .24), 0 16px 28px rgba(61, 99, 143, .18)
         }
 
         .language-choice-btn.active {
-            border-color: transparent;
-            background: linear-gradient(135deg, var(--accent-color), #38bdf8);
-            color: #fff;
-            box-shadow: 0 16px 30px rgba(15, 107, 255, .24)
+            border-color: var(--vista-btn-primary-border);
+            background: var(--vista-btn-primary-face);
+            color: var(--vista-btn-primary-text);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, .34), inset 0 -1px 0 rgba(7, 48, 103, .28), 0 16px 30px rgba(31, 95, 173, .28)
         }
 
         @media (max-width:900px) {

@@ -372,6 +372,57 @@
     };
   }
 
+  function createDeferredStartupController(options = {}) {
+    const isDeferredNavigation =
+      typeof options.isDeferredNavigation === "function"
+        ? options.isDeferredNavigation
+        : (url) => typeof url === "string" && /^https?:/i.test(url);
+
+    let windowReady = false;
+    let firstNavigationHandled = false;
+    const windowReadyTasks = [];
+    const firstNavigationTasks = [];
+
+    const runQueuedTasks = (queue, value) => {
+      while (queue.length) {
+        const task = queue.shift();
+        try {
+          task(value);
+        } catch (_error) {}
+      }
+    };
+
+    return {
+      markWindowReady() {
+        if (windowReady) return false;
+        windowReady = true;
+        runQueuedTasks(windowReadyTasks);
+        return true;
+      },
+      markNavigation(url) {
+        if (firstNavigationHandled || !isDeferredNavigation(url)) return false;
+        firstNavigationHandled = true;
+        runQueuedTasks(firstNavigationTasks, url);
+        return true;
+      },
+      scheduleAfterWindowReady(task) {
+        if (typeof task !== "function") return false;
+        if (windowReady) {
+          task();
+          return true;
+        }
+        windowReadyTasks.push(task);
+        return false;
+      },
+      scheduleOnFirstNavigation(task) {
+        if (typeof task !== "function") return false;
+        if (firstNavigationHandled) return true;
+        firstNavigationTasks.push(task);
+        return false;
+      }
+    };
+  }
+
   function syncTabRecord(tabList, tabId, patch = {}) {
     if (!Array.isArray(tabList) || !tabId) return null;
     const tab = tabList.find((entry) => entry && entry.id === tabId);
@@ -524,6 +575,7 @@
     ORION_SCHEME,
     ELECTRON_PAGE_CHANNELS,
     canUseElectronChannel,
+    createDeferredStartupController,
     INTERNAL_PAGE_ALIASES,
     createExtensionCard,
     createTabElement,

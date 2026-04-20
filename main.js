@@ -98,6 +98,9 @@ const GITHUB_UPDATE_FEED = {
   repo: "orion",
   releaseType: "release"
 };
+const STARTUP_DEFERRED_ADBLOCK_DELAY_MS = 2500;
+const STARTUP_DEFERRED_EXTENSION_RESTORE_DELAY_MS = 1200;
+const STARTUP_DEFERRED_UPDATE_CHECK_DELAY_MS = 8000;
 
 let updaterState = {
   state: "idle",
@@ -111,6 +114,101 @@ let updaterCheckPromise = null;
 let updaterCheckOrigin = "startup";
 let installPromptPromise = null;
 let installingUpdate = false;
+let deferredStartup = appUtils.createDeferredStartupController({
+  isDeferredNavigation: (url) => isHttpUrl(url)
+});
+let scheduledExtensionRestoreProfiles = new Set();
+let restoredExtensionProfiles = new Set();
+let startupDeferredTimers = new Set();
+
+function scheduleDeferredStartupTask(delayMs, task) {
+  if (typeof task !== "function") return null;
+  const timeoutMs = Math.max(0, Number.isFinite(delayMs) ? delayMs : 0);
+  const timer = setTimeout(() => {
+    startupDeferredTimers.delete(timer);
+    try {
+      task();
+    } catch (error) {
+      console.error("Deferred startup task failed:", error && error.message ? error.message : error);
+    }
+  }, timeoutMs);
+  startupDeferredTimers.add(timer);
+  return timer;
+}
+
+function runAfterFirstWindowReady(task, delayMs = 0) {
+  return deferredStartup.scheduleAfterWindowReady(() => {
+    scheduleDeferredStartupTask(delayMs, task);
+  });
+}
+
+function runOnFirstHttpNavigation(task) {
+  return deferredStartup.scheduleOnFirstNavigation(task);
+}
+
+function markFirstWindowReady() {
+  return deferredStartup.markWindowReady();
+}
+
+function noteHttpNavigation(url) {
+  return deferredStartup.markNavigation(url);
+}
+
+function ensureAdblockReadyForSession() {
+  if (!adblockManager) return null;
+  return adblockManager.ensureBlockingReady();
+}
+
+function hasActiveAdblockRules(state) {
+  if (!state) return false;
+  if (typeof state.customRules === "string" && state.customRules.trim()) return true;
+  return Array.isArray(state.lists)
+    && state.lists.some((list) => list && list.enabled !== false && Number(list.ruleCount) > 0);
+}
+
+async function prepareAdblockForNavigation() {
+  const state = ensureAdblockReadyForSession();
+  if (!adblockManager || hasActiveAdblockRules(state)) return state;
+  try {
+    return await adblockManager.refreshBuiltInLists({ force: true, reason: "navigation" });
+  } catch (_error) {
+    return adblockManager.getState();
+  }
+}
+
+function scheduleAdblockWarmup() {
+  runOnFirstHttpNavigation(() => {
+    ensureAdblockReadyForSession();
+  });
+  runAfterFirstWindowReady(() => {
+    ensureAdblockReadyForSession();
+    void adblockManager.refreshBuiltInLists({ reason: "startup" });
+  }, STARTUP_DEFERRED_ADBLOCK_DELAY_MS);
+}
+
+function scheduleExtensionRestoreForWindow(win) {
+  if (!win || win.isDestroyed() || win.incognitoWindow) return;
+  const profileIndex = win.profileIndex;
+  if (restoredExtensionProfiles.has(profileIndex) || scheduledExtensionRestoreProfiles.has(profileIndex)) return;
+  scheduledExtensionRestoreProfiles.add(profileIndex);
+
+  runAfterFirstWindowReady(() => {
+    if (win.isDestroyed()) {
+      scheduledExtensionRestoreProfiles.delete(profileIndex);
+      return;
+    }
+    scheduledExtensionRestoreProfiles.delete(profileIndex);
+    restoredExtensionProfiles.add(profileIndex);
+    const partition = getPartitionForProfile(profileIndex, false);
+    void restoreStoredExtensionsForProfile(profileIndex, partition, win);
+  }, STARTUP_DEFERRED_EXTENSION_RESTORE_DELAY_MS);
+}
+
+function scheduleStartupUpdateCheck() {
+  runAfterFirstWindowReady(() => {
+    void checkForUpdates("startup");
+  }, STARTUP_DEFERRED_UPDATE_CHECK_DELAY_MS);
+}
 
 function getCurrentLocale() {
   return localization.sanitizeLocale(bSett && bSett.locale);
@@ -1973,7 +2071,10 @@ function loadTabUrl(tabId, pIdx, rawUrl, options = {}) {
 
   if (isInternalUrl(normalizedUrl)) return loadInternal(view.webContents, normalizedUrl);
   if (isHttpUrl(normalizedUrl)) {
-    return view.webContents.loadURL(normalizedUrl).catch(() => false);
+    noteHttpNavigation(normalizedUrl);
+    return prepareAdblockForNavigation()
+      .then(() => view.webContents.loadURL(normalizedUrl))
+      .catch(() => false);
   }
   return loadInternal(view.webContents, "chrome://newtab");
 }
@@ -2068,7 +2169,7 @@ function createW(pIdx = 0, opts = {}) {
     saveH();
   });
   broadcast();
-  if (!isIncognito) void restoreStoredExtensionsForProfile(pIdx, partition, win);
+  scheduleExtensionRestoreForWindow(win);
   return win;
 }
 
@@ -2539,6 +2640,7 @@ ipcMain.on("renderer-ready", withTrustedSender((e) => {
   if (w) {
     createT(w.profileIndex, w);
     broadcast();
+    markFirstWindowReady();
   }
 }, null));
 ipcMain.handle("get-window-bootstrap-state", withTrustedSender((e) => {
@@ -2886,11 +2988,9 @@ app.whenReady().then(() => {
   adblockManager = adblock.createAdblockManager({
     userDataDir: app.getPath("userData")
   });
-  adblockManager.initialize();
-  void adblockManager.refreshBuiltInLists({ reason: "startup" });
+  adblockManager.initialize({ lazy: true });
   createW(0);
   configureAutoUpdater();
-  setTimeout(() => {
-    void checkForUpdates("startup");
-  }, 5000);
+  scheduleAdblockWarmup();
+  scheduleStartupUpdateCheck();
 });

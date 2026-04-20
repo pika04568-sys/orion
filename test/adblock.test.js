@@ -126,10 +126,61 @@ test("custom rules persist and survive restart from the cached state", async () 
     fetchImpl: async () => ({ ok: true, text: async () => "" })
   });
 
-  restarted.initialize();
+  const restartedState = restarted.initialize({ lazy: true });
+  assert.equal(restartedState.blockingReady, false);
   assert.equal(
     restarted.shouldBlockRequest({
       url: "https://custom.example.com/ad.js",
+      resourceType: "script",
+      referrer: "https://news.example.org/"
+    }),
+    true
+  );
+});
+
+test("lazy initialization returns state before filter compilation and compiles on demand", async () => {
+  const userDataDir = createTempDir();
+  const listUrl = "https://lists.local/easylist.txt";
+  const manager = adblock.createAdblockManager({
+    userDataDir,
+    lists: [
+      {
+        id: "easylist",
+        name: "EasyList",
+        url: listUrl,
+        description: "Test list"
+      }
+    ],
+    fetchImpl: makeFetchStub({ [listUrl]: "||lazy.example.com^" })
+  });
+
+  manager.initialize();
+  await manager.refreshBuiltInLists({ force: true });
+
+  const restarted = adblock.createAdblockManager({
+    userDataDir,
+    lists: [
+      {
+        id: "easylist",
+        name: "EasyList",
+        url: listUrl,
+        description: "Test list"
+      }
+    ],
+    fetchImpl: makeFetchStub({ [listUrl]: "||lazy.example.com^" })
+  });
+
+  const initialState = restarted.initialize({ lazy: true });
+  assert.equal(initialState.blockingReady, false);
+  assert.equal(initialState.cacheHydrated, false);
+  assert.equal(initialState.lists[0].ruleCount, 1);
+
+  restarted.ensureBlockingReady();
+  const readyState = restarted.getState();
+  assert.equal(readyState.blockingReady, true);
+  assert.equal(
+    restarted.shouldBlockRequest({
+      url: "https://lazy.example.com/ad.js",
       resourceType: "script",
       referrer: "https://news.example.org/"
     }),

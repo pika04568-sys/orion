@@ -481,6 +481,8 @@ function createAdblockManager(options = {}) {
 
   const compiledLists = new Map();
   const engine = new FilterEngine();
+  let cacheHydrated = false;
+  let blockingReady = false;
   let syncState = {
     status: "idle",
     message: "Adblock lists loaded from cache.",
@@ -514,6 +516,7 @@ function createAdblockManager(options = {}) {
       };
     });
     engine.rebuild(listEntries, state.customRules);
+    blockingReady = true;
   }
 
   function loadCachedList(listId) {
@@ -527,8 +530,10 @@ function createAdblockManager(options = {}) {
   }
 
   function hydrateFromCache() {
+    if (cacheHydrated) return;
     fs.mkdirSync(cacheDir, { recursive: true });
     for (const def of listDefinitions) {
+      if (compiledLists.has(def.id)) continue;
       const text = loadCachedList(def.id);
       compiledLists.set(def.id, {
         text,
@@ -540,7 +545,20 @@ function createAdblockManager(options = {}) {
         state.lists[def.id].ruleCount = parsed.counts.block + parsed.counts.allow;
       }
     }
+    cacheHydrated = true;
+  }
+
+  function ensureBlockingReady() {
+    if (blockingReady) return getState();
+    hydrateFromCache();
     ensureCompiledLists();
+    return getState();
+  }
+
+  function rebuildBlockingEngine() {
+    hydrateFromCache();
+    ensureCompiledLists();
+    return getState();
   }
 
   async function fetchText(url) {
@@ -663,6 +681,8 @@ function createAdblockManager(options = {}) {
     });
 
     return {
+      blockingReady,
+      cacheHydrated,
       customRules: state.customRules,
       hasCustomRules: !!state.customRules.trim(),
       lists,
@@ -675,7 +695,9 @@ function createAdblockManager(options = {}) {
   }
 
   function recompile() {
-    ensureCompiledLists();
+    if (blockingReady) {
+      rebuildBlockingEngine();
+    }
     persistState();
     return getState();
   }
@@ -700,11 +722,16 @@ function createAdblockManager(options = {}) {
   }
 
   function shouldBlockRequest(details) {
+    ensureBlockingReady();
     return engine.shouldBlockRequest(details);
   }
 
-  function initialize() {
-    hydrateFromCache();
+  function initialize(initOptions = {}) {
+    cacheHydrated = false;
+    blockingReady = false;
+    if (!initOptions || initOptions.lazy !== true) {
+      ensureBlockingReady();
+    }
     persistState();
     return getState();
   }
@@ -712,6 +739,7 @@ function createAdblockManager(options = {}) {
   return {
     initialize,
     getState,
+    ensureBlockingReady,
     resetToDefaults,
     refreshBuiltInLists,
     setListEnabled,

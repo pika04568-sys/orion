@@ -18,6 +18,18 @@
             --accent-hover: #0a57d3;
             --danger: #ef4444;
             --danger-bg: rgba(239, 68, 68, 0.08);
+            --vista-btn-face: linear-gradient(180deg, rgba(255, 255, 255, .98) 0%, rgba(223, 238, 252, .96) 46%, rgba(180, 210, 243, .98) 100%);
+            --vista-btn-face-hover: linear-gradient(180deg, rgba(255, 255, 255, 1) 0%, rgba(235, 245, 255, .98) 42%, rgba(191, 221, 250, 1) 100%);
+            --vista-btn-face-active: linear-gradient(180deg, rgba(165, 202, 239, .98) 0%, rgba(214, 232, 251, .98) 100%);
+            --vista-btn-border: rgba(94, 136, 184, .68);
+            --vista-btn-border-strong: rgba(66, 111, 161, .86);
+            --vista-btn-highlight: rgba(255, 255, 255, .94);
+            --vista-btn-shadow: 0 1px 0 rgba(255, 255, 255, .92), 0 8px 18px rgba(50, 84, 123, .18);
+            --vista-btn-primary-face: linear-gradient(180deg, #fafdff 0%, #beddff 38%, #4c92e6 68%, #2d74cf 100%);
+            --vista-btn-primary-face-hover: linear-gradient(180deg, #ffffff 0%, #d0e9ff 34%, #5aa1f0 68%, #387fd8 100%);
+            --vista-btn-primary-face-active: linear-gradient(180deg, #2f73cb 0%, #6aa8ef 100%);
+            --vista-btn-primary-border: rgba(33, 87, 156, .92);
+            --vista-btn-primary-text: #f7fbff;
         }
 
         * {
@@ -132,25 +144,29 @@
 
         button {
             height: 42px;
-            border: 0;
+            border: 1px solid var(--vista-btn-border);
             border-radius: 12px;
             padding: 0 18px;
             font-size: 14px;
             font-weight: 600;
+            color: #23415f;
+            background: var(--vista-btn-face);
             cursor: pointer;
-            transition: transform 0.2s, box-shadow 0.2s, background-color 0.2s, border-color 0.2s;
+            box-shadow: inset 0 1px 0 var(--vista-btn-highlight), inset 0 -1px 0 rgba(95, 145, 203, .2), var(--vista-btn-shadow);
+            transition: transform 0.2s, box-shadow 0.2s, background 0.2s, border-color 0.2s;
         }
 
         #load-btn {
-            background: var(--accent);
-            color: #fff;
-            box-shadow: 0 12px 22px rgba(15, 107, 255, 0.24);
+            border-color: var(--vista-btn-primary-border);
+            background: var(--vista-btn-primary-face);
+            color: var(--vista-btn-primary-text);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, .34), inset 0 -1px 0 rgba(7, 48, 103, .28), 0 14px 24px rgba(31, 95, 173, .28);
         }
 
         #load-btn:hover {
-            background: var(--accent-hover);
+            background: var(--vista-btn-primary-face-hover);
             transform: translateY(-1px);
-            box-shadow: 0 16px 30px rgba(15, 107, 255, 0.28);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, .42), inset 0 -1px 0 rgba(7, 48, 103, .3), 0 18px 30px rgba(31, 95, 173, .32);
         }
 
         #load-btn:disabled {
@@ -246,19 +262,25 @@
         }
 
         .remove-btn {
-            border: 1px solid rgba(239, 68, 68, 0.3);
-            background: var(--danger-bg);
+            border: 1px solid rgba(196, 98, 98, 0.56);
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(255, 231, 231, 0.98) 48%, rgba(248, 198, 198, 0.98) 100%);
             color: var(--danger);
             height: 34px;
             padding: 0 12px;
             border-radius: 10px;
             font-size: 13px;
-            box-shadow: none;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, .92), 0 7px 14px rgba(146, 62, 62, .12);
         }
 
         .remove-btn:hover {
-            background: rgba(239, 68, 68, 0.16);
+            background: linear-gradient(180deg, rgba(255, 255, 255, 1) 0%, rgba(255, 240, 240, 1) 42%, rgba(250, 210, 210, 1) 100%);
             transform: translateY(-1px);
+        }
+
+        button:active,
+        .remove-btn:active {
+            transform: translateY(1px);
+            box-shadow: inset 0 2px 6px rgba(46, 88, 135, .18), 0 1px 0 rgba(255, 255, 255, .65);
         }
 
         .empty-state {

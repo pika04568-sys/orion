@@ -21,6 +21,18 @@
       --page-font-family: Georgia, "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
       --chrome-bg: rgba(24, 18, 12, 0.72);
       --chrome-border: rgba(255, 255, 255, 0.12);
+      --vista-btn-face: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(234, 240, 247, 0.98) 45%, rgba(194, 208, 225, 0.98) 100%);
+      --vista-btn-face-hover: linear-gradient(180deg, rgba(255, 255, 255, 1) 0%, rgba(243, 248, 253, 0.98) 42%, rgba(208, 222, 238, 1) 100%);
+      --vista-btn-face-active: linear-gradient(180deg, rgba(181, 196, 214, 0.98) 0%, rgba(223, 232, 242, 0.98) 100%);
+      --vista-btn-border: rgba(126, 145, 168, 0.76);
+      --vista-btn-border-strong: rgba(102, 124, 150, 0.9);
+      --vista-btn-highlight: rgba(255, 255, 255, 0.94);
+      --vista-btn-shadow: 0 1px 0 rgba(255, 255, 255, 0.86), 0 8px 18px rgba(15, 22, 33, 0.2);
+      --vista-btn-primary-face: linear-gradient(180deg, #fbfdff 0%, #d1e6fb 34%, #6f8fb5 72%, #536f92 100%);
+      --vista-btn-primary-face-hover: linear-gradient(180deg, #ffffff 0%, #deefff 34%, #7d9dc2 72%, #5d7b9e 100%);
+      --vista-btn-primary-face-active: linear-gradient(180deg, #516d8f 0%, #87a8cc 100%);
+      --vista-btn-primary-border: rgba(87, 109, 136, 0.92);
+      --vista-btn-primary-text: #f9fbff;
     }
 
     * {
@@ -51,6 +63,17 @@
       --page-accent: #8bc4ff;
       --chrome-bg: rgba(8, 12, 18, 0.8);
       --chrome-border: rgba(255, 255, 255, 0.1);
+      --vista-btn-face: linear-gradient(180deg, rgba(59, 77, 102, 0.96) 0%, rgba(28, 38, 52, 0.98) 100%);
+      --vista-btn-face-hover: linear-gradient(180deg, rgba(72, 94, 122, 0.98) 0%, rgba(36, 49, 66, 1) 100%);
+      --vista-btn-face-active: linear-gradient(180deg, rgba(23, 31, 43, 1) 0%, rgba(63, 84, 110, 0.98) 100%);
+      --vista-btn-border: rgba(171, 198, 229, 0.4);
+      --vista-btn-border-strong: rgba(197, 219, 246, 0.62);
+      --vista-btn-highlight: rgba(255, 255, 255, 0.16);
+      --vista-btn-shadow: 0 1px 0 rgba(255, 255, 255, 0.08), 0 10px 20px rgba(0, 0, 0, 0.3);
+      --vista-btn-primary-face: linear-gradient(180deg, #8dc8ff 0%, #4b82bc 56%, #27466f 100%);
+      --vista-btn-primary-face-hover: linear-gradient(180deg, #9ed0ff 0%, #5b92cd 56%, #325583 100%);
+      --vista-btn-primary-face-active: linear-gradient(180deg, #24446b 0%, #6798cf 100%);
+      --vista-btn-primary-border: rgba(173, 213, 250, 0.72);
     }
 
     body[data-theme="sepia"] {
@@ -117,34 +140,55 @@
 
     .chip,
     .button {
-      border: none;
       border-radius: 999px;
       font: inherit;
       cursor: pointer;
-      transition: transform 0.18s ease, background 0.18s ease, color 0.18s ease;
+      transition: transform 0.18s ease, background 0.18s ease, color 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
     }
 
     .chip {
       padding: 8px 12px;
+      border: 1px solid transparent;
       background: transparent;
       color: rgba(255, 255, 255, 0.72);
     }
 
     .chip.active {
-      background: rgba(255, 255, 255, 0.14);
-      color: #fff;
+      border-color: var(--vista-btn-primary-border);
+      background: var(--vista-btn-primary-face);
+      color: var(--vista-btn-primary-text);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3), inset 0 -1px 0 rgba(16, 45, 83, 0.28), 0 8px 18px rgba(9, 15, 24, 0.26);
     }
 
     .button {
       padding: 10px 14px;
-      background: #fff;
-      color: #18130e;
+      border: 1px solid var(--vista-btn-primary-border);
+      background: var(--vista-btn-primary-face);
+      color: var(--vista-btn-primary-text);
       font-weight: 700;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.34), inset 0 -1px 0 rgba(16, 45, 83, 0.28), 0 12px 24px rgba(9, 15, 24, 0.24);
     }
 
     .button:hover,
     .chip:hover {
       transform: translateY(-1px);
+    }
+
+    .button:hover {
+      background: var(--vista-btn-primary-face-hover);
+    }
+
+    .chip:hover {
+      border-color: var(--vista-btn-border-strong);
+      background: var(--vista-btn-face-hover);
+      color: #102133;
+      box-shadow: inset 0 1px 0 var(--vista-btn-highlight), inset 0 -1px 0 rgba(95, 120, 150, 0.22), var(--vista-btn-shadow);
+    }
+
+    .button:active,
+    .chip:active,
+    .font-controls button:active {
+      transform: translateY(1px);
     }
 
     .shell {
@@ -300,19 +344,21 @@
     }
 
     .font-controls button {
-      border: none;
+      border: 1px solid var(--vista-btn-border);
       border-radius: 999px;
       padding: 8px 10px;
-      background: transparent;
-      color: rgba(255, 255, 255, 0.78);
+      background: var(--vista-btn-face);
+      color: #142638;
       cursor: pointer;
       font: inherit;
       font-weight: 700;
+      box-shadow: inset 0 1px 0 var(--vista-btn-highlight), inset 0 -1px 0 rgba(95, 120, 150, 0.18), var(--vista-btn-shadow);
     }
 
     .font-controls button:hover {
-      background: rgba(255, 255, 255, 0.12);
-      color: #fff;
+      background: var(--vista-btn-face-hover);
+      border-color: var(--vista-btn-border-strong);
+      color: #0d1d2d;
     }
 
     @media (max-width: 720px) {
