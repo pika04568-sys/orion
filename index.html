@@ -2481,6 +2481,33 @@
                 </div>
             </div>
             <div class="settings-section">
+                <h3 data-i18n="settings.privacyTitle">Privacy</h3>
+                <p class="settings-subtitle" data-i18n="settings.privacySubtitle">Harden web requests and reduce fingerprinting across browser sessions.</p>
+                <div class="settings-stack">
+                    <label class="setting-toggle">
+                        <div>
+                            <div class="label-main" data-i18n="settings.httpsOnly">HTTPS-Only Mode</div>
+                            <div class="label-sub" data-i18n="settings.httpsOnlySub">Upgrade insecure HTTP navigations to HTTPS and block plaintext fallback.</div>
+                        </div>
+                        <input type="checkbox" id="https-only-toggle">
+                    </label>
+                    <label class="setting-toggle">
+                        <div>
+                            <div class="label-main" data-i18n="settings.antiFingerprinting">Anti-Fingerprinting</div>
+                            <div class="label-sub" data-i18n="settings.antiFingerprintingSub">Normalize browser signals like language, hardware details, timezone, and graphics identifiers.</div>
+                        </div>
+                        <input type="checkbox" id="anti-fingerprinting-toggle">
+                    </label>
+                    <label class="setting-toggle">
+                        <div>
+                            <div class="label-main" data-i18n="settings.doh">DNS-over-HTTPS</div>
+                            <div class="label-sub" data-i18n="settings.dohSub">Use Cloudflare in strict secure-DNS mode for supported name resolution.</div>
+                        </div>
+                        <input type="checkbox" id="dns-over-https-toggle">
+                    </label>
+                </div>
+            </div>
+            <div class="settings-section">
                 <h3 data-i18n="settings.systemTitle">System</h3>
                 <p class="settings-subtitle" data-i18n="settings.systemSubtitle">Check your version and open browser extension management.</p>
                 <div class="settings-row">

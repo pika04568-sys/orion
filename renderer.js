@@ -828,7 +828,25 @@ function initSettings() {
 
   const vt = document.getElementById('vertical-tabs-toggle');
   const ss = document.getElementById('show-seconds-toggle');
+  const httpsOnlyToggle = document.getElementById('https-only-toggle');
+  const antiFingerprintingToggle = document.getElementById('anti-fingerprinting-toggle');
+  const dnsOverHttpsToggle = document.getElementById('dns-over-https-toggle');
   const se = document.getElementById('search-engine-select');
+  const applySharedSettings = (settings = {}) => {
+    if (ss && typeof settings.showSeconds === 'boolean') {
+      ss.checked = settings.showSeconds;
+      safeSetStorage('show-seconds', settings.showSeconds ? 'true' : 'false');
+    }
+    if (httpsOnlyToggle && typeof settings.httpsOnlyMode === 'boolean') {
+      httpsOnlyToggle.checked = settings.httpsOnlyMode;
+    }
+    if (antiFingerprintingToggle && typeof settings.antiFingerprinting === 'boolean') {
+      antiFingerprintingToggle.checked = settings.antiFingerprinting;
+    }
+    if (dnsOverHttpsToggle && typeof settings.dnsOverHttpsEnabled === 'boolean') {
+      dnsOverHttpsToggle.checked = settings.dnsOverHttpsEnabled;
+    }
+  };
   if (vt) {
     vt.checked = localStorage.getItem('vertical-tabs') === 'true';
     if (vt.checked) document.body.classList.add('vertical-tabs');
@@ -840,30 +858,49 @@ function initSettings() {
     };
   }
   if (ss) {
-    const applyShowSeconds = (enabled) => {
-      ss.checked = !!enabled;
-      safeSetStorage('show-seconds', enabled ? 'true' : 'false');
-    };
-
-    applyShowSeconds(safeGetStorage('show-seconds', 'false') === 'true');
+    applySharedSettings({
+      showSeconds: safeGetStorage('show-seconds', 'false') === 'true'
+    });
     void resolveShowSecondsSetting().then((enabled) => {
-      applyShowSeconds(enabled);
+      applySharedSettings({ showSeconds: enabled });
     });
 
     ss.onchange = async (e) => {
       const enabled = e.target.checked;
-      applyShowSeconds(enabled);
+      applySharedSettings({ showSeconds: enabled });
       try {
         await ipcRenderer.invoke('set-browser-settings', { showSeconds: enabled });
       } catch (_error) {
         // Keep the local toggle state even if the shared settings store is unavailable.
       }
     };
-
-    ipcRenderer.on('browser-settings-changed', (_event, settings) => {
-      if (!settings || typeof settings.showSeconds !== 'boolean') return;
-      applyShowSeconds(settings.showSeconds);
-    });
+  }
+  if (httpsOnlyToggle) {
+    httpsOnlyToggle.onchange = async (e) => {
+      const enabled = e.target.checked;
+      applySharedSettings({ httpsOnlyMode: enabled });
+      try {
+        await ipcRenderer.invoke('set-browser-settings', { httpsOnlyMode: enabled });
+      } catch (_error) {}
+    };
+  }
+  if (antiFingerprintingToggle) {
+    antiFingerprintingToggle.onchange = async (e) => {
+      const enabled = e.target.checked;
+      applySharedSettings({ antiFingerprinting: enabled });
+      try {
+        await ipcRenderer.invoke('set-browser-settings', { antiFingerprinting: enabled });
+      } catch (_error) {}
+    };
+  }
+  if (dnsOverHttpsToggle) {
+    dnsOverHttpsToggle.onchange = async (e) => {
+      const enabled = e.target.checked;
+      applySharedSettings({ dnsOverHttpsEnabled: enabled });
+      try {
+        await ipcRenderer.invoke('set-browser-settings', { dnsOverHttpsEnabled: enabled });
+      } catch (_error) {}
+    };
   }
   if (se) {
     se.innerHTML = SEARCH_ENGINES.map((engine) => `<option value="${engine.id}">${engine.label}</option>`).join('');
@@ -875,6 +912,15 @@ function initSettings() {
       ipcRenderer.send('update-default-search-engine', url);
     };
   }
+
+  void ipcRenderer.invoke('get-browser-settings').then((settings) => {
+    if (settings) applySharedSettings(settings);
+  }).catch(() => {});
+
+  ipcRenderer.on('browser-settings-changed', (_event, settings) => {
+    if (!settings) return;
+    applySharedSettings(settings);
+  });
 
   updateDynamicTranslationContent();
 }

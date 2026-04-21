@@ -72,7 +72,12 @@ test("index page allows renderer-ready send and startup/navigation invokes", () 
   const invokeResult = electron.invoke("navigate-to", "https://example.com");
   const bootstrapInvokeResult = electron.invoke("get-window-bootstrap-state");
   const settingsInvokeResult = electron.invoke("get-browser-settings");
-  const settingsUpdateResult = electron.invoke("set-browser-settings", { showSeconds: true });
+  const settingsUpdateResult = electron.invoke("set-browser-settings", {
+    showSeconds: true,
+    httpsOnlyMode: true,
+    antiFingerprinting: true,
+    dnsOverHttpsEnabled: true
+  });
   electron.send("renderer-ready");
   const unsubscribe = electron.on("tab-created", () => {});
   unsubscribe();
@@ -85,7 +90,12 @@ test("index page allows renderer-ready send and startup/navigation invokes", () 
   assert.deepEqual(runtime.invokeCalls[0], ["navigate-to", "https://example.com"]);
   assert.deepEqual(runtime.invokeCalls[1], ["get-window-bootstrap-state"]);
   assert.deepEqual(runtime.invokeCalls[2], ["get-browser-settings"]);
-  assert.deepEqual(runtime.invokeCalls[3], ["set-browser-settings", { showSeconds: true }]);
+  assert.deepEqual(runtime.invokeCalls[3], ["set-browser-settings", {
+    showSeconds: true,
+    httpsOnlyMode: true,
+    antiFingerprinting: true,
+    dnsOverHttpsEnabled: true
+  }]);
   assert.equal(runtime.sendCalls.length, 1);
   assert.deepEqual(runtime.sendCalls[0], ["renderer-ready"]);
   assert.equal(runtime.onCalls.length, 1);

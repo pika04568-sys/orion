@@ -94,6 +94,7 @@
     "files": [
       "adblock.js",
       "app-utils.js",
+      "browser-privacy.js",
       "browser-security.js",
       "extensions.js",
       "localization.js",

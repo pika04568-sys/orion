@@ -56,3 +56,11 @@ test("reader strings are localized for internal reader mode surfaces", () => {
     "Updated April 18, 2026"
   );
 });
+
+test("privacy settings strings are localized for the settings panel and HTTPS-only interstitial", () => {
+  assert.equal(localization.t("en", "settings.privacyTitle"), "Privacy");
+  assert.equal(localization.t("fr", "settings.httpsOnly"), "Mode HTTPS uniquement");
+  assert.equal(localization.t("de", "settings.doh"), "DNS-over-HTTPS");
+  assert.equal(localization.t("ja", "settings.antiFingerprinting"), "アンチフィンガープリンティング");
+  assert.equal(localization.t("en", "privacy.httpsOnlyErrorTitle"), "Secure connection required");
+});

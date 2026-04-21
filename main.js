@@ -17,6 +17,7 @@ const path = require("path");
 const fs = require("fs");
 const os = require("os");
 const { URL: NodeURL } = require("url");
+const browserPrivacy = require("./browser-privacy");
 const browserSecurity = require("./browser-security");
 const appUtils = require("./app-utils");
 const adblock = require("./adblock");
@@ -91,6 +92,8 @@ const sPath = path.join(app.getPath("userData"), "browser_settings.json");
 let bHist = loadH();
 let bSett = loadS();
 
+applyStartupDnsOverHttpsSettings();
+
 const UPDATER_STATUS_CHANNEL = "updater-status";
 const GITHUB_UPDATE_FEED = {
   provider: "github",
@@ -101,6 +104,7 @@ const GITHUB_UPDATE_FEED = {
 const STARTUP_DEFERRED_ADBLOCK_DELAY_MS = 2500;
 const STARTUP_DEFERRED_EXTENSION_RESTORE_DELAY_MS = 1200;
 const STARTUP_DEFERRED_UPDATE_CHECK_DELAY_MS = 8000;
+const FINGERPRINTING_PROTECTION_SCRIPT = browserPrivacy.createFingerprintingProtectionScript();
 
 let updaterState = {
   state: "idle",
@@ -625,6 +629,7 @@ function loadS() {
   try {
     if (fs.existsSync(sPath)) {
       const s = JSON.parse(fs.readFileSync(sPath, "utf8"));
+      const privacySettings = browserPrivacy.sanitizePrivacySettings(s);
       return {
         themeColor: "#e9e9f0",
         profileExtensions: {},
@@ -636,10 +641,16 @@ function loadS() {
         sitePermissions: browserSecurity.sanitizePermissionStore(s.sitePermissions),
         locale: localization.sanitizeLocale(s.locale),
         showSeconds: typeof s.showSeconds === "boolean" ? s.showSeconds : undefined,
+        httpsOnlyMode: privacySettings.httpsOnlyMode,
+        antiFingerprinting: privacySettings.antiFingerprinting,
+        dnsOverHttpsEnabled: privacySettings.dnsOverHttpsEnabled,
+        dnsOverHttpsMode: privacySettings.dnsOverHttpsMode,
+        dnsOverHttpsTemplate: privacySettings.dnsOverHttpsTemplate,
         onboardingCompleted: typeof s.onboardingCompleted === "boolean" ? s.onboardingCompleted : true
       };
     }
   } catch (e) {}
+  const privacyDefaults = browserPrivacy.sanitizePrivacySettings();
   return {
     themeColor: "#e9e9f0",
     profileExtensionMetadata: {},
@@ -647,6 +658,11 @@ function loadS() {
     sitePermissions: {},
     locale: null,
     showSeconds: undefined,
+    httpsOnlyMode: privacyDefaults.httpsOnlyMode,
+    antiFingerprinting: privacyDefaults.antiFingerprinting,
+    dnsOverHttpsEnabled: privacyDefaults.dnsOverHttpsEnabled,
+    dnsOverHttpsMode: privacyDefaults.dnsOverHttpsMode,
+    dnsOverHttpsTemplate: privacyDefaults.dnsOverHttpsTemplate,
     onboardingCompleted: false
   };
 }
@@ -656,9 +672,7 @@ function saveS() {
 }
 
 function getBrowserSettings() {
-  return {
-    showSeconds: typeof bSett.showSeconds === "boolean" ? bSett.showSeconds : undefined
-  };
+  return browserPrivacy.buildBrowserSettingsPayload(bSett);
 }
 
 function broadcastBrowserSettings() {
@@ -686,12 +700,93 @@ function updateBrowserSettings(patch = {}) {
     }
   }
 
+  const privacyUpdate = browserPrivacy.updatePrivacySettings(bSett, patch);
+  if (privacyUpdate.changed) {
+    Object.assign(bSett, privacyUpdate.next);
+    changed = true;
+  }
+
   if (changed) {
     saveS();
+    applyDnsOverHttpsSettings();
     broadcastBrowserSettings();
   }
 
   return getBrowserSettings();
+}
+
+function getPrivacySettings() {
+  return browserPrivacy.sanitizePrivacySettings(bSett);
+}
+
+function applyStartupDnsOverHttpsSettings() {
+  const settings = getPrivacySettings();
+  if (!settings.dnsOverHttpsEnabled) {
+    app.commandLine.appendSwitch("dns-over-https-mode", "off");
+    return;
+  }
+  app.commandLine.appendSwitch("dns-over-https-mode", settings.dnsOverHttpsMode);
+  app.commandLine.appendSwitch("dns-over-https-templates", settings.dnsOverHttpsTemplate);
+}
+
+function applyDnsOverHttpsSettings() {
+  const settings = getPrivacySettings();
+  if (typeof app.configureHostResolver !== "function") return false;
+
+  try {
+    if (!settings.dnsOverHttpsEnabled) {
+      app.configureHostResolver({
+        enableBuiltInResolver: true,
+        secureDnsMode: "off",
+        secureDnsServers: [],
+        secureDnsTemplates: ""
+      });
+      return true;
+    }
+
+    app.configureHostResolver({
+      enableBuiltInResolver: true,
+      secureDnsMode: settings.dnsOverHttpsMode,
+      secureDnsServers: [settings.dnsOverHttpsTemplate],
+      secureDnsTemplates: settings.dnsOverHttpsTemplate
+    });
+    return true;
+  } catch (_error) {
+    return false;
+  }
+}
+
+function hardenWebContents(webContents) {
+  if (!webContents || webContents.isDestroyed()) return;
+  webContents.setUserAgent(browserPrivacy.DEFAULT_USER_AGENT);
+  webContents.on("dom-ready", () => {
+    const settings = getPrivacySettings();
+    const currentUrl = webContents.getURL();
+    if (!settings.antiFingerprinting || !isHttpUrl(currentUrl)) return;
+    void webContents.executeJavaScript(FINGERPRINTING_PROTECTION_SCRIPT, true).catch(() => {});
+  });
+}
+
+function normalizeNavigationTarget(rawUrl) {
+  if (!rawUrl || typeof rawUrl !== "string") return { url: rawUrl || "", upgraded: false };
+  const settings = getPrivacySettings();
+  if (!settings.httpsOnlyMode) return { url: rawUrl, upgraded: false };
+  return browserPrivacy.upgradeToHttps(rawUrl);
+}
+
+function showHttpsOnlyInterstitial(view, failedUrl) {
+  if (!view || !view.webContents || view.webContents.isDestroyed()) return false;
+  const locale = getCurrentLocale() || localization.DEFAULT_LOCALE;
+  const pageUrl = browserPrivacy.buildHttpsOnlyErrorPage(failedUrl, {
+    title: localization.t(locale, "privacy.httpsOnlyErrorTitle"),
+    body: localization.t(locale, "privacy.httpsOnlyErrorBody"),
+    detail: localization.t(locale, "privacy.httpsOnlyErrorDetail")
+  });
+  view.pendingHttpsUpgrade = null;
+  view.pendingTargetUrl = failedUrl;
+  view.tUrl = failedUrl;
+  clearOfflineTabContext(view.tabId);
+  return view.webContents.loadURL(pageUrl).catch(() => false);
 }
 
 function sanitizeProfileExtensions(rawExtensions) {
@@ -902,6 +997,18 @@ function ensureSessionSecurity(partition, pIdx, incognito = false) {
     if (!details.url.startsWith("http") || !adblockManager) return callback({ cancel: false });
     callback({ cancel: adblockManager.shouldBlockRequest(details) });
   });
+  sess.webRequest.onBeforeSendHeaders((details, callback) => {
+    const settings = getPrivacySettings();
+    if (!settings.antiFingerprinting || !details.url.startsWith("http")) {
+      callback({ cancel: false, requestHeaders: details.requestHeaders });
+      return;
+    }
+
+    callback({
+      cancel: false,
+      requestHeaders: browserPrivacy.hardenRequestHeaders(details.requestHeaders || {})
+    });
+  });
 
   sess.setPermissionCheckHandler((webContents, permission, requestingOrigin, details) => {
     const origin = browserSecurity.normalizePermissionOrigin(requestingOrigin) || parseRemoteOrigin(details, webContents);
@@ -928,6 +1035,7 @@ function ensureSessionSecurity(partition, pIdx, incognito = false) {
       callback(false);
     }
   });
+  applyDnsOverHttpsSettings();
 
   return sess;
 }
@@ -1500,9 +1608,7 @@ function ensureReaderView(tabId, pIdx) {
       partition
     };
     const readerView = new WebContentsView({ webPreferences: webP });
-    readerView.webContents.setUserAgent(
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
-    );
+    hardenWebContents(readerView.webContents);
     readerView.webContents.on("will-navigate", (event, targetUrl) => {
       if (isHttpUrl(targetUrl)) {
         event.preventDefault();
@@ -2028,6 +2134,7 @@ function showOfflinePage(tabId, pIdx, options = {}) {
   appUtils.syncTabRecord(pTabs[pIdx], tabId, { url: targetUrl, title });
 
   view.tUrl = targetUrl;
+  view.pendingHttpsUpgrade = null;
   view.lastHandledFailure = null;
 
   if (win && !win.isDestroyed()) {
@@ -2042,7 +2149,11 @@ function loadTabUrl(tabId, pIdx, rawUrl, options = {}) {
   const view = views[tabId];
   if (!view || !view.webContents || view.webContents.isDestroyed()) return false;
 
-  const normalizedUrl = appUtils.normalizeInternalUrl(rawUrl || "chrome://newtab", "chrome://newtab") || "chrome://newtab";
+  const internalNormalizedUrl = appUtils.normalizeInternalUrl(rawUrl || "chrome://newtab", "chrome://newtab") || "chrome://newtab";
+  const navigationTarget = isHttpUrl(internalNormalizedUrl)
+    ? normalizeNavigationTarget(internalNormalizedUrl)
+    : { url: internalNormalizedUrl, upgraded: false };
+  const normalizedUrl = navigationTarget.url || "chrome://newtab";
   const source = options.source || "navigate";
   const session = getReaderSession(tabId);
   if (session && session.active) {
@@ -2065,6 +2176,7 @@ function loadTabUrl(tabId, pIdx, rawUrl, options = {}) {
 
   clearOfflineTabContext(tabId);
   view.lastHandledFailure = null;
+  view.pendingHttpsUpgrade = navigationTarget.upgraded ? normalizedUrl : null;
   view.pendingTargetUrl = normalizedUrl;
   view.tUrl = normalizedUrl;
   appUtils.syncTabRecord(pTabs[pIdx], tabId, { url: normalizedUrl });
@@ -2301,9 +2413,8 @@ function createV(id, url, inc, pIdx) {
   ensureSessionSecurity(partition, pIdx, inc);
   const v = new WebContentsView({ webPreferences: webP });
   attachBrowserShortcutHandler(v.webContents, () => pIdx);
-  v.webContents.setUserAgent(
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
-  );
+  v.tabId = id;
+  hardenWebContents(v.webContents);
   views[id] = v;
   updateB(pIdx);
 
@@ -2319,19 +2430,30 @@ function createV(id, url, inc, pIdx) {
       }
       return;
     }
-    if (!isHttpUrl(targetUrl)) event.preventDefault();
+    if (isHttpUrl(targetUrl)) {
+      const target = normalizeNavigationTarget(targetUrl);
+      if (target.upgraded) {
+        event.preventDefault();
+        loadTabUrl(id, pIdx, target.url, { source: "navigate" });
+      }
+      return;
+    }
+    event.preventDefault();
   });
 
   v.webContents.on("did-navigate", (_e, u) => {
     const offlinePage = isOfflinePageUrl(u);
+    const httpsOnlyInterstitial = typeof u === "string" && u.startsWith("data:text/html");
     if (!offlinePage) clearOfflineTabContext(id);
-    const displayUrl = getDisplayUrlForTab(id, u, v.tUrl || u);
+    if (!offlinePage && !httpsOnlyInterstitial) v.pendingHttpsUpgrade = null;
+    const navigationUrl = httpsOnlyInterstitial ? (v.pendingTargetUrl || v.tUrl || u) : u;
+    const displayUrl = getDisplayUrlForTab(id, navigationUrl, v.tUrl || navigationUrl);
     v.tUrl = displayUrl || v.tUrl;
     const updatedTab = tabState.updateTabOnNavigate(pTabs[pIdx], id, displayUrl);
     if (win) {
       win.webContents.send("view-event", { tabId: id, type: "did-navigate", url: displayUrl });
       const tab = pTabs[pIdx].find((t) => t.id === id);
-      if (!offlinePage && (!tab || !tab.incognito)) {
+      if (!offlinePage && !httpsOnlyInterstitial && (!tab || !tab.incognito)) {
         try {
           const host = new URL(displayUrl).hostname;
           addH(displayUrl, (updatedTab && updatedTab.title) || host);
@@ -2350,7 +2472,13 @@ function createV(id, url, inc, pIdx) {
     if (win) win.webContents.send("view-event", { tabId: id, type: "did-stop-loading" });
   });
   v.webContents.on("page-title-updated", (_e, t) => {
-    const currentUrl = getDisplayUrlForTab(id, v.webContents.getURL(), v.tUrl || "");
+    const rawCurrentUrl = v.webContents.getURL();
+    const httpsOnlyInterstitial = typeof rawCurrentUrl === "string" && rawCurrentUrl.startsWith("data:text/html");
+    const currentUrl = getDisplayUrlForTab(
+      id,
+      httpsOnlyInterstitial ? (v.pendingTargetUrl || v.tUrl || rawCurrentUrl) : rawCurrentUrl,
+      v.tUrl || ""
+    );
     const title = getDisplayTitleForTab(id, t);
     v.tUrl = currentUrl || v.tUrl;
     const updatedTab = tabState.updateTabOnTitle(pTabs[pIdx], id, title, currentUrl);
@@ -2361,7 +2489,7 @@ function createV(id, url, inc, pIdx) {
         title: (updatedTab && updatedTab.title) || title
       });
       const tab = pTabs[pIdx].find((tabEntry) => tabEntry.id === id);
-      if ((!tab || !tab.incognito) && currentUrl && !isOfflinePageUrl(v.webContents.getURL())) {
+      if ((!tab || !tab.incognito) && currentUrl && !isOfflinePageUrl(rawCurrentUrl) && !httpsOnlyInterstitial) {
         addH(currentUrl, title);
         win.webContents.send("history-updated", getH());
       }
@@ -2388,6 +2516,11 @@ function createV(id, url, inc, pIdx) {
     }
 
     clearOfflineTabContext(id);
+    if (v.pendingHttpsUpgrade && validatedURL === v.pendingHttpsUpgrade) {
+      showHttpsOnlyInterstitial(v, validatedURL);
+      return;
+    }
+
     loadInternal(v.webContents, "chrome://newtab");
   };
   v.webContents.on("did-fail-load", handleLoadFailure);
@@ -2985,6 +3118,7 @@ app.on("window-all-closed", () => {
 app.whenReady().then(() => {
   registerAppProtocol();
   setMacDockIcon();
+  applyDnsOverHttpsSettings();
   adblockManager = adblock.createAdblockManager({
     userDataDir: app.getPath("userData")
   });
