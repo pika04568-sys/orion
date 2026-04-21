@@ -33,6 +33,7 @@
     "mac": {
       "icon": "assets/orion.icns",
       "category": "public.app-category.productivity",
+      "timestamp": "none",
       "target": [
         "dmg"
       ]
