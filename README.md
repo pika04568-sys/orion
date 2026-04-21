@@ -6,11 +6,6 @@ A lightweight desktop browser built with Electron. Orion offers a clean interfac
 
 If you just want to use the browser, you do not need Node.js or npm. Simply download the pre-built binaries:
 
-Windows (.exe)
-
-Installer: Orion Setup x.x.x x64.exe or Orion Setup x.x.x arm64.exe (match your Windows architecture)
-
-Portable: Orion x.x.x x64.exe or Orion x.x.x arm64.exe (run directly without installing)
 
 🛠️ Development (For Contributors)
 
