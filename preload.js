@@ -10,8 +10,11 @@ const APP_INVOKE_CHANNELS = Object.freeze([
   "clear-other-tabs",
   "close-tab",
   "close-reader",
+  "create-tab-group",
   "create-tab",
+  "delete-tab-group",
   "delete-history-item",
+  "assign-tab-to-group",
   "find-in-page",
   "get-app-version",
   "get-language-settings",
@@ -34,7 +37,9 @@ const APP_INVOKE_CHANNELS = Object.freeze([
   "stop-find-in-page",
   "switch-profile",
   "switch-tab",
+  "toggle-tab-group-collapsed",
   "toggle-reader-mode",
+  "rename-tab-group",
   "update-adblock-rules"
 ]);
 
@@ -63,6 +68,7 @@ const APP_ON_CHANNELS = Object.freeze([
   "reader-mode-changed",
   "tab-closed",
   "tab-created",
+  "tab-groups-changed",
   "tab-switched",
   "updater-status",
   "view-event"

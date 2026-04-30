@@ -158,11 +158,15 @@ test("internal Orion URLs normalize to chrome aliases across protocol and legacy
 test("index shell channels allow renderer IPC and events", () => {
   assert.equal(appUtils.canUseElectronChannel("index.html", "send", "renderer-ready"), true);
   assert.equal(appUtils.canUseElectronChannel("index.html", "invoke", "create-tab"), true);
+  assert.equal(appUtils.canUseElectronChannel("index.html", "invoke", "create-tab-group"), true);
+  assert.equal(appUtils.canUseElectronChannel("index.html", "invoke", "assign-tab-to-group"), true);
+  assert.equal(appUtils.canUseElectronChannel("index.html", "invoke", "toggle-tab-group-collapsed"), true);
   assert.equal(appUtils.canUseElectronChannel("index.html", "invoke", "get-window-bootstrap-state"), true);
   assert.equal(appUtils.canUseElectronChannel("index.html", "invoke", "get-browser-settings"), true);
   assert.equal(appUtils.canUseElectronChannel("index.html", "invoke", "set-browser-settings"), true);
   assert.equal(appUtils.canUseElectronChannel("index.html", "invoke", "navigate-to"), true);
   assert.equal(appUtils.canUseElectronChannel("index.html", "on", "tab-created"), true);
+  assert.equal(appUtils.canUseElectronChannel("index.html", "on", "tab-groups-changed"), true);
   assert.equal(appUtils.canUseElectronChannel("index.html", "on", "browser-settings-changed"), true);
 });
 

@@ -2,7 +2,7 @@ const ipcRenderer = window.electron || { invoke: async () => { }, send: () => { 
 const appUtils = window.OrionAppUtils;
 const localization = window.OrionLocalization;
 
-let tabBar, newTabBtn, clearTabsBtn, addressBar, backBtn, forwardBtn, reloadBtn, readerBtn, historyBtn, historySidebar, closeHistoryBtn, historyList, chromeContainer, profileBtn, profileMenu, profileListContainer, addProfileBtn, settingsBtn, settingsSidebar, closeSettingsBtn, profileColorPicker, renameModal, renameInput, renameSaveBtn, renameCancelBtn, pendingRenameProfileId = null, bookmarkBtn, bookmarksSidebar, closeBookmarksBtn, bookmarksList, downloadsBtn, downloadsSidebar, closeDownloadsBtn, downloadsList, findBar, findInput, findResults, findPrev, findNext, findClose, openExtensionsBtn, progressBarContainer, progressBar, addBookmarkBtn, bookmarksBar, bookmarkDestModal, addToBarBtn, addToNewTabBtn, addToBothBtn, cancelBookmarkBtn, checkUpdatesBtn, versionEl, updateStatusEl, startupOverlay, startupLanguagePicker, settingsLanguagePicker, readerToast, metrics = () => { }, pendingBookmark = null, activeTabId = null, activeProfile = 0, isIncognitoWindow = false, tabs = [], profiles = [];
+let tabBar, newTabBtn, groupTabsBtn, groupTabsMenu, clearTabsBtn, addressBar, backBtn, forwardBtn, reloadBtn, readerBtn, historyBtn, historySidebar, closeHistoryBtn, historyList, chromeContainer, profileBtn, profileMenu, profileListContainer, addProfileBtn, settingsBtn, settingsSidebar, closeSettingsBtn, profileColorPicker, renameModal, renameInput, renameSaveBtn, renameCancelBtn, pendingRenameProfileId = null, bookmarkBtn, bookmarksSidebar, closeBookmarksBtn, bookmarksList, downloadsBtn, downloadsSidebar, closeDownloadsBtn, downloadsList, findBar, findInput, findResults, findPrev, findNext, findClose, openExtensionsBtn, progressBarContainer, progressBar, addBookmarkBtn, bookmarksBar, bookmarkDestModal, addToBarBtn, addToNewTabBtn, addToBothBtn, cancelBookmarkBtn, checkUpdatesBtn, versionEl, updateStatusEl, startupOverlay, startupLanguagePicker, settingsLanguagePicker, readerToast, metrics = () => { }, pendingBookmark = null, activeTabId = null, activeProfile = 0, isIncognitoWindow = false, tabs = [], tabGroups = [], profiles = [];
 let updaterState = { state: 'idle', message: localization.t(localization.DEFAULT_LOCALE, 'updates.ready') };
 let currentLocale = localization.DEFAULT_LOCALE;
 let currentPlatform = getBrowserUiPlatform();
@@ -26,6 +26,7 @@ const SEARCH_ENGINES = [
 
 const S_ENG = Object.fromEntries(SEARCH_ENGINES.map(({ id, searchUrl }) => [id, searchUrl]));
 const S_HOME = Object.fromEntries(SEARCH_ENGINES.map(({ id, homeUrl }) => [id, homeUrl]));
+const GROUP_COLORS = ['#0f6bff', '#16a34a', '#d97706', '#dc2626', '#7c3aed', '#0891b2', '#be123c'];
 
 // Safe localStorage helpers to handle disabled/quota exceeded scenarios
 function safeGetStorage(key, defaultValue = null) {
@@ -340,6 +341,7 @@ function syncTabState(tabLike = {}) {
   if (Object.prototype.hasOwnProperty.call(tabLike, 'url')) nextTab.url = normalizeTabUrl(tabLike.url);
   if (Object.prototype.hasOwnProperty.call(tabLike, 'title')) nextTab.title = tabLike.title;
   if (Object.prototype.hasOwnProperty.call(tabLike, 'incognito')) nextTab.incognito = tabLike.incognito;
+  if (Object.prototype.hasOwnProperty.call(tabLike, 'groupId')) nextTab.groupId = tabLike.groupId;
 
   return appUtils.upsertTabRecord(tabs, nextTab);
 }
@@ -350,8 +352,26 @@ function normalizeBootstrapTab(tabLike = {}) {
     id: tabLike.id,
     url: normalizeTabUrl(tabLike.url || 'chrome://newtab') || 'chrome://newtab',
     title: tabLike.title || t('app.newTab'),
-    incognito: !!tabLike.incognito
+    incognito: !!tabLike.incognito,
+    groupId: typeof tabLike.groupId === 'string' ? tabLike.groupId : undefined
   };
+}
+
+function normalizeTabGroup(groupLike = {}, index = 0) {
+  if (!groupLike || !groupLike.id) return null;
+  return {
+    id: groupLike.id,
+    name: groupLike.name || `Group ${index + 1}`,
+    color: /^#[0-9a-f]{6}$/i.test(groupLike.color || '') ? groupLike.color : GROUP_COLORS[index % GROUP_COLORS.length],
+    collapsed: !!groupLike.collapsed,
+    createdAt: Number.isFinite(groupLike.createdAt) ? groupLike.createdAt : Date.now()
+  };
+}
+
+function setTabGroups(nextGroups) {
+  tabGroups = Array.isArray(nextGroups)
+    ? nextGroups.map(normalizeTabGroup).filter(Boolean)
+    : [];
 }
 
 function hydrateFromBootstrapState(snapshot) {
@@ -374,10 +394,19 @@ function hydrateFromBootstrapState(snapshot) {
   const bootstrapTabs = Array.isArray(snapshot.tabs)
     ? snapshot.tabs.map(normalizeBootstrapTab).filter(Boolean)
     : [];
+  setTabGroups(snapshot.groups);
   if (bootstrapTabs.length) {
-    document.querySelectorAll('.tab').forEach((tab) => tab.remove());
     tabs = [];
-    bootstrapTabs.forEach((tabLike) => addTabToUI(tabLike));
+    bootstrapTabs.forEach((tabLike) => {
+      tabs.push({
+        id: tabLike.id,
+        url: normalizeTabUrl(tabLike.url || 'chrome://newtab') || 'chrome://newtab',
+        title: tabLike.title || localization.t(currentLocale, 'app.loading'),
+        incognito: !!tabLike.incognito,
+        groupId: tabLike.groupId
+      });
+    });
+    renderTabStrip();
 
     const fallbackActiveId = bootstrapTabs[0].id;
     let nextActiveId = typeof snapshot.activeTabId === 'string' ? snapshot.activeTabId : fallbackActiveId;
@@ -466,6 +495,8 @@ function applyColor(c) {
 function init() {
   tabBar = document.getElementById('tab-bar');
   newTabBtn = document.getElementById('new-tab-btn');
+  groupTabsBtn = document.getElementById('group-tabs-btn');
+  groupTabsMenu = document.getElementById('group-tabs-menu');
   addressBar = document.getElementById('address-bar');
   backBtn = document.getElementById('back-btn');
   forwardBtn = document.getElementById('forward-btn');
@@ -654,6 +685,17 @@ function init() {
   if (clearTabsBtn) clearTabsBtn.onclick = () => {
     if (activeTabId) ipcRenderer.invoke('clear-other-tabs', activeTabId);
   };
+  if (groupTabsBtn && groupTabsMenu) {
+    groupTabsBtn.onclick = (event) => {
+      event.stopPropagation();
+      renderGroupTabsMenu();
+      groupTabsMenu.classList.toggle('show');
+    };
+    groupTabsMenu.onclick = (event) => event.stopPropagation();
+    document.addEventListener('click', () => {
+      groupTabsMenu.classList.remove('show');
+    });
+  }
   if (backBtn) backBtn.onclick = () => ipcRenderer.invoke('go-back');
   if (forwardBtn) forwardBtn.onclick = () => ipcRenderer.invoke('go-forward');
   if (reloadBtn) reloadBtn.onclick = () => ipcRenderer.invoke('reload-page');
@@ -946,8 +988,19 @@ ipcRenderer.on('tab-switched', (e, { tabId, url, title, incognito, readerMode })
     });
   }
   syncTabState({ id: tabId, url, title, incognito, readerMode: !!readerMode });
+  renderTabStrip();
   setActiveTab(tabId);
   updateTabTitle(tabId, title);
+});
+ipcRenderer.on('tab-groups-changed', (e, payload) => {
+  if (!payload) return;
+  if (Array.isArray(payload.tabs)) {
+    tabs = payload.tabs.map(normalizeBootstrapTab).filter(Boolean);
+  }
+  setTabGroups(payload.groups);
+  renderTabStrip();
+  if (activeTabId) setActiveTab(activeTabId);
+  renderGroupTabsMenu();
 });
 ipcRenderer.on('active-tab-changed', (e, id) => setActiveTab(id));
 ipcRenderer.on('view-event', (e, d) => {
@@ -990,18 +1043,20 @@ ipcRenderer.on('keyboard-shortcut', (e, t) => {
   }
 });
 ipcRenderer.on('tab-closed', (e, id) => {
-  const el = document.querySelector(`.tab[data-id="${id}"]`);
-  if (el) el.remove();
   tabs = tabs.filter((t) => t.id !== id);
+  renderTabStrip();
+  if (activeTabId) setActiveTab(activeTabId);
+  renderGroupTabsMenu();
 });
-ipcRenderer.on('profile-changed', (e, { profileIndex, tabs: pTabs, incognitoWindow }) => {
+ipcRenderer.on('profile-changed', (e, { profileIndex, tabs: pTabs, groups: pGroups, incognitoWindow }) => {
   activeProfile = profileIndex;
   isIncognitoWindow = !!incognitoWindow;
   document.body.classList.toggle('incognito-window', isIncognitoWindow);
-  document.querySelectorAll('.tab').forEach((t) => t.remove());
-  tabs = [];
-  pTabs.forEach((t) => addTabToUI(t));
+  tabs = Array.isArray(pTabs) ? pTabs.map(normalizeBootstrapTab).filter(Boolean) : [];
+  setTabGroups(pGroups);
+  renderTabStrip();
   renderProfileList();
+  renderGroupTabsMenu();
   updateReaderShellState();
 });
 ipcRenderer.on('profile-list-updated', (e, d) => {
@@ -1062,30 +1117,211 @@ function renderProfileList() {
   });
 }
 
+function getGroupById(groupId) {
+  return tabGroups.find((group) => group.id === groupId) || null;
+}
+
+function getActiveTab() {
+  return tabs.find((entry) => entry && entry.id === activeTabId) || null;
+}
+
+function createGroupHeader(group) {
+  const count = tabs.filter((tab) => tab && tab.groupId === group.id).length;
+  const header = document.createElement('button');
+  header.type = 'button';
+  header.className = 'tab-group-header';
+  header.dataset.groupId = group.id;
+  header.style.setProperty('--group-color', group.color);
+  header.title = group.collapsed ? 'Expand group' : 'Collapse group';
+  header.innerHTML = `<span class="tab-group-chevron">${group.collapsed ? '>' : 'v'}</span><span class="tab-group-name"></span><span class="tab-group-count">${count}</span>`;
+  header.querySelector('.tab-group-name').textContent = group.name;
+  header.onclick = () => ipcRenderer.invoke('toggle-tab-group-collapsed', {
+    groupId: group.id,
+    collapsed: !group.collapsed
+  });
+  header.ondblclick = (event) => {
+    event.stopPropagation();
+    const nextName = prompt('Rename tab group', group.name);
+    if (nextName && nextName.trim()) {
+      ipcRenderer.invoke('rename-tab-group', { groupId: group.id, name: nextName.trim() });
+    }
+  };
+  return header;
+}
+
+function renderTabStrip() {
+  if (!tabBar) return;
+  tabBar.innerHTML = '';
+  const renderedGroups = new Set();
+  const collapsedGroups = new Set(tabGroups.filter((group) => group.collapsed).map((group) => group.id));
+
+  tabs.forEach((tab) => {
+    const group = tab.groupId ? getGroupById(tab.groupId) : null;
+    if (group && !renderedGroups.has(group.id)) {
+      tabBar.appendChild(createGroupHeader(group));
+      renderedGroups.add(group.id);
+    }
+    if (group && collapsedGroups.has(group.id) && tab.id !== activeTabId) return;
+
+    const { element: el } = appUtils.createTabElement(document, tab);
+    if (group) {
+      el.dataset.groupId = group.id;
+      el.style.setProperty('--group-color', group.color);
+    }
+    el.onclick = (event) => {
+      if (event.target.classList.contains('tab-close')) ipcRenderer.invoke('close-tab', tab.id);
+      else ipcRenderer.invoke('switch-tab', tab.id);
+    };
+    tabBar.appendChild(el);
+  });
+
+  tabGroups.forEach((group) => {
+    if (!renderedGroups.has(group.id)) tabBar.appendChild(createGroupHeader(group));
+  });
+}
+
+function applyGroupPayload(payload) {
+  if (!payload) return;
+  if (Array.isArray(payload.tabs)) tabs = payload.tabs.map(normalizeBootstrapTab).filter(Boolean);
+  setTabGroups(payload.groups);
+  renderTabStrip();
+  if (activeTabId) setActiveTab(activeTabId);
+  renderGroupTabsMenu();
+}
+
+function renderGroupTabsMenu() {
+  if (!groupTabsMenu) return;
+  groupTabsMenu.innerHTML = '';
+  const activeTab = getActiveTab();
+
+  const addItem = (label, handler, options = {}) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = options.className || 'tab-group-menu-item';
+    button.disabled = !!options.disabled;
+    button.textContent = label;
+    button.onclick = async (event) => {
+      event.stopPropagation();
+      if (button.disabled) return;
+      await handler();
+      groupTabsMenu.classList.remove('show');
+    };
+    groupTabsMenu.appendChild(button);
+    return button;
+  };
+
+  addItem('New group with active tab', async () => {
+    const name = prompt('Group name', `Group ${tabGroups.length + 1}`);
+    const payload = await ipcRenderer.invoke('create-tab-group', {
+      tabId: activeTabId,
+      name: name && name.trim() ? name.trim() : `Group ${tabGroups.length + 1}`
+    });
+    applyGroupPayload(payload);
+  }, { disabled: !activeTab });
+
+  if (activeTab && activeTab.groupId) {
+    addItem('Remove active tab from group', async () => {
+      const payload = await ipcRenderer.invoke('assign-tab-to-group', { tabId: activeTabId, groupId: null });
+      applyGroupPayload(payload);
+    });
+  }
+
+  const divider = document.createElement('div');
+  divider.className = 'tab-group-menu-divider';
+  groupTabsMenu.appendChild(divider);
+
+  if (!tabGroups.length) {
+    const empty = document.createElement('div');
+    empty.className = 'tab-group-menu-empty';
+    empty.textContent = 'No tab groups yet.';
+    groupTabsMenu.appendChild(empty);
+    return;
+  }
+
+  tabGroups.forEach((group) => {
+    const row = document.createElement('div');
+    row.className = 'tab-group-menu-row';
+    row.style.setProperty('--group-color', group.color);
+
+    const move = document.createElement('button');
+    move.type = 'button';
+    move.className = 'tab-group-menu-main';
+    move.disabled = !activeTab || activeTab.groupId === group.id;
+    move.textContent = `Move active tab to ${group.name}`;
+    move.onclick = async (event) => {
+      event.stopPropagation();
+      const payload = await ipcRenderer.invoke('assign-tab-to-group', { tabId: activeTabId, groupId: group.id });
+      applyGroupPayload(payload);
+      groupTabsMenu.classList.remove('show');
+    };
+
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'tab-group-menu-icon';
+    toggle.textContent = group.collapsed ? 'Expand' : 'Collapse';
+    toggle.onclick = async (event) => {
+      event.stopPropagation();
+      const payload = await ipcRenderer.invoke('toggle-tab-group-collapsed', {
+        groupId: group.id,
+        collapsed: !group.collapsed
+      });
+      applyGroupPayload(payload);
+      groupTabsMenu.classList.remove('show');
+    };
+
+    const rename = document.createElement('button');
+    rename.type = 'button';
+    rename.className = 'tab-group-menu-icon';
+    rename.textContent = 'Rename';
+    rename.onclick = async (event) => {
+      event.stopPropagation();
+      const nextName = prompt('Rename tab group', group.name);
+      if (nextName && nextName.trim()) {
+        const payload = await ipcRenderer.invoke('rename-tab-group', { groupId: group.id, name: nextName.trim() });
+        applyGroupPayload(payload);
+      }
+      groupTabsMenu.classList.remove('show');
+    };
+
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'tab-group-menu-icon danger';
+    remove.textContent = 'Delete';
+    remove.onclick = async (event) => {
+      event.stopPropagation();
+      if (confirm(`Delete "${group.name}"? Tabs will stay open.`)) {
+        const payload = await ipcRenderer.invoke('delete-tab-group', group.id);
+        applyGroupPayload(payload);
+      }
+      groupTabsMenu.classList.remove('show');
+    };
+
+    row.appendChild(move);
+    row.appendChild(toggle);
+    row.appendChild(rename);
+    row.appendChild(remove);
+    groupTabsMenu.appendChild(row);
+  });
+}
+
 function addTabToUI(t, anchorTabId = null) {
   if (tabs.find((x) => x.id === t.id)) {
     syncTabState(t);
     updateTabTitle(t.id, t.title);
+    renderTabStrip();
     return;
   }
-
-  const { element: el } = appUtils.createTabElement(document, t);
-  el.onclick = (e) => {
-    if (e.target.classList.contains('tab-close')) ipcRenderer.invoke('close-tab', t.id);
-    else ipcRenderer.invoke('switch-tab', t.id);
-  };
-  const anchorEl = anchorTabId ? document.querySelector(`.tab[data-id="${anchorTabId}"]`) : null;
-  if (anchorEl && anchorEl.parentElement === tabBar) tabBar.insertBefore(el, anchorEl.nextSibling);
-  else tabBar.appendChild(el);
   const anchorIdx = anchorTabId ? tabs.findIndex((x) => x.id === anchorTabId) : -1;
   const nextTab = {
     id: t.id,
     url: normalizeTabUrl(t.url || 'chrome://newtab') || 'chrome://newtab',
     title: t.title || localization.t(currentLocale, 'app.loading'),
-    incognito: !!t.incognito
+    incognito: !!t.incognito,
+    groupId: typeof t.groupId === 'string' ? t.groupId : undefined
   };
   if (anchorIdx >= 0) tabs.splice(anchorIdx + 1, 0, nextTab);
   else tabs.push(nextTab);
+  renderTabStrip();
 }
 
 function ensureTabsVisible(ids) {
@@ -1117,6 +1353,9 @@ function setActiveTab(id, opts = {}) {
   activeTabId = id;
   document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.id === id));
   const t = tabs.find((x) => x.id === id);
+  document.querySelectorAll('.tab-group-header').forEach((header) => {
+    header.classList.toggle('active', !!(t && t.groupId && header.dataset.groupId === t.groupId));
+  });
   if (t && addressBar) addressBar.value = formatUrl(t.url);
   updateReaderShellState();
   const extras = Array.isArray(opts.alsoReveal) ? opts.alsoReveal : [];

@@ -23,6 +23,7 @@ const appUtils = require("./app-utils");
 const adblock = require("./adblock");
 const localization = require("./localization");
 const tabState = require("./main-tab-state");
+const tabGroups = require("./tab-groups");
 const offlineArcade = require("./offline-arcade");
 const readerUtils = require("./reader-utils");
 const readerSession = require("./reader-session");
@@ -82,16 +83,21 @@ let partitions = new Set();
 let protocolSessions = new Set();
 let protocolRegistered = false;
 let pTabs = { 0: [] };
+let pGroups = { 0: [] };
 let pNames = { 0: localization.getProfileName(localization.DEFAULT_LOCALE, 0) };
+let activeTabIds = {};
 const INCOGNITO_PROFILE_BASE = 10000;
 let nextIncognitoProfileId = INCOGNITO_PROFILE_BASE;
 let defSearch = "chrome://newtab";
 
 const hPath = path.join(app.getPath("userData"), "browser_history.json");
 const sPath = path.join(app.getPath("userData"), "browser_settings.json");
+const recoveryPath = path.join(app.getPath("userData"), "browser_session_recovery.json");
 
 let bHist = loadH();
 let bSett = loadS();
+let intentionalQuit = false;
+let recoverySaveTimer = null;
 
 applyStartupDnsOverHttpsSettings();
 
@@ -674,6 +680,90 @@ function loadS() {
 
 function saveS() {
   try { fs.writeFileSync(sPath, JSON.stringify(bSett)); } catch (e) {}
+}
+
+function readRecoveryState() {
+  try {
+    if (!fs.existsSync(recoveryPath)) return null;
+    return tabGroups.sanitizeRecoveryState(JSON.parse(fs.readFileSync(recoveryPath, "utf8")));
+  } catch (_error) {
+    return null;
+  }
+}
+
+function deleteRecoveryState() {
+  if (recoverySaveTimer) {
+    clearTimeout(recoverySaveTimer);
+    recoverySaveTimer = null;
+  }
+  try {
+    if (fs.existsSync(recoveryPath)) fs.unlinkSync(recoveryPath);
+  } catch (_error) {}
+}
+
+function getProfileRecoverySnapshot(profileId) {
+  const pIdx = Number(profileId);
+  if (!Number.isInteger(pIdx) || pIdx >= INCOGNITO_PROFILE_BASE) return null;
+  const tabs = (pTabs[pIdx] || []).filter((tab) => tab && !tab.incognito);
+  if (!tabs.length) return null;
+  const activeTabId = activeTabIds[pIdx] && tabs.some((tab) => tab.id === activeTabIds[pIdx])
+    ? activeTabIds[pIdx]
+    : tabs[0].id;
+  return {
+    id: pIdx,
+    name: pNames[pIdx] || getDefaultProfileName(pIdx),
+    tabs,
+    groups: pGroups[pIdx] || [],
+    activeTabId
+  };
+}
+
+function buildCurrentRecoveryState() {
+  const profiles = Object.keys(pTabs)
+    .map((id) => getProfileRecoverySnapshot(id))
+    .filter(Boolean);
+  return tabGroups.buildRecoveryState(profiles);
+}
+
+function saveRecoveryStateNow() {
+  if (intentionalQuit) return;
+  const state = buildCurrentRecoveryState();
+  try {
+    fs.writeFileSync(recoveryPath, JSON.stringify(state));
+  } catch (_error) {}
+}
+
+function scheduleRecoverySave() {
+  if (intentionalQuit) return;
+  if (recoverySaveTimer) clearTimeout(recoverySaveTimer);
+  recoverySaveTimer = setTimeout(() => {
+    recoverySaveTimer = null;
+    saveRecoveryStateNow();
+  }, 250);
+}
+
+function restoreRecoveryState() {
+  const state = readRecoveryState();
+  if (!state || !state.profiles.length) return false;
+
+  pTabs = {};
+  pGroups = {};
+  pNames = {};
+  activeTabIds = {};
+
+  state.profiles.forEach((profile) => {
+    pTabs[profile.id] = profile.tabs;
+    pGroups[profile.id] = profile.groups;
+    pNames[profile.id] = profile.name || getDefaultProfileName(profile.id);
+    activeTabIds[profile.id] = profile.activeTabId;
+  });
+
+  if (!pTabs[0]) {
+    pTabs[0] = [];
+    pGroups[0] = [];
+    pNames[0] = getDefaultProfileName(0);
+  }
+  return true;
 }
 
 function getBrowserSettings() {
@@ -1565,7 +1655,9 @@ function sendReaderModeState(pIdx, tabId, payload = {}) {
 
 function updateReaderTabRecord(pIdx, tabId, readerMode) {
   if (!tabId || !pTabs[pIdx]) return null;
-  return appUtils.syncTabRecord(pTabs[pIdx], tabId, { readerMode: !!readerMode });
+  const tab = appUtils.syncTabRecord(pTabs[pIdx], tabId, { readerMode: !!readerMode });
+  scheduleRecoverySave();
+  return tab;
 }
 
 function getSourceViewForTab(tabId) {
@@ -1802,6 +1894,11 @@ function getProfileTabList(pIdx) {
   return pTabs[pIdx];
 }
 
+function getProfileGroupList(pIdx) {
+  if (!pGroups[pIdx]) pGroups[pIdx] = [];
+  return pGroups[pIdx];
+}
+
 function getDefaultTabTitle(pIdx, opts = {}) {
   const locale = getCurrentLocale() || localization.DEFAULT_LOCALE;
   if (opts.incognito) return localization.getIncognitoProfileName(locale);
@@ -1839,8 +1936,10 @@ function openTabInProfile(pIdx, tabLike = {}, options = {}) {
     incognito: !!tabLike.incognito,
     readerMode: !!tabLike.readerMode
   };
+  if (typeof tabLike.groupId === "string") nextTab.groupId = tabLike.groupId;
   const afterTabId = typeof options.afterTabId === "string" && options.afterTabId ? options.afterTabId : null;
   insertTabAfter(pIdx, nextTab, afterTabId);
+  scheduleRecoverySave();
   if (options.notify !== false) {
     win.webContents.send("tab-created", { ...nextTab, afterTabId });
   }
@@ -1882,6 +1981,16 @@ function reopenClosedTab(pIdx) {
     win,
     afterTabId: getActiveT(pIdx)
   });
+}
+
+function broadcastTabGroupsChanged(pIdx, win = null) {
+  const target = win || windows[pIdx];
+  if (target && !target.isDestroyed()) {
+    target.webContents.send("tab-groups-changed", {
+      tabs: getWindowTabSnapshot(pIdx),
+      groups: getWindowGroupSnapshot(pIdx)
+    });
+  }
 }
 
 function dispatchBrowserShortcutAction(pIdx, action, targetWebContents = null) {
@@ -2137,6 +2246,7 @@ function showOfflinePage(tabId, pIdx, options = {}) {
 
   offlineTabs[tabId] = { game, targetUrl, title, source };
   appUtils.syncTabRecord(pTabs[pIdx], tabId, { url: targetUrl, title });
+  scheduleRecoverySave();
 
   view.tUrl = targetUrl;
   view.pendingHttpsUpgrade = null;
@@ -2185,6 +2295,7 @@ function loadTabUrl(tabId, pIdx, rawUrl, options = {}) {
   view.pendingTargetUrl = normalizedUrl;
   view.tUrl = normalizedUrl;
   appUtils.syncTabRecord(pTabs[pIdx], tabId, { url: normalizedUrl });
+  scheduleRecoverySave();
 
   if (isInternalUrl(normalizedUrl)) return loadInternal(view.webContents, normalizedUrl);
   if (isHttpUrl(normalizedUrl)) {
@@ -2229,6 +2340,7 @@ function createW(pIdx = 0, opts = {}) {
   windows[pIdx] = win;
   attachBrowserShortcutHandler(win.webContents, () => win.profileIndex);
   if (!pTabs[pIdx]) pTabs[pIdx] = [];
+  if (!pGroups[pIdx]) pGroups[pIdx] = [];
   pNames[pIdx] = isIncognito ? getDefaultProfileName(pIdx, { incognito: true }) : (pNames[pIdx] || getDefaultProfileName(pIdx));
   states[pIdx] = { activeView: null, metrics: { top: 76, left: 0 }, visible: true, readerMode: false, readerTabId: null };
 
@@ -2281,9 +2393,12 @@ function createW(pIdx = 0, opts = {}) {
     if (isIncognito) {
       delete incognitoSitePermissions[getPermissionScopeKey(pIdx, true)];
       delete pTabs[pIdx];
+      delete pGroups[pIdx];
       delete pNames[pIdx];
+      delete activeTabIds[pIdx];
     }
     saveH();
+    scheduleRecoverySave();
   });
   broadcast();
   scheduleExtensionRestoreForWindow(win);
@@ -2314,7 +2429,7 @@ function broadcast() {
 
 function getActiveT(pIdx) {
   const s = states[pIdx];
-  if (!s || !s.activeView) return null;
+  if (!s || !s.activeView) return activeTabIds[pIdx] || null;
   for (const [id, v] of Object.entries(views)) if (v === s.activeView) return id;
   for (const [id, session] of Object.entries(readerSessions)) {
     if (session && session.readerView === s.activeView) return id;
@@ -2336,6 +2451,7 @@ function insertTabAfter(pIdx, tab, afterTabId) {
 
 function createT(pIdx, win) {
   if (!pTabs[pIdx]) pTabs[pIdx] = [];
+  if (!pGroups[pIdx]) pGroups[pIdx] = [];
   const id = `p-${pIdx}-t-1`;
   const home = "chrome://newtab";
   const isIncognito = !!(win && win.incognitoWindow);
@@ -2352,15 +2468,26 @@ function createT(pIdx, win) {
     });
     createV(id, initialUrl, isIncognito, pIdx);
     if (pendingUrl) delete win.pendingIncognitoUrl;
+  } else {
+    pTabs[pIdx].forEach((tab) => {
+      if (tab && tab.id && !views[tab.id]) {
+        createV(tab.id, tab.url || home, !!tab.incognito, pIdx);
+      }
+    });
   }
   win.webContents.send("profile-changed", {
     profileIndex: pIdx,
     tabs: pTabs[pIdx],
+    groups: pGroups[pIdx],
     incognitoWindow: isIncognito
   });
-  switchT(pTabs[pIdx][0].id, pIdx);
+  const nextActive = activeTabIds[pIdx] && pTabs[pIdx].some((tab) => tab && tab.id === activeTabIds[pIdx])
+    ? activeTabIds[pIdx]
+    : pTabs[pIdx][0].id;
+  switchT(nextActive, pIdx);
   broadcast();
   if (!isIncognito) win.webContents.send("history-loaded", getH());
+  scheduleRecoverySave();
 }
 
 function getWindowTabSnapshot(pIdx) {
@@ -2374,9 +2501,14 @@ function getWindowTabSnapshot(pIdx) {
       url: appUtils.normalizeInternalUrl(tab.url || "chrome://newtab", "chrome://newtab") || "chrome://newtab",
       title: tab.title || fallbackTitle,
       incognito: !!tab.incognito,
-      readerMode: !!tab.readerMode
+      readerMode: !!tab.readerMode,
+      groupId: typeof tab.groupId === "string" ? tab.groupId : undefined
     };
   });
+}
+
+function getWindowGroupSnapshot(pIdx) {
+  return tabGroups.sanitizeGroups(getProfileGroupList(pIdx));
 }
 
 function ensureWindowBootstrapState(win) {
@@ -2396,6 +2528,7 @@ function ensureWindowBootstrapState(win) {
     incognitoWindow: !!win.incognitoWindow,
     profiles: getProfileListSnapshot(),
     tabs: getWindowTabSnapshot(pIdx),
+    groups: getWindowGroupSnapshot(pIdx),
     activeTabId: getActiveT(pIdx) || (tabList[0] && tabList[0].id) || null
   };
 }
@@ -2455,6 +2588,7 @@ function createV(id, url, inc, pIdx) {
     const displayUrl = getDisplayUrlForTab(id, navigationUrl, v.tUrl || navigationUrl);
     v.tUrl = displayUrl || v.tUrl;
     const updatedTab = tabState.updateTabOnNavigate(pTabs[pIdx], id, displayUrl);
+    scheduleRecoverySave();
     if (win) {
       win.webContents.send("view-event", { tabId: id, type: "did-navigate", url: displayUrl });
       const tab = pTabs[pIdx].find((t) => t.id === id);
@@ -2487,6 +2621,7 @@ function createV(id, url, inc, pIdx) {
     const title = getDisplayTitleForTab(id, t);
     v.tUrl = currentUrl || v.tUrl;
     const updatedTab = tabState.updateTabOnTitle(pTabs[pIdx], id, title, currentUrl);
+    scheduleRecoverySave();
     if (win) {
       win.webContents.send("view-event", {
         tabId: id,
@@ -2621,6 +2756,7 @@ function switchT(id, pIdx) {
     } catch (e) { }
   }
   if (win && !win.isDestroyed() && s.activeView && !s.activeView.webContents.isDestroyed()) {
+    activeTabIds[pIdx] = id;
     const tabRecord = pTabs[pIdx] && pTabs[pIdx].find((tab) => tab.id === id);
     const currentRawUrl = session && session.active
       ? (session.sourceUrl || (tabRecord && tabRecord.url) || "")
@@ -2637,6 +2773,7 @@ function switchT(id, pIdx) {
     if (payload.url && views[id]) views[id].tUrl = payload.url;
     win.webContents.send("tab-switched", payload);
   }
+  scheduleRecoverySave();
   setTimeout(() => updateB(pIdx), 100);
 }
 
@@ -2687,6 +2824,7 @@ function closeTab(pIdx, id, win) {
   delete readerSessions[id];
   clearOfflineTabContext(id);
   pTabs[pIdx] = profileTabs.filter((t) => t && t.id !== id);
+  if (activeTabIds[pIdx] === id) delete activeTabIds[pIdx];
   
   if (wasA && s) {
     s.activeView = null;
@@ -2698,13 +2836,15 @@ function closeTab(pIdx, id, win) {
         id: nid,
         url: "chrome://newtab",
         title: localization.t(locale, "app.newTab"),
-        incognito: closingIncognito
+        incognito: closingIncognito,
+        readerMode: false
       });
       createV(nid, "chrome://newtab", closingIncognito, pIdx);
       switchT(nid, pIdx);
     }
   }
   w.webContents.send("tab-closed", id);
+  scheduleRecoverySave();
   updateB(pIdx);
 }
 
@@ -2848,7 +2988,9 @@ ipcMain.on("toggle-browser-view", withTrustedSender((e, v) => {
 ipcMain.handle("add-new-profile", withTrustedSender((e) => {
   const n = getNextAvailableProfileIndex();
   pTabs[n] = [];
+  pGroups[n] = [];
   pNames[n] = getDefaultProfileName(n);
+  scheduleRecoverySave();
   const win = createW(n);
   if (win && !win.isDestroyed()) {
     try {
@@ -2861,6 +3003,7 @@ ipcMain.handle("add-new-profile", withTrustedSender((e) => {
 function openIncognitoWindow(url) {
   const pIdx = nextIncognitoProfileId++;
   pTabs[pIdx] = [];
+  pGroups[pIdx] = [];
   pNames[pIdx] = getDefaultProfileName(pIdx, { incognito: true });
   const win = createW(pIdx, { incognito: true });
   if (url && url !== "chrome://newtab") {
@@ -2876,6 +3019,7 @@ ipcMain.on("rename-profile", withTrustedSender((e, { profileIndex, newName }) =>
   if (pNames[profileIndex]) {
     pNames[profileIndex] = newName;
     broadcast();
+    scheduleRecoverySave();
   }
 }, null));
 ipcMain.handle("create-tab", withTrustedSender((e, { tabId, url, inc, afterTabId }) => {
@@ -2909,6 +3053,56 @@ ipcMain.handle("reopen-closed-tab", withTrustedSender((e) => {
 ipcMain.handle("clear-other-tabs", withTrustedSender((e, keepId) => {
   const w = getSenderWindow(e.sender);
   if (w) clearOtherTabs(w.profileIndex, keepId, w);
+}, null));
+ipcMain.handle("create-tab-group", withTrustedSender((e, options = {}) => {
+  const w = getSenderWindow(e.sender);
+  if (!w) return null;
+  const pIdx = w.profileIndex;
+  const groups = getProfileGroupList(pIdx);
+  const tabs = getProfileTabList(pIdx);
+  const group = tabGroups.createGroup(groups, options);
+  groups.push(group);
+  const tabId = typeof options.tabId === "string" ? options.tabId : getActiveT(pIdx);
+  if (tabId) tabGroups.assignTabToGroup(tabs, groups, tabId, group.id);
+  scheduleRecoverySave();
+  broadcastTabGroupsChanged(pIdx, w);
+  return { group, tabs: getWindowTabSnapshot(pIdx), groups: getWindowGroupSnapshot(pIdx) };
+}, null));
+ipcMain.handle("rename-tab-group", withTrustedSender((e, { groupId, name } = {}) => {
+  const w = getSenderWindow(e.sender);
+  if (!w) return null;
+  const pIdx = w.profileIndex;
+  if (!tabGroups.renameGroup(getProfileGroupList(pIdx), groupId, name)) return null;
+  scheduleRecoverySave();
+  broadcastTabGroupsChanged(pIdx, w);
+  return { tabs: getWindowTabSnapshot(pIdx), groups: getWindowGroupSnapshot(pIdx) };
+}, null));
+ipcMain.handle("delete-tab-group", withTrustedSender((e, groupId) => {
+  const w = getSenderWindow(e.sender);
+  if (!w) return null;
+  const pIdx = w.profileIndex;
+  if (!tabGroups.deleteGroup(getProfileGroupList(pIdx), getProfileTabList(pIdx), groupId)) return null;
+  scheduleRecoverySave();
+  broadcastTabGroupsChanged(pIdx, w);
+  return { tabs: getWindowTabSnapshot(pIdx), groups: getWindowGroupSnapshot(pIdx) };
+}, null));
+ipcMain.handle("assign-tab-to-group", withTrustedSender((e, { tabId, groupId } = {}) => {
+  const w = getSenderWindow(e.sender);
+  if (!w) return null;
+  const pIdx = w.profileIndex;
+  if (!tabGroups.assignTabToGroup(getProfileTabList(pIdx), getProfileGroupList(pIdx), tabId || getActiveT(pIdx), groupId || null)) return null;
+  scheduleRecoverySave();
+  broadcastTabGroupsChanged(pIdx, w);
+  return { tabs: getWindowTabSnapshot(pIdx), groups: getWindowGroupSnapshot(pIdx) };
+}, null));
+ipcMain.handle("toggle-tab-group-collapsed", withTrustedSender((e, { groupId, collapsed } = {}) => {
+  const w = getSenderWindow(e.sender);
+  if (!w) return null;
+  const pIdx = w.profileIndex;
+  if (!tabGroups.toggleGroupCollapsed(getProfileGroupList(pIdx), groupId, collapsed)) return null;
+  scheduleRecoverySave();
+  broadcastTabGroupsChanged(pIdx, w);
+  return { tabs: getWindowTabSnapshot(pIdx), groups: getWindowGroupSnapshot(pIdx) };
 }, null));
 ipcMain.handle("navigate-to", withTrustedSender((e, u) => {
   const w = getSenderWindow(e.sender);
@@ -3123,13 +3317,21 @@ ipcMain.handle("reset-adblock-defaults", withTrustedSender(() => {
 }, null));
 
 app.on("window-all-closed", () => {
+  intentionalQuit = true;
+  deleteRecoveryState();
   if (process.platform !== "darwin") app.quit();
+});
+
+app.on("before-quit", () => {
+  intentionalQuit = true;
+  deleteRecoveryState();
 });
 
 app.whenReady().then(() => {
   registerAppProtocol();
   setMacDockIcon();
   applyDnsOverHttpsSettings();
+  restoreRecoveryState();
   adblockManager = adblock.createAdblockManager({
     userDataDir: app.getPath("userData")
   });

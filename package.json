@@ -113,6 +113,7 @@
       "offline-game-helpers.js",
       "reader-session.js",
       "reader-utils.js",
+      "tab-groups.js",
       "reader.html",
       "reader.js"
     ]

@@ -232,6 +232,7 @@
         }
 
         body.incognito-window #new-tab-btn,
+        body.incognito-window #group-tabs-btn,
         body.incognito-window #incognito-tab-btn,
         body.incognito-window #clear-tabs-btn {
             background: #1a1a1a;
@@ -240,6 +241,7 @@
         }
 
         body.incognito-window #new-tab-btn:hover,
+        body.incognito-window #group-tabs-btn:hover,
         body.incognito-window #incognito-tab-btn:hover,
         body.incognito-window #clear-tabs-btn:hover {
             background: #252525;
@@ -508,6 +510,11 @@
             box-shadow: none
         }
 
+        body.vertical-tabs .tab-group-header {
+            width: 100%;
+            justify-content: flex-start;
+        }
+
         body.vertical-tabs .tab:hover {
             background: rgba(15, 107, 255, 0.08)
         }
@@ -531,6 +538,100 @@
             display: flex;
             gap: 6px;
             flex: 0 0 auto;
+            position: relative;
+        }
+
+        #group-tabs-menu {
+            position: absolute;
+            top: calc(100% + 8px);
+            right: 0;
+            z-index: 3000;
+            width: min(520px, calc(100vw - 28px));
+            max-height: 60vh;
+            overflow-y: auto;
+            padding: 8px;
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            background: var(--glass-bg);
+            box-shadow: 0 24px 60px rgba(10, 24, 48, .22);
+            backdrop-filter: blur(18px);
+            display: none
+        }
+
+        #group-tabs-menu.show {
+            display: block
+        }
+
+        .tab-group-menu-item,
+        .tab-group-menu-main,
+        .tab-group-menu-icon {
+            border: 1px solid transparent;
+            border-radius: 8px;
+            background: transparent;
+            color: var(--text-primary);
+            cursor: pointer;
+            font: inherit;
+            text-align: left
+        }
+
+        .tab-group-menu-item {
+            width: 100%;
+            padding: 10px 12px;
+            font-weight: 700
+        }
+
+        .tab-group-menu-row {
+            display: grid;
+            grid-template-columns: minmax(160px, 1fr) auto auto auto;
+            gap: 6px;
+            align-items: center;
+            padding: 6px;
+            border-left: 4px solid var(--group-color);
+            border-radius: 8px
+        }
+
+        .tab-group-menu-main {
+            padding: 8px 10px;
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap
+        }
+
+        .tab-group-menu-icon {
+            padding: 7px 8px;
+            font-size: 12px
+        }
+
+        .tab-group-menu-item:hover,
+        .tab-group-menu-main:hover,
+        .tab-group-menu-icon:hover {
+            background: rgba(15, 107, 255, .1);
+            border-color: rgba(15, 107, 255, .16)
+        }
+
+        .tab-group-menu-item:disabled,
+        .tab-group-menu-main:disabled {
+            cursor: default;
+            opacity: .48
+        }
+
+        .tab-group-menu-icon.danger:hover {
+            background: rgba(220, 38, 38, .12);
+            border-color: rgba(220, 38, 38, .2);
+            color: #b91c1c
+        }
+
+        .tab-group-menu-divider {
+            height: 1px;
+            margin: 8px 4px;
+            background: var(--border-color)
+        }
+
+        .tab-group-menu-empty {
+            padding: 10px 12px;
+            color: var(--text-secondary);
+            font-size: 13px
         }
 
         #tab-bar {
@@ -582,6 +683,52 @@
             font-weight: 600;
             border-color: rgba(15, 107, 255, .3);
             box-shadow: 0 14px 30px rgba(15, 107, 255, .2)
+        }
+
+        .tab[data-group-id] {
+            border-top: 3px solid var(--group-color);
+            padding-top: 7px
+        }
+
+        .tab-group-header {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex: 0 0 auto;
+            min-width: 92px;
+            max-width: 180px;
+            height: 32px;
+            padding: 6px 10px;
+            border: 1px solid color-mix(in srgb, var(--group-color) 55%, var(--border-color));
+            border-radius: 999px;
+            color: var(--text-primary);
+            background: color-mix(in srgb, var(--group-color) 12%, var(--tab-inactive-bg));
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 700;
+            white-space: nowrap;
+            box-shadow: 0 8px 20px rgba(10, 24, 48, .08)
+        }
+
+        .tab-group-header.active {
+            color: var(--group-color);
+            background: color-mix(in srgb, var(--group-color) 18%, var(--tab-active-bg))
+        }
+
+        .tab-group-name {
+            overflow: hidden;
+            text-overflow: ellipsis
+        }
+
+        .tab-group-count {
+            min-width: 18px;
+            height: 18px;
+            border-radius: 999px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: color-mix(in srgb, var(--group-color) 18%, transparent);
+            font-size: 11px
         }
 
         .tab:hover {
@@ -658,6 +805,7 @@
         }
 
         #new-tab-btn,
+        #group-tabs-btn,
         #incognito-tab-btn,
         #clear-tabs-btn {
             padding: 6px 10px;
@@ -673,6 +821,7 @@
         }
 
         #new-tab-btn:hover,
+        #group-tabs-btn:hover,
         #incognito-tab-btn:hover,
         #clear-tabs-btn:hover {
             transform: translateY(-1px);
@@ -735,6 +884,7 @@
 
         .nav-btn:active,
         #new-tab-btn:active,
+        #group-tabs-btn:active,
         #incognito-tab-btn:active,
         #clear-tabs-btn:active,
         .bookmarks-bar-item:active,
@@ -2281,6 +2431,14 @@
                         <line x1="12" y1="5" x2="12" y2="19"></line>
                         <line x1="5" y1="12" x2="19" y2="12"></line>
                     </svg></div>
+                <div id="group-tabs-btn" title="Tab Groups" data-i18n-title="toolbar.tabGroups"><svg width="20" height="20" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="2">
+                        <rect x="3" y="5" width="8" height="6" rx="2"></rect>
+                        <rect x="13" y="5" width="8" height="6" rx="2"></rect>
+                        <rect x="3" y="13" width="8" height="6" rx="2"></rect>
+                        <rect x="13" y="13" width="8" height="6" rx="2"></rect>
+                    </svg></div>
+                <div id="group-tabs-menu" class="tab-group-menu" aria-label="Tab groups"></div>
                 <div id="incognito-tab-btn" title="New Incognito Tab" data-i18n-title="toolbar.newIncognitoTab"><svg width="20" height="20" viewBox="0 0 24 24" fill="none"
                         stroke="currentColor" stroke-width="2">
                         <path d="M12 3a6 6 0 0 0-6 6v1H4v2h2v8h12v-8h2v-2h-2V9a6 6 0 0 0-6-6z"></path>

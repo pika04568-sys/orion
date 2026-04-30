@@ -25,7 +25,9 @@
     "clear-other-tabs",
     "close-tab",
     "close-reader",
+    "create-tab-group",
     "create-tab",
+    "delete-tab-group",
     "get-language-settings",
     "get-reader-content",
     "get-window-bootstrap-state",
@@ -40,6 +42,7 @@
     "navigate-to",
     "reload-page",
     "reopen-closed-tab",
+    "assign-tab-to-group",
     "set-language",
     "get-adblock-state",
     "refresh-adblock-lists",
@@ -50,7 +53,9 @@
     "stop-find-in-page",
     "switch-profile",
     "switch-tab",
+    "toggle-tab-group-collapsed",
     "toggle-reader-mode",
+    "rename-tab-group",
     "update-adblock-rules"
   ]);
   const APP_SEND_CHANNELS = Object.freeze([
@@ -77,6 +82,7 @@
     "reader-mode-changed",
     "tab-closed",
     "tab-created",
+    "tab-groups-changed",
     "tab-switched",
     "updater-status",
     "view-event"
@@ -455,6 +461,11 @@
       tab.readerMode = !!patch.readerMode;
     }
 
+    if (Object.prototype.hasOwnProperty.call(patch, "groupId")) {
+      if (typeof patch.groupId === "string" && patch.groupId) tab.groupId = patch.groupId;
+      else delete tab.groupId;
+    }
+
     return tab;
   }
 
@@ -470,6 +481,7 @@
         incognito: !!tabLike.incognito,
         readerMode: !!tabLike.readerMode
       };
+      if (typeof tabLike.groupId === "string" && tabLike.groupId) tab.groupId = tabLike.groupId;
       tabList.push(tab);
       return tab;
     }
