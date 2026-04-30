@@ -14,6 +14,14 @@ test("reader pages map to the internal alias and stay trusted only through bundl
   assert.equal(appUtils.isTrustedAppPage("https://example.com/reader.html", trustedFiles), false);
 });
 
+test("games command resolves to the offline arcade page", () => {
+  const trustedFiles = new Set(["index.html", "newtab.html", "offline.html", "extensions.html", "reader.html"]);
+
+  assert.equal(appUtils.getAppPageFileName("orion://games"), "offline.html");
+  assert.equal(appUtils.normalizeInternalUrl("orion://games", "fallback"), "chrome://offline");
+  assert.equal(appUtils.isTrustedAppPage("orion://games", trustedFiles), true);
+});
+
 test("reader button state exposes translated labels and pressed state", () => {
   const inactive = appUtils.getReaderButtonState(false, (key) => key === "reader.enterMode" ? "Reader Mode" : key);
   const active = appUtils.getReaderButtonState(true, (key) => key === "reader.exitMode" ? "Exit Reader Mode" : key);

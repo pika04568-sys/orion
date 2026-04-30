@@ -45,6 +45,7 @@ const INTERNAL_PAGES = new Map([
   ["chrome://newtab", "newtab.html"],
   ["chrome://extensions", "extensions.html"],
   ["chrome://offline", "offline.html"],
+  ["chrome://games", "offline.html"],
   ["chrome://reader", "reader.html"]
 ]);
 const TRUSTED_PAGE_FILES = new Set(["index.html", "newtab.html", "offline.html", "extensions.html", "reader.html"]);
@@ -283,6 +284,10 @@ function getContentType(filePath) {
 function resolveProtocolAssetPath(requestUrl) {
   try {
     const parsed = new NodeURL(requestUrl);
+    if (parsed.protocol === appUtils.ORION_PROTOCOL && parsed.hostname === "games") {
+      const gamesPath = path.join(__dirname, "offline.html");
+      return fs.existsSync(gamesPath) ? gamesPath : null;
+    }
     if (parsed.protocol !== appUtils.ORION_PROTOCOL || parsed.hostname !== appUtils.ORION_HOST) return null;
     
     // Decode the pathname carefully
@@ -2928,6 +2933,12 @@ ipcMain.handle("navigate-to", withTrustedSender((e, u) => {
     return loadTabUrl(activeTabId, w.profileIndex, tu, {
       source: tu === "chrome://newtab" ? "new-tab" : "internal"
     });
+  }
+  if (tu.startsWith("chrome://") && INTERNAL_PAGES.has(tu)) {
+    return loadTabUrl(activeTabId, w.profileIndex, tu, { source: "internal" });
+  }
+  if (appUtils.isTrustedAppPage(tu, TRUSTED_PAGE_FILES)) {
+    return loadTabUrl(activeTabId, w.profileIndex, tu, { source: "internal" });
   }
   const templates = {
     google: "https://www.google.com/search?q=",

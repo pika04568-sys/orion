@@ -1,73 +1,85 @@
-Orion Browser
+# Orion Browser
 
-A lightweight desktop browser built with Electron. Orion offers a clean interface with essential features for everyday browsing.
+Orion is a lightweight desktop browser built with Electron. It pairs a clean, customizable shell with practical browsing features: tabs, profiles, bookmarks, history, downloads, reader mode, privacy controls, unpacked extensions, adblock rules, and an offline arcade fallback.
 
-🚀 Quick Start (For Users)
+## Quick Start
 
-If you just want to use the browser, you do not need Node.js or npm. Simply download the pre-built binaries:
+If you just want to use Orion, download a pre-built release for your platform. Node.js and npm are only needed when modifying the source or building the app yourself.
 
+## Development
 
-🛠️ Development (For Contributors)
+### Prerequisites
 
-The commands below are only necessary if you are looking to modify the source code or build the application from scratch.
+- Node.js LTS
+- npm, included with Node.js
 
-Prerequisites
+### Setup And Local Run
 
-Node.js (LTS recommended)
-
-npm (comes with Node.js)
-
-Setup & Local Run
-
-To test changes without packaging the app:
-
-# Install dependencies
+```sh
 npm install
-
-# Run the app in development mode
 npm start
+```
 
+### Tests
 
-📦 Building the Executable
+```sh
+npm test
+```
 
-To package the source code into a redistributable format (like a .exe or .dmg):
+The test suite covers adblock behavior, privacy defaults, security helpers, reader mode extraction/session handling, offline routing and arcade rotation, localization, preload bridge scoping, and startup regressions.
 
-# Windows (Generates separate NSIS installer + portable .exe builds for x64 and arm64)
-npm run dist:win
+## Building
 
-# macOS (Generates DMG)
+Packaged output is written to `dist/`.
+
+```sh
+# Create an unpacked app directory
+npm run pack
+
+# Build using the default electron-builder target
+npm run dist
+
+# macOS DMG
 npm run dist:mac
 
-# Linux (AppImage / deb)
-npm run dist:linux
+# Windows NSIS installer and portable builds for x64 and arm64
+npm run dist:win
+```
 
+## Features
 
-All packaged files will be located in the dist/ directory.
+- Tabs with horizontal or vertical layouts, recently closed tab restore, reload and hard reload shortcuts, and quick tab switching.
+- Profiles and incognito windows with separate browser state where appropriate.
+- Bookmarks, a bookmark bar, and new-tab shortcuts.
+- History and downloads sidebars, including range-based history clearing.
+- Reader mode for extracting article-style pages into a focused reading surface.
+- Search engine selection for address-bar queries, including Google, Bing, DuckDuckGo, Brave, StartPage, Yandex, Baidu, Yahoo, and Naver.
+- Localization for English, French, German, and Japanese, with first-run language onboarding.
+- Theme customization, accent colors, vertical tabs, and optional seconds in time widgets.
+- Chrome-style unpacked extension loading through `chrome://extensions`, with extension permission inspection.
+- Built-in adblock lists, cached list refreshes, per-list toggles, and custom filter rules.
+- Privacy controls for HTTPS-Only Mode, anti-fingerprinting hardening, and DNS-over-HTTPS through Cloudflare secure DNS.
+- Scoped internal pages for new tab, extensions, reader mode, and offline fallback.
+- Offline arcade fallback with Snake, Tetris, and Pac-Man when navigation fails because the device is offline.
+- Update checks through GitHub releases using Electron updater integration.
 
-✨ Features
+## Project Structure
 
-Tabs — Multiple tabs with optional vertical tab layout.
+- `main.js` runs the Electron main process, window and tab orchestration, sessions, permissions, updates, internal pages, and browser IPC.
+- `renderer.js` drives the main browser UI, settings, panels, profiles, bookmarks, downloads, reader controls, and localization updates.
+- `preload.js` exposes scoped bridges for trusted Orion pages.
+- `adblock.js`, `browser-privacy.js`, and `browser-security.js` contain blocking, privacy, permission, and extension-safety helpers.
+- `reader*.js` and `reader.html` power reader mode.
+- `offline*.js` and `offline.html` power offline routing and arcade games.
+- `localization.js` contains UI strings and platform-specific labels.
+- `test/` contains the Node test suite.
 
-Bookmarks — Save and organize favorites with a bookmark bar.
+## Credits
 
-History — Browse and search browsing history.
+Initial build by Qwen.
 
-Downloads — Track and manage downloads.
+Further development by Antigravity, Codex, and Cursor.
 
-Adblock — Custom block rules to remove ads and trackers.
+## License
 
-Extensions — Chrome extension support via chrome://extensions.
-
-Themes — Customize accent colors and UI layouts.
-
-Search — Toggle between Google, DuckDuckGo, Brave, and more.
-
-🤝 Credits
-
-Initial build by Qwen
-
-Further development by Antigravity, Codex and Cursor
-
-📄 License
-
-This project is open-source. Feel free to edit, improve, and submit pull requests.
+This project is open source. Feel free to edit, improve, and submit pull requests.

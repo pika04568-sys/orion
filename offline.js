@@ -12,6 +12,16 @@
     snake: "Arrow keys or WASD steer. Press P to pause.",
     tetris: "Arrow keys move, Up/X rotates clockwise, Z rotates backward, Space hard-drops. Press P to pause."
   };
+  const CANVAS_FONT = "\"Inter\", \"SF Pro Text\", \"Segoe UI\", system-ui, sans-serif";
+  const SURFACE = {
+    ink: "#edf4ff",
+    muted: "rgba(226, 232, 240, 0.72)",
+    panelLine: "rgba(148, 163, 184, 0.2)",
+    screenTop: "#101a2a",
+    screenBottom: "#050b14",
+    grid: "rgba(148, 163, 184, 0.07)",
+    gridStrong: "rgba(191, 219, 254, 0.12)"
+  };
 
   const enqueueDirection = typeof helpers.enqueueDirection === "function"
     ? helpers.enqueueDirection
@@ -119,28 +129,63 @@
     setStatus(paused ? "Game paused. Press P or Resume to continue." : controller.baseStatus || "Back in the game.");
   }
 
-  function drawPauseOverlay() {
-    if (!paused) return;
+  function drawCenterOverlay(titleText, detailText, tone = "neutral") {
     ctx.save();
-    ctx.fillStyle = "rgba(2, 6, 16, 0.52)";
+    ctx.fillStyle = "rgba(2, 6, 16, 0.58)";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = "#f6f1dd";
+
+    const cardWidth = Math.min(420, canvas.width - 96);
+    const cardHeight = 158;
+    const cardX = (canvas.width - cardWidth) / 2;
+    const cardY = (canvas.height - cardHeight) / 2;
+    ctx.shadowColor = "rgba(0, 0, 0, 0.34)";
+    ctx.shadowBlur = 28;
+    ctx.shadowOffsetY = 14;
+    ctx.fillStyle = "rgba(15, 23, 42, 0.88)";
+    roundRect(cardX, cardY, cardWidth, cardHeight, 18);
+    ctx.fill();
+    ctx.shadowColor = "transparent";
+    ctx.strokeStyle = tone === "alert" ? "rgba(251, 113, 133, 0.44)" : "rgba(147, 197, 253, 0.34)";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    ctx.fillStyle = tone === "alert" ? "#fecdd3" : SURFACE.ink;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.font = "700 44px \"Avenir Next\", \"Trebuchet MS\", sans-serif";
-    ctx.fillText("Paused", canvas.width / 2, canvas.height / 2 - 18);
-    ctx.font = "600 18px \"Avenir Next\", \"Trebuchet MS\", sans-serif";
-    ctx.fillStyle = "rgba(246, 241, 221, 0.84)";
-    ctx.fillText("Press P or Resume to continue", canvas.width / 2, canvas.height / 2 + 26);
+    ctx.font = `800 38px ${CANVAS_FONT}`;
+    ctx.fillText(titleText, canvas.width / 2, cardY + 58);
+    ctx.font = `600 17px ${CANVAS_FONT}`;
+    ctx.fillStyle = SURFACE.muted;
+    ctx.fillText(detailText, canvas.width / 2, cardY + 104);
     ctx.restore();
+  }
+
+  function drawPauseOverlay() {
+    if (!paused) return;
+    drawCenterOverlay("Paused", "Press P or Resume to continue");
+  }
+
+  function drawGameOverOverlay(titleText, detailText) {
+    drawCenterOverlay(titleText, detailText, "alert");
   }
 
   function drawBackdrop(gridSize) {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     const size = gridSize || 24;
-    ctx.fillStyle = "#071021";
+    const background = ctx.createLinearGradient(0, 0, 0, canvas.height);
+    background.addColorStop(0, SURFACE.screenTop);
+    background.addColorStop(0.58, "#091322");
+    background.addColorStop(1, SURFACE.screenBottom);
+    ctx.fillStyle = background;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.strokeStyle = "rgba(255,255,255,0.035)";
+
+    const glow = ctx.createRadialGradient(canvas.width / 2, 0, 24, canvas.width / 2, 0, canvas.width * 0.78);
+    glow.addColorStop(0, "rgba(96, 165, 250, 0.16)");
+    glow.addColorStop(1, "rgba(96, 165, 250, 0)");
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.strokeStyle = SURFACE.grid;
     ctx.lineWidth = 1;
     for (let x = 0; x <= canvas.width; x += size) {
       ctx.beginPath();
@@ -154,6 +199,53 @@
       ctx.lineTo(canvas.width, y + 0.5);
       ctx.stroke();
     }
+
+    ctx.strokeStyle = SURFACE.gridStrong;
+    ctx.strokeRect(18.5, 18.5, canvas.width - 37, canvas.height - 37);
+  }
+
+  function drawInsetPanel(x, y, width, height, radius = 18) {
+    ctx.save();
+    ctx.shadowColor = "rgba(0, 0, 0, 0.34)";
+    ctx.shadowBlur = 18;
+    ctx.shadowOffsetY = 10;
+    ctx.fillStyle = "rgba(3, 7, 18, 0.38)";
+    roundRect(x, y, width, height, radius);
+    ctx.fill();
+    ctx.shadowColor = "transparent";
+    ctx.strokeStyle = SURFACE.panelLine;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawCellInset(x, y, width, height, radius = 8) {
+    ctx.save();
+    ctx.fillStyle = "rgba(15, 23, 42, 0.28)";
+    roundRect(x, y, width, height, radius);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(148, 163, 184, 0.08)";
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function hexToRgb(hex) {
+    const clean = String(hex).replace("#", "");
+    const value = parseInt(clean.length === 3
+      ? clean.split("").map((char) => char + char).join("")
+      : clean, 16);
+    return {
+      r: (value >> 16) & 255,
+      g: (value >> 8) & 255,
+      b: value & 255
+    };
+  }
+
+  function mixColor(hex, target, amount) {
+    const base = hexToRgb(hex);
+    const next = hexToRgb(target);
+    const mix = (left, right) => Math.round(left + (right - left) * amount);
+    return `rgb(${mix(base.r, next.r)}, ${mix(base.g, next.g)}, ${mix(base.b, next.b)})`;
   }
 
   function fitRect(cols, rows, padding = 48) {
@@ -186,7 +278,7 @@
     let accumulator = 0;
     let gameOver = false;
     let score = 0;
-    const baseStatus = "Collect as much fruit as you can before the walls or your tail catch you.";
+    const baseStatus = "Stay inside the board, collect each target, and keep the route clean.";
 
     setScore(0);
     setStatus(baseStatus);
@@ -224,31 +316,60 @@
       },
       render(time) {
         drawBackdrop(board.cell);
-        ctx.fillStyle = "rgba(255,255,255,0.04)";
-        ctx.fillRect(board.x - 12, board.y - 12, board.width + 24, board.height + 24);
+        drawInsetPanel(board.x - 16, board.y - 16, board.width + 32, board.height + 32, 18);
+        for (let y = 0; y < rows; y += 1) {
+          for (let x = 0; x < cols; x += 1) {
+            drawCellInset(
+              board.x + x * board.cell + 2,
+              board.y + y * board.cell + 2,
+              board.cell - 4,
+              board.cell - 4,
+              6
+            );
+          }
+        }
 
-        ctx.fillStyle = "#ff8c69";
-        ctx.beginPath();
-        ctx.arc(
-          board.x + food.x * board.cell + board.cell / 2,
-          board.y + food.y * board.cell + board.cell / 2,
-          board.cell * 0.32 + Math.sin(time / 180) * 1.6,
-          0,
-          Math.PI * 2
+        const foodX = board.x + food.x * board.cell + board.cell / 2;
+        const foodY = board.y + food.y * board.cell + board.cell / 2;
+        const foodRadius = board.cell * 0.31 + Math.sin(time / 180) * 1.3;
+        const foodGradient = ctx.createRadialGradient(
+          foodX - foodRadius * 0.28,
+          foodY - foodRadius * 0.34,
+          foodRadius * 0.16,
+          foodX,
+          foodY,
+          foodRadius
         );
+        foodGradient.addColorStop(0, "#fee2e2");
+        foodGradient.addColorStop(0.36, "#fb7185");
+        foodGradient.addColorStop(1, "#9f1239");
+        ctx.shadowColor = "rgba(244, 63, 94, 0.42)";
+        ctx.shadowBlur = 16;
+        ctx.fillStyle = foodGradient;
+        ctx.beginPath();
+        ctx.arc(foodX, foodY, foodRadius, 0, Math.PI * 2);
         ctx.fill();
+        ctx.shadowColor = "transparent";
 
         snake.forEach((part, index) => {
           const x = board.x + part.x * board.cell;
           const y = board.y + part.y * board.cell;
+          const base = index === 0 ? "#38bdf8" : "#22c55e";
           const gradient = ctx.createLinearGradient(x, y, x + board.cell, y + board.cell);
-          gradient.addColorStop(0, index === 0 ? "#63b8ff" : "#56f39a");
-          gradient.addColorStop(1, index === 0 ? "#94d0ff" : "#2fe37f");
+          gradient.addColorStop(0, mixColor(base, "#ffffff", 0.38));
+          gradient.addColorStop(0.5, base);
+          gradient.addColorStop(1, mixColor(base, "#020617", 0.3));
+          ctx.shadowColor = index === 0 ? "rgba(56, 189, 248, 0.38)" : "rgba(34, 197, 94, 0.26)";
+          ctx.shadowBlur = index === 0 ? 16 : 9;
           ctx.fillStyle = gradient;
-          roundRect(x + 2, y + 2, board.cell - 4, board.cell - 4, 8);
+          roundRect(x + 3, y + 3, board.cell - 6, board.cell - 6, index === 0 ? 10 : 8);
           ctx.fill();
+          ctx.shadowColor = "transparent";
+          ctx.strokeStyle = "rgba(255, 255, 255, 0.18)";
+          ctx.stroke();
         });
 
+        if (gameOver) drawGameOverOverlay("Run ended", "Press Enter or Restart Game to try again");
         drawPauseOverlay();
       },
       update(delta) {
@@ -310,7 +431,7 @@
     let score = 0;
     let clearedRows = 0;
     let gameOver = false;
-    const baseStatus = "Stack clean clears to keep the board open. Hard-drops are worth the risk.";
+    const baseStatus = "Build a stable stack, clear full rows, and keep the upper board open.";
 
     setScore(0);
     setStatus(baseStatus);
@@ -436,9 +557,18 @@
       },
       render() {
         drawBackdrop(cell);
-        ctx.fillStyle = "rgba(255,255,255,0.045)";
-        roundRect(boardX - 12, boardY - 12, cols * cell + 24, rows * cell + 24, 18);
-        ctx.fill();
+        drawInsetPanel(boardX - 14, boardY - 14, cols * cell + 28, rows * cell + 28, 18);
+        for (let y = 0; y < rows; y += 1) {
+          for (let x = 0; x < cols; x += 1) {
+            drawCellInset(
+              boardX + x * cell + 2,
+              boardY + y * cell + 2,
+              cell - 4,
+              cell - 4,
+              5
+            );
+          }
+        }
 
         board.forEach((row, y) => {
           row.forEach((color, x) => {
@@ -454,16 +584,18 @@
           });
         });
 
-        ctx.fillStyle = "#f6f1dd";
-        ctx.font = "700 22px \"Avenir Next\", \"Trebuchet MS\", sans-serif";
+        ctx.fillStyle = SURFACE.muted;
+        ctx.font = `800 15px ${CANVAS_FONT}`;
+        ctx.textAlign = "left";
+        ctx.textBaseline = "alphabetic";
         ctx.fillText("Score", sidebarX, boardY + 42);
-        ctx.font = "700 44px \"Avenir Next\", \"Trebuchet MS\", sans-serif";
+        ctx.fillStyle = SURFACE.ink;
+        ctx.font = `800 38px ${CANVAS_FONT}`;
         ctx.fillText(String(score), sidebarX, boardY + 88);
-        ctx.font = "700 18px \"Avenir Next\", \"Trebuchet MS\", sans-serif";
+        ctx.fillStyle = SURFACE.muted;
+        ctx.font = `800 15px ${CANVAS_FONT}`;
         ctx.fillText("Next", sidebarX, boardY + 158);
-        ctx.fillStyle = "rgba(255,255,255,0.04)";
-        roundRect(previewBox.x, previewBox.y, previewBox.width, previewBox.height, 16);
-        ctx.fill();
+        drawInsetPanel(previewBox.x, previewBox.y, previewBox.width, previewBox.height, 14);
 
         const nextPiece = pieceStream.peekNextPiece();
         const previewCell = Math.max(6, Math.floor(Math.min((previewBox.width - 16) / 4, (previewBox.height - 16) / 4)));
@@ -478,6 +610,7 @@
           });
         });
 
+        if (gameOver) drawGameOverOverlay("Board full", "Press Enter or Restart Game to try again");
         drawPauseOverlay();
       },
       update(delta) {
@@ -526,7 +659,7 @@
     let gameOver = false;
     let won = false;
     let pellets = countPellets();
-    const baseStatus = "Clear the maze and keep moving. The ghosts get bolder once you hesitate.";
+    const baseStatus = "Clear the route while staying ahead of the ghosts in the maze.";
 
     maze[player.y][player.x] = " ";
     setScore(0);
@@ -606,52 +739,92 @@
       },
       render(time) {
         drawBackdrop(board.cell);
-        ctx.fillStyle = "rgba(255,255,255,0.045)";
-        roundRect(board.x - 16, board.y - 16, board.width + 32, board.height + 32, 18);
-        ctx.fill();
+        drawInsetPanel(board.x - 18, board.y - 18, board.width + 36, board.height + 36, 18);
 
         maze.forEach((row, y) => {
           row.forEach((cell, x) => {
             const px = board.x + x * board.cell;
             const py = board.y + y * board.cell;
             if (cell === "#") {
-              ctx.fillStyle = "#123c8d";
+              const wallGradient = ctx.createLinearGradient(px, py, px + board.cell, py + board.cell);
+              wallGradient.addColorStop(0, "#2563eb");
+              wallGradient.addColorStop(0.55, "#1d4ed8");
+              wallGradient.addColorStop(1, "#172554");
+              ctx.shadowColor = "rgba(37, 99, 235, 0.25)";
+              ctx.shadowBlur = 8;
+              ctx.fillStyle = wallGradient;
               roundRect(px + 2, py + 2, board.cell - 4, board.cell - 4, 8);
               ctx.fill();
+              ctx.shadowColor = "transparent";
+              ctx.strokeStyle = "rgba(191, 219, 254, 0.16)";
+              ctx.stroke();
             } else if (cell === "." || cell === "o") {
-              ctx.fillStyle = cell === "o" ? "#ffd166" : "#f6f1dd";
-              ctx.beginPath();
-              ctx.arc(
-                px + board.cell / 2,
-                py + board.cell / 2,
-                cell === "o" ? board.cell * 0.18 : board.cell * 0.09,
-                0,
-                Math.PI * 2
+              const pelletX = px + board.cell / 2;
+              const pelletY = py + board.cell / 2;
+              const pelletRadius = cell === "o" ? board.cell * 0.18 : board.cell * 0.075;
+              const pelletGradient = ctx.createRadialGradient(
+                pelletX - pelletRadius * 0.3,
+                pelletY - pelletRadius * 0.3,
+                pelletRadius * 0.12,
+                pelletX,
+                pelletY,
+                pelletRadius
               );
+              pelletGradient.addColorStop(0, "#ffffff");
+              pelletGradient.addColorStop(1, cell === "o" ? "#facc15" : "#cbd5e1");
+              ctx.fillStyle = pelletGradient;
+              ctx.shadowColor = cell === "o" ? "rgba(250, 204, 21, 0.32)" : "rgba(226, 232, 240, 0.18)";
+              ctx.shadowBlur = cell === "o" ? 12 : 5;
+              ctx.beginPath();
+              ctx.arc(pelletX, pelletY, pelletRadius, 0, Math.PI * 2);
               ctx.fill();
+              ctx.shadowColor = "transparent";
             }
           });
         });
 
         const mouth = 0.22 + (Math.sin(time / 130) + 1) * 0.12;
         const faceAngle = directionToAngle(player.dir, player.nextDir);
-        ctx.fillStyle = "#ffd166";
+        const playerX = board.x + player.x * board.cell + board.cell / 2;
+        const playerY = board.y + player.y * board.cell + board.cell / 2;
+        const playerGradient = ctx.createRadialGradient(
+          playerX - board.cell * 0.12,
+          playerY - board.cell * 0.16,
+          board.cell * 0.08,
+          playerX,
+          playerY,
+          board.cell * 0.42
+        );
+        playerGradient.addColorStop(0, "#fef3c7");
+        playerGradient.addColorStop(0.5, "#facc15");
+        playerGradient.addColorStop(1, "#b45309");
+        ctx.shadowColor = "rgba(250, 204, 21, 0.34)";
+        ctx.shadowBlur = 14;
+        ctx.fillStyle = playerGradient;
         ctx.beginPath();
-        ctx.moveTo(board.x + player.x * board.cell + board.cell / 2, board.y + player.y * board.cell + board.cell / 2);
+        ctx.moveTo(playerX, playerY);
         ctx.arc(
-          board.x + player.x * board.cell + board.cell / 2,
-          board.y + player.y * board.cell + board.cell / 2,
+          playerX,
+          playerY,
           board.cell * 0.38,
           faceAngle + mouth,
           faceAngle + Math.PI * 2 - mouth
         );
         ctx.closePath();
         ctx.fill();
+        ctx.shadowColor = "transparent";
 
         ghosts.forEach((ghost) => {
           const gx = board.x + ghost.x * board.cell + board.cell / 2;
           const gy = board.y + ghost.y * board.cell + board.cell / 2;
-          ctx.fillStyle = ghost.color;
+          const ghostGradient = ctx.createLinearGradient(gx, gy - board.cell * 0.42, gx, gy + board.cell * 0.34);
+          ghostGradient.addColorStop(0, mixColor(ghost.color, "#ffffff", 0.42));
+          ghostGradient.addColorStop(0.48, ghost.color);
+          ghostGradient.addColorStop(1, mixColor(ghost.color, "#020617", 0.32));
+          ctx.shadowColor = "rgba(0, 0, 0, 0.28)";
+          ctx.shadowBlur = 12;
+          ctx.shadowOffsetY = 4;
+          ctx.fillStyle = ghostGradient;
           ctx.beginPath();
           ctx.moveTo(gx - board.cell * 0.34, gy + board.cell * 0.3);
           ctx.lineTo(gx - board.cell * 0.34, gy - board.cell * 0.05);
@@ -663,13 +836,23 @@
           ctx.lineTo(gx - board.cell * 0.14, gy + board.cell * 0.18);
           ctx.closePath();
           ctx.fill();
+          ctx.shadowColor = "transparent";
+          ctx.shadowOffsetY = 0;
+          ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
+          ctx.beginPath();
+          ctx.arc(gx - board.cell * 0.12, gy - board.cell * 0.08, board.cell * 0.07, 0, Math.PI * 2);
+          ctx.arc(gx + board.cell * 0.12, gy - board.cell * 0.08, board.cell * 0.07, 0, Math.PI * 2);
+          ctx.fill();
         });
 
         if (won) {
-          ctx.fillStyle = "rgba(255, 209, 102, 0.16)";
+          ctx.fillStyle = "rgba(250, 204, 21, 0.14)";
           ctx.fillRect(0, 0, canvas.width, canvas.height);
         }
 
+        if (gameOver) {
+          drawGameOverOverlay(won ? "Maze clear" : "Caught", "Press Enter or Restart Game to play again");
+        }
         drawPauseOverlay();
       },
       update(delta) {
@@ -704,14 +887,24 @@
 
   function drawBlock(x, y, size, color) {
     const gradient = ctx.createLinearGradient(x, y, x + size, y + size);
-    gradient.addColorStop(0, color);
-    gradient.addColorStop(1, "#ffffff");
+    gradient.addColorStop(0, mixColor(color, "#ffffff", 0.36));
+    gradient.addColorStop(0.5, color);
+    gradient.addColorStop(1, mixColor(color, "#020617", 0.28));
+    ctx.save();
+    ctx.shadowColor = "rgba(0, 0, 0, 0.28)";
+    ctx.shadowBlur = 8;
+    ctx.shadowOffsetY = 3;
     ctx.fillStyle = gradient;
-    roundRect(x + 2, y + 2, size - 4, size - 4, 7);
+    roundRect(x + 2, y + 2, size - 4, size - 4, Math.max(5, Math.floor(size * 0.18)));
     ctx.fill();
-    ctx.strokeStyle = "rgba(0, 0, 0, 0.18)";
+    ctx.shadowColor = "transparent";
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.22)";
     ctx.lineWidth = 1;
     ctx.stroke();
+    ctx.fillStyle = "rgba(255, 255, 255, 0.2)";
+    roundRect(x + size * 0.16, y + size * 0.14, size * 0.45, Math.max(2, size * 0.08), size * 0.04);
+    ctx.fill();
+    ctx.restore();
   }
 
   function roundRect(x, y, width, height, radius) {

@@ -47,6 +47,10 @@ test("trusted Orion page recognition requires the custom app origin", () => {
     true
   );
   assert.equal(
+    appUtils.isTrustedAppPage("orion://games", TRUSTED_PAGE_FILES),
+    true
+  );
+  assert.equal(
     appUtils.isTrustedAppPage("orion://app/reader.html", TRUSTED_PAGE_FILES),
     true
   );
@@ -136,6 +140,10 @@ test("internal Orion URLs normalize to chrome aliases across protocol and legacy
       "file:///Users/kenokayasu/Documents/MyBrowser/offline.html?game=pacman",
       "fallback"
     ),
+    "chrome://offline"
+  );
+  assert.equal(
+    appUtils.normalizeInternalUrl("orion://games", "fallback"),
     "chrome://offline"
   );
   assert.equal(

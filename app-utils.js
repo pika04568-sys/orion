@@ -8,6 +8,9 @@
   const ORION_SCHEME = "orion";
   const ORION_PROTOCOL = `${ORION_SCHEME}:`;
   const ORION_HOST = "app";
+  const ORION_HOST_ALIASES = Object.freeze({
+    games: "offline.html"
+  });
   const INTERNAL_PAGE_ALIASES = Object.freeze({
     "newtab.html": "chrome://newtab",
     "extensions.html": "chrome://extensions",
@@ -138,11 +141,18 @@
     try {
       const parsed = new URL(url);
       let file = null;
-      if (parsed.protocol === ORION_PROTOCOL && parsed.hostname === ORION_HOST) {
-        file = (parsed.pathname || "")
-          .split("/")
-          .filter(Boolean)
-          .pop();
+      if (parsed.protocol === ORION_PROTOCOL) {
+        if (parsed.hostname === ORION_HOST) {
+          file = (parsed.pathname || "")
+            .split("/")
+            .filter(Boolean)
+            .pop();
+        } else if (parsed.hostname && ORION_HOST_ALIASES[parsed.hostname]) {
+          const pathname = (parsed.pathname || "").trim();
+          if (!pathname || pathname === "/") {
+            file = ORION_HOST_ALIASES[parsed.hostname];
+          }
+        }
       } else if (parsed.protocol === "file:") {
         // Handle Windows file URLs which may have format like /C:/path/to/file.html
         let pathname = parsed.pathname || "";
@@ -246,7 +256,7 @@
 
     try {
       const parsed = new URL(url);
-      if (parsed.protocol !== ORION_PROTOCOL || parsed.hostname !== ORION_HOST) return false;
+      if (parsed.protocol !== ORION_PROTOCOL) return false;
       const file = getAppPageFileName(url);
       return !!file && trustedFiles.has(file);
     } catch (_error) {
