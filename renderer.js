@@ -2,7 +2,7 @@ const ipcRenderer = window.electron || { invoke: async () => { }, send: () => { 
 const appUtils = window.OrionAppUtils;
 const localization = window.OrionLocalization;
 
-let tabBar, newTabBtn, groupTabsBtn, groupTabsMenu, clearTabsBtn, addressBar, backBtn, forwardBtn, reloadBtn, readerBtn, historyBtn, historySidebar, closeHistoryBtn, historyList, chromeContainer, profileBtn, profileMenu, profileListContainer, addProfileBtn, settingsBtn, settingsSidebar, closeSettingsBtn, profileColorPicker, renameModal, renameInput, renameSaveBtn, renameCancelBtn, pendingRenameProfileId = null, bookmarkBtn, bookmarksSidebar, closeBookmarksBtn, bookmarksList, downloadsBtn, downloadsSidebar, closeDownloadsBtn, downloadsList, findBar, findInput, findResults, findPrev, findNext, findClose, openExtensionsBtn, progressBarContainer, progressBar, addBookmarkBtn, bookmarksBar, bookmarkDestModal, addToBarBtn, addToNewTabBtn, addToBothBtn, cancelBookmarkBtn, checkUpdatesBtn, versionEl, updateStatusEl, startupOverlay, startupLanguagePicker, settingsLanguagePicker, readerToast, metrics = () => { }, pendingBookmark = null, activeTabId = null, activeProfile = 0, isIncognitoWindow = false, tabs = [], tabGroups = [], profiles = [];
+let tabBar, newTabBtn, groupTabsBtn, groupTabsMenu, clearTabsBtn, addressBar, backBtn, forwardBtn, reloadBtn, readerBtn, aiSummaryBtn, aiSummarySidebar, closeAiSummaryBtn, aiSummaryContent, historyBtn, historySidebar, closeHistoryBtn, historyList, chromeContainer, profileBtn, profileMenu, profileListContainer, addProfileBtn, settingsBtn, settingsSidebar, closeSettingsBtn, profileColorPicker, renameModal, renameInput, renameSaveBtn, renameCancelBtn, pendingRenameProfileId = null, bookmarkBtn, bookmarksSidebar, closeBookmarksBtn, bookmarksList, downloadsBtn, downloadsSidebar, closeDownloadsBtn, downloadsList, findBar, findInput, findResults, findPrev, findNext, findClose, openExtensionsBtn, progressBarContainer, progressBar, addBookmarkBtn, bookmarksBar, bookmarkDestModal, addToBarBtn, addToNewTabBtn, addToBothBtn, cancelBookmarkBtn, checkUpdatesBtn, versionEl, updateStatusEl, startupOverlay, startupLanguagePicker, settingsLanguagePicker, readerToast, metrics = () => { }, pendingBookmark = null, activeTabId = null, activeProfile = 0, isIncognitoWindow = false, tabs = [], tabGroups = [], profiles = [];
 let updaterState = { state: 'idle', message: localization.t(localization.DEFAULT_LOCALE, 'updates.ready') };
 let currentLocale = localization.DEFAULT_LOCALE;
 let currentPlatform = getBrowserUiPlatform();
@@ -248,6 +248,61 @@ function showReaderToast(message) {
     readerToast.classList.remove('show');
     readerToast.hidden = true;
   }, 2600);
+}
+
+function renderAiSummaryLoading() {
+  if (!aiSummaryContent) return;
+  aiSummaryContent.innerHTML = `<div class="ai-summary-card ai-summary-muted">${t('aiSummary.loading')}</div>`;
+}
+
+function renderAiSummary(summary) {
+  if (!aiSummaryContent) return;
+  aiSummaryContent.innerHTML = '';
+
+  const card = document.createElement('div');
+  card.className = 'ai-summary-card';
+  if (!summary || !summary.ok) {
+    card.classList.add('ai-summary-muted');
+    card.textContent = summary && summary.reason ? summary.reason : t('aiSummary.unavailable');
+    aiSummaryContent.appendChild(card);
+    return;
+  }
+
+  const title = document.createElement('h3');
+  title.textContent = summary.title || t('aiSummary.untitled');
+  card.appendChild(title);
+
+  const meta = document.createElement('div');
+  meta.className = 'ai-summary-meta';
+  const source = summary.siteName || summary.sourceUrl || t('aiSummary.localOnly');
+  const minutes = summary.readingTimeMinutes || 1;
+  meta.textContent = `${source} · ${t('aiSummary.localOnly')} · ${t('aiSummary.readingTime', { minutes })}`;
+  card.appendChild(meta);
+
+  const list = document.createElement('ul');
+  list.className = 'ai-summary-list';
+  (summary.bullets || []).forEach((point) => {
+    const item = document.createElement('li');
+    item.textContent = point;
+    list.appendChild(item);
+  });
+  card.appendChild(list);
+  aiSummaryContent.appendChild(card);
+}
+
+async function openAiSummaryPanel(togglePanel) {
+  if (!aiSummarySidebar) return;
+  togglePanel(aiSummarySidebar, true);
+  renderAiSummaryLoading();
+  try {
+    const summary = await ipcRenderer.invoke('summarize-active-page');
+    renderAiSummary(summary);
+  } catch (error) {
+    renderAiSummary({
+      ok: false,
+      reason: error && error.message ? error.message : t('aiSummary.unavailable')
+    });
+  }
 }
 
 function renderLanguageButtons(container, finishOnboarding) {
@@ -502,6 +557,10 @@ function init() {
   forwardBtn = document.getElementById('forward-btn');
   reloadBtn = document.getElementById('reload-btn');
   readerBtn = document.getElementById('reader-btn');
+  aiSummaryBtn = document.getElementById('ai-summary-btn');
+  aiSummarySidebar = document.getElementById('ai-summary-sidebar');
+  closeAiSummaryBtn = document.getElementById('close-ai-summary');
+  aiSummaryContent = document.getElementById('ai-summary-content');
   historyBtn = document.getElementById('history-btn');
   historySidebar = document.getElementById('history-sidebar');
   closeHistoryBtn = document.getElementById('close-history');
@@ -575,7 +634,7 @@ function init() {
 
   void loadAdblockState();
 
-  const sidebars = [historySidebar, settingsSidebar, bookmarksSidebar, downloadsSidebar, adblockSidebar].filter(Boolean);
+  const sidebars = [historySidebar, settingsSidebar, bookmarksSidebar, downloadsSidebar, adblockSidebar, aiSummarySidebar].filter(Boolean);
   const toggle = (s, v) => {
     sidebars.forEach((p) => {
       if (p !== s) p.classList.remove('open');
@@ -704,6 +763,8 @@ function init() {
   if (readerBtn) {
     readerBtn.onclick = () => ipcRenderer.invoke('toggle-reader-mode');
   }
+  if (aiSummaryBtn) aiSummaryBtn.onclick = () => openAiSummaryPanel(toggle);
+  if (closeAiSummaryBtn) closeAiSummaryBtn.onclick = () => toggle(aiSummarySidebar, false);
   if (newTabBtn) newTabBtn.onclick = () => ipcRenderer.invoke('create-tab', {
     tabId: `p-${activeProfile}-t-${Date.now()}`,
     url: 'chrome://newtab',
@@ -1218,6 +1279,11 @@ function renderGroupTabsMenu() {
     });
     applyGroupPayload(payload);
   }, { disabled: !activeTab });
+
+  addItem('AI organize tabs on device', async () => {
+    const payload = await ipcRenderer.invoke('create-ai-tab-groups');
+    applyGroupPayload(payload);
+  }, { disabled: tabs.filter((tab) => tab && !tab.incognito).length < 2 });
 
   if (activeTab && activeTab.groupId) {
     addItem('Remove active tab from group', async () => {

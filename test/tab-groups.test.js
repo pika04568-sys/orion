@@ -55,3 +55,40 @@ test("group operations create, rename, assign, collapse, and delete without clos
   assert.equal(Object.hasOwn(tabs[0], "groupId"), false);
   assert.equal(tabs.length, 2);
 });
+
+test("on-device AI creates tab groups and sorts tabs by title and URL", () => {
+  const groups = [{ id: "old", name: "Old Group", color: "#0f6bff" }];
+  const tabs = [
+    { id: "tab-1", url: "https://github.com/openai/codex", title: "Codex repository" },
+    { id: "tab-2", url: "https://docs.electronjs.org/api/browser-window", title: "BrowserWindow Docs" },
+    { id: "tab-3", url: "https://mail.google.com/mail/u/0/#inbox", title: "Inbox" },
+    { id: "tab-4", url: "https://github.com/electron/electron", title: "Electron repository" },
+    { id: "private", url: "https://github.com/private", title: "Private", incognito: true }
+  ];
+
+  const result = tabGroups.createOnDeviceTabGroups(tabs, groups, { createdAt: 123 });
+
+  assert.deepEqual(result, { created: 3, grouped: 4 });
+  assert.deepEqual(groups.map((group) => group.name), ["Code", "Docs", "Mail"]);
+  assert.deepEqual(tabs.map((tab) => tab.id), ["tab-1", "tab-4", "tab-2", "tab-3", "private"]);
+  assert.equal(tabs[0].groupId, groups[0].id);
+  assert.equal(tabs[1].groupId, groups[0].id);
+  assert.equal(tabs[2].groupId, groups[1].id);
+  assert.equal(tabs[3].groupId, groups[2].id);
+  assert.equal(Object.hasOwn(tabs[4], "groupId"), false);
+});
+
+test("on-device SML fallback groups unknown sites by tab title and URL words", () => {
+  assert.equal(tabGroups.inferOnDeviceGroupName({
+    title: "Kubernetes rollout patterns for container release safety",
+    url: "https://example-one.invalid/posts/rollout-patterns"
+  }), "Code");
+  assert.equal(tabGroups.inferOnDeviceGroupName({
+    title: "Quarterly runway forecast and portfolio review",
+    url: "https://example-two.invalid/board-pack"
+  }), "Finance");
+  assert.equal(tabGroups.inferOnDeviceGroupName({
+    title: "Hotel reservation itinerary for Zurich trip",
+    url: "https://example-three.invalid/confirmation"
+  }), "Travel");
+});

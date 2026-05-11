@@ -27,6 +27,7 @@ const tabGroups = require("./tab-groups");
 const offlineArcade = require("./offline-arcade");
 const readerUtils = require("./reader-utils");
 const readerSession = require("./reader-session");
+const aiSummary = require("./ai-summary");
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -2933,6 +2934,34 @@ ipcMain.handle("get-reader-content", withTrustedSender((e) => {
   const session = readerViewTabs[e.sender.id] ? readerSessions[readerViewTabs[e.sender.id]] : null;
   return session && session.snapshot ? session.snapshot : null;
 }, null));
+ipcMain.handle("summarize-active-page", withTrustedSender(async (e) => {
+  const w = getSenderWindow(e.sender);
+  if (!w) return { ok: false, reason: "No active browser window is available." };
+  const tabId = getActiveT(w.profileIndex);
+  if (!tabId) return { ok: false, reason: "No active tab is available." };
+
+  const session = getReaderSession(tabId);
+  let snapshot = session && session.snapshot ? session.snapshot : null;
+  if (!snapshot) {
+    const sourceView = getSourceViewForTab(tabId);
+    if (!sourceView || !sourceView.webContents || sourceView.webContents.isDestroyed()) {
+      return { ok: false, reason: "This tab is not ready to summarize." };
+    }
+    if (!isHttpUrl(sourceView.webContents.getURL())) {
+      return { ok: false, reason: "On-device summaries work on readable web pages." };
+    }
+    snapshot = await extractReaderSnapshot(sourceView.webContents);
+  }
+
+  if (!snapshot || !snapshot.readable) {
+    return {
+      ok: false,
+      reason: snapshot && snapshot.reason ? snapshot.reason : "Orion could not extract readable page text to summarize."
+    };
+  }
+
+  return aiSummary.summarizeSnapshot(snapshot);
+}, { ok: false, reason: "Summary is unavailable." }));
 ipcMain.handle("close-reader", withTrustedSender((e) => {
   const w = getSenderWindow(e.sender);
   if (!w) return { active: false, available: true };
@@ -3067,6 +3096,20 @@ ipcMain.handle("create-tab-group", withTrustedSender((e, options = {}) => {
   scheduleRecoverySave();
   broadcastTabGroupsChanged(pIdx, w);
   return { group, tabs: getWindowTabSnapshot(pIdx), groups: getWindowGroupSnapshot(pIdx) };
+}, null));
+ipcMain.handle("create-ai-tab-groups", withTrustedSender((e) => {
+  const w = getSenderWindow(e.sender);
+  if (!w || w.incognitoWindow) return null;
+  const pIdx = w.profileIndex;
+  const result = tabGroups.createOnDeviceTabGroups(getProfileTabList(pIdx), getProfileGroupList(pIdx));
+  if (!result.grouped) return null;
+  scheduleRecoverySave();
+  broadcastTabGroupsChanged(pIdx, w);
+  return {
+    ...result,
+    tabs: getWindowTabSnapshot(pIdx),
+    groups: getWindowGroupSnapshot(pIdx)
+  };
 }, null));
 ipcMain.handle("rename-tab-group", withTrustedSender((e, { groupId, name } = {}) => {
   const w = getSenderWindow(e.sender);

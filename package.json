@@ -98,6 +98,7 @@
       "browser-security.js",
       "extensions.js",
       "localization.js",
+      "ai-summary.js",
       "main-tab-state.js",
       "main.js",
       "offline.js",

@@ -373,3 +373,8 @@ output/pdf/orion-app-summary.pdf
 tmp/pdfs/orion-app-summary-page-1.png
 scripts/generate_macos_icon.py
 .codex/environments/environment.toml
+SwiftUIApp/.build/
+SwiftUIApp/dist/
+.qwen/settings.json
+.qwen/settings.json.orig
+/.qwen
