@@ -6,6 +6,7 @@
   "main": "./main.js",
   "version": "1.1.0",
   "author": "kenokayasu",
+  "license": "GPL-3.0",
   "scripts": {
     "start": "electron .",
     "test": "node --test",
@@ -97,6 +98,7 @@
       "browser-privacy.js",
       "browser-security.js",
       "extensions.js",
+      "extension-manager.js",
       "localization.js",
       "ai-summary.js",
       "main-tab-state.js",
@@ -116,7 +118,9 @@
       "reader-utils.js",
       "tab-groups.js",
       "reader.html",
-      "reader.js"
+      "reader.js",
+      "node_modules/electron-chrome-extensions/**",
+      "node_modules/electron-chrome-web-store/**"
     ]
   },
   "devDependencies": {
@@ -124,6 +128,8 @@
     "electron-builder": "^26.4.0"
   },
   "dependencies": {
+    "electron-chrome-extensions": "4.9.0",
+    "electron-chrome-web-store": "0.13.0",
     "electron-updater": "^6.8.3",
     "update-electron-app": "^3.1.2"
   }

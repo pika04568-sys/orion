@@ -56,7 +56,7 @@ npm run dist:win
 - Search engine selection for address-bar queries, including Google, Bing, DuckDuckGo, Brave, StartPage, Yandex, Baidu, Yahoo, and Naver.
 - Localization for English, French, German, and Japanese, with first-run language onboarding.
 - Theme customization, accent colors, vertical tabs, and optional seconds in time widgets.
-- Chrome-style unpacked extension loading through `chrome://extensions`, with extension permission inspection.
+- Chrome Web Store installation support plus unpacked extension loading through `chrome://extensions`, with extension permission inspection.
 - Built-in adblock lists, cached list refreshes, per-list toggles, and custom filter rules.
 - Privacy controls for HTTPS-Only Mode, anti-fingerprinting hardening, and DNS-over-HTTPS through Cloudflare secure DNS.
 - Scoped internal pages for new tab, extensions, reader mode, and offline fallback.
@@ -82,4 +82,4 @@ Further development by Antigravity, Codex, and Cursor.
 
 ## License
 
-This project is open source. Feel free to edit, improve, and submit pull requests.
+Orion is distributed under GPL-3.0-compatible terms because Chrome extension API support is provided by `electron-chrome-extensions`.

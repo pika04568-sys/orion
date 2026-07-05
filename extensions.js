@@ -3,14 +3,18 @@
     getExtensions: async () => [],
     getLanguageSettings: async () => ({ locale: null, platform: null }),
     loadExtension: async () => ({ success: false, error: "Not running in Orion." }),
+    openChromeWebStore: async () => ({ success: false, error: "Not running in Orion." }),
     removeExtension: async () => {},
     selectExtensionFolder: async () => null,
-    setLanguage: async () => ({ locale: null })
+    setLanguage: async () => ({ locale: null }),
+    updateExtensions: async () => ({ success: false, error: "Not running in Orion." })
   };
   const appUtils = window.OrionAppUtils;
   const localization = window.OrionLocalization;
 
   const loadBtn = document.getElementById("load-btn");
+  const webstoreBtn = document.getElementById("webstore-btn");
+  const updateExtensionsBtn = document.getElementById("update-extensions-btn");
   const pathInput = document.getElementById("ext-path");
   const list = document.getElementById("ext-list");
   let currentLocale = localization.resolveLocale(localStorage.getItem("orion-locale"));
@@ -61,6 +65,8 @@
     document.getElementById("ext-installed-note").textContent = t("extension.installedNote");
     pathInput.setAttribute("placeholder", t("extension.pathPlaceholder"));
     loadBtn.textContent = loadBtn.disabled ? t("download.loading") : t("extension.loadButton");
+    webstoreBtn.textContent = t("extension.openWebStore");
+    updateExtensionsBtn.textContent = updateExtensionsBtn.disabled ? t("download.loading") : t("extension.updateButton");
   }
 
   async function syncLocale() {
@@ -107,7 +113,10 @@
         const { card, removeBtn } = appUtils.createExtensionCard(document, extensionInfo, {
           noDescription: t("extension.noDescription"),
           remove: t("extension.remove"),
-          unknown: t("extension.unknown")
+          unknown: t("extension.unknown"),
+          unknownManifest: t("extension.unknownManifest"),
+          unpacked: t("extension.sourceUnpacked"),
+          webStore: t("extension.sourceWebStore")
         });
         removeBtn.addEventListener("click", () => {
           void removeExtension(extensionInfo.id);
@@ -142,6 +151,34 @@
     } finally {
       loadBtn.disabled = false;
       loadBtn.textContent = t("extension.loadButton");
+    }
+  });
+
+  webstoreBtn.addEventListener("click", async () => {
+    try {
+      const result = await pageBridge.openChromeWebStore();
+      if (result && result.error) alert(t("extension.webStoreFailure", { error: result.error }));
+    } catch (error) {
+      alert(t("extension.webStoreFailure", { error: error && error.message ? error.message : "Unknown error" }));
+    }
+  });
+
+  updateExtensionsBtn.addEventListener("click", async () => {
+    updateExtensionsBtn.disabled = true;
+    updateExtensionsBtn.textContent = t("download.loading");
+    try {
+      const result = await pageBridge.updateExtensions();
+      if (result && result.success) {
+        alert(t("extension.updateSuccess"));
+        void refreshList();
+      } else {
+        alert(t("extension.updateFailure", { error: result && result.error ? result.error : "Unknown error" }));
+      }
+    } catch (error) {
+      alert(t("extension.updateFailure", { error: error && error.message ? error.message : "Unknown error" }));
+    } finally {
+      updateExtensionsBtn.disabled = false;
+      updateExtensionsBtn.textContent = t("extension.updateButton");
     }
   });
 

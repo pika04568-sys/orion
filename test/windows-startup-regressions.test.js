@@ -165,6 +165,9 @@ test("index shell channels allow renderer IPC and events", () => {
   assert.equal(appUtils.canUseElectronChannel("index.html", "invoke", "get-browser-settings"), true);
   assert.equal(appUtils.canUseElectronChannel("index.html", "invoke", "set-browser-settings"), true);
   assert.equal(appUtils.canUseElectronChannel("index.html", "invoke", "navigate-to"), true);
+  assert.equal(appUtils.canUseElectronChannel("index.html", "invoke", "load-extension"), false);
+  assert.equal(appUtils.canUseElectronChannel("index.html", "invoke", "open-chrome-web-store"), false);
+  assert.equal(appUtils.canUseElectronChannel("index.html", "invoke", "update-extensions"), false);
   assert.equal(appUtils.canUseElectronChannel("index.html", "on", "tab-created"), true);
   assert.equal(appUtils.canUseElectronChannel("index.html", "on", "tab-groups-changed"), true);
   assert.equal(appUtils.canUseElectronChannel("index.html", "on", "browser-settings-changed"), true);
@@ -183,6 +186,8 @@ test("internal pages keep restricted invoke access", () => {
   assert.equal(appUtils.canUseElectronChannel("offline.html", "invoke", "get-window-bootstrap-state"), false);
   assert.equal(appUtils.canUseElectronChannel("offline.html", "send", "renderer-ready"), false);
   assert.equal(appUtils.canUseElectronChannel("extensions.html", "invoke", "load-extension"), true);
+  assert.equal(appUtils.canUseElectronChannel("extensions.html", "invoke", "open-chrome-web-store"), true);
+  assert.equal(appUtils.canUseElectronChannel("extensions.html", "invoke", "update-extensions"), true);
   assert.equal(appUtils.canUseElectronChannel("extensions.html", "invoke", "navigate-to"), false);
   assert.equal(appUtils.canUseElectronChannel("extensions.html", "on", "tab-created"), false);
 });

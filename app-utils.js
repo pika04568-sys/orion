@@ -38,7 +38,6 @@
     "get-updater-state",
     "go-back",
     "go-forward",
-    "load-extension",
     "navigate-to",
     "reload-page",
     "reopen-closed-tab",
@@ -49,7 +48,6 @@
     "reset-adblock-defaults",
     "set-adblock-list-enabled",
     "set-browser-settings",
-    "select-extension-folder",
     "stop-find-in-page",
     "switch-profile",
     "switch-tab",
@@ -99,8 +97,10 @@
     "get-extensions",
     "get-language-settings",
     "load-extension",
+    "open-chrome-web-store",
     "remove-extension",
-    "select-extension-folder"
+    "select-extension-folder",
+    "update-extensions"
   ]);
   const EMPTY_CHANNELS = Object.freeze({
     invoke: Object.freeze([]),
@@ -559,6 +559,14 @@
     descriptionEl.className = "extension-desc";
     descriptionEl.textContent = extension.description || labels.noDescription || "No description provided.";
 
+    const metaEl = doc.createElement("div");
+    metaEl.className = "extension-meta";
+    const sourceLabel = extension.source === "chrome-web-store"
+      ? (labels.webStore || "Chrome Web Store")
+      : (labels.unpacked || "Unpacked");
+    const manifestLabel = extension.manifestVersion ? `Manifest v${extension.manifestVersion}` : labels.unknownManifest || "Manifest unknown";
+    metaEl.textContent = `${sourceLabel} - ${manifestLabel}`;
+
     const actions = doc.createElement("div");
     actions.className = "extension-actions";
 
@@ -570,6 +578,7 @@
     actions.appendChild(removeBtn);
     card.appendChild(header);
     card.appendChild(descriptionEl);
+    card.appendChild(metaEl);
     card.appendChild(actions);
 
     return { card, nameEl, versionEl, descriptionEl, removeBtn };

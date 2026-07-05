@@ -28,6 +28,9 @@ const offlineArcade = require("./offline-arcade");
 const readerUtils = require("./reader-utils");
 const readerSession = require("./reader-session");
 const aiSummary = require("./ai-summary");
+const extensionManagerModule = require("./extension-manager");
+const { ElectronChromeExtensions } = require("electron-chrome-extensions");
+const chromeWebStore = require("electron-chrome-web-store");
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -132,6 +135,20 @@ let deferredStartup = appUtils.createDeferredStartupController({
 let scheduledExtensionRestoreProfiles = new Set();
 let restoredExtensionProfiles = new Set();
 let startupDeferredTimers = new Set();
+const extensionManager = extensionManagerModule.createExtensionManager({
+  app,
+  dialog,
+  ElectronChromeExtensions,
+  chromeWebStore,
+  createTab: createExtensionTab,
+  selectTab: selectExtensionTab,
+  removeTab: removeExtensionTab,
+  createWindow: createExtensionWindow,
+  removeWindow: removeExtensionWindow,
+  assignTabDetails: assignExtensionTabDetails,
+  requestPermissions: requestExtensionPermissions
+});
+const extensionTabRemovalNotifications = new WeakSet();
 
 function scheduleDeferredStartupTask(delayMs, task) {
   if (typeof task !== "function") return null;
@@ -975,6 +992,143 @@ function getProfileExtensionMetadataStore(pIdx) {
   return bSett.profileExtensionMetadata[pIdx];
 }
 
+function ensureProfileExtensionSupport(pIdx, sess, incognito = false) {
+  return extensionManager.ensureProfile(pIdx, sess, { incognito });
+}
+
+function getBrowserWindowById(windowId) {
+  return Object.values(windows).find((win) => (
+    win &&
+    !win.isDestroyed() &&
+    typeof windowId === "number" &&
+    win.id === windowId
+  )) || null;
+}
+
+function getFocusedNormalWindow() {
+  const focused = BrowserWindow.getFocusedWindow();
+  if (focused && !focused.isDestroyed() && typeof focused.profileIndex !== "undefined" && !focused.incognitoWindow) {
+    return focused;
+  }
+  return Object.values(windows).find((win) => win && !win.isDestroyed() && !win.incognitoWindow) || null;
+}
+
+function getWindowForExtensionDetails(details = {}) {
+  const explicitWindow = getBrowserWindowById(details.windowId);
+  if (explicitWindow && !explicitWindow.incognitoWindow) return explicitWindow;
+  return getFocusedNormalWindow() || windows[0] || null;
+}
+
+function getPrimaryExtensionUrl(value) {
+  if (Array.isArray(value)) return getPrimaryExtensionUrl(value[0]);
+  return typeof value === "string" && value.trim() ? value.trim() : "chrome://newtab";
+}
+
+function findTabByWebContents(webContents) {
+  if (!webContents) return null;
+  for (const [tabId, view] of Object.entries(views)) {
+    if (!view || view.webContents !== webContents) continue;
+    const profileIndex = typeof view.profileIndex === "number"
+      ? view.profileIndex
+      : parseInt(String(tabId).split("-")[1], 10);
+    return {
+      profileIndex: Number.isFinite(profileIndex) ? profileIndex : 0,
+      tabId,
+      view,
+      tab: (pTabs[profileIndex] || []).find((entry) => entry && entry.id === tabId) || null
+    };
+  }
+  return null;
+}
+
+async function createExtensionTab(details = {}) {
+  const win = getWindowForExtensionDetails(details);
+  if (!win || win.incognitoWindow) throw new Error("Extensions cannot create tabs in incognito windows.");
+  const pIdx = win.profileIndex;
+  const tab = openTabInProfile(pIdx, {
+    url: getPrimaryExtensionUrl(details.url),
+    incognito: false
+  }, {
+    win,
+    activate: details.active !== false
+  });
+  const view = tab && views[tab.id];
+  if (!view || !view.webContents || view.webContents.isDestroyed()) {
+    throw new Error("Extension tab could not be created.");
+  }
+  return [view.webContents, win];
+}
+
+function selectExtensionTab(webContents) {
+  const found = findTabByWebContents(webContents);
+  if (!found) return;
+  switchT(found.tabId, found.profileIndex);
+}
+
+function removeExtensionTab(webContents) {
+  if (extensionTabRemovalNotifications.has(webContents)) return;
+  const found = findTabByWebContents(webContents);
+  if (!found) return;
+  closeTab(found.profileIndex, found.tabId, windows[found.profileIndex]);
+}
+
+async function createExtensionWindow(details = {}) {
+  const win = getFocusedNormalWindow() || windows[0] || createW(0) || windows[0];
+  if (!win || win.isDestroyed()) throw new Error("Extension window could not be created.");
+  const urls = Array.isArray(details.url) ? details.url : [details.url || "chrome://newtab"];
+  urls.filter(Boolean).forEach((url, index) => {
+    openTabInProfile(win.profileIndex, {
+      url: getPrimaryExtensionUrl(url),
+      incognito: false
+    }, {
+      win,
+      activate: index === 0
+    });
+  });
+  return win;
+}
+
+function removeExtensionWindow(win) {
+  if (win && !win.isDestroyed()) win.close();
+}
+
+function assignExtensionTabDetails(details, webContents) {
+  const found = findTabByWebContents(webContents);
+  if (!found) return;
+  const win = windows[found.profileIndex];
+  const tabList = pTabs[found.profileIndex] || [];
+  const tabIndex = tabList.findIndex((entry) => entry && entry.id === found.tabId);
+  const active = activeTabIds[found.profileIndex] === found.tabId;
+  details.active = active;
+  details.highlighted = active;
+  details.incognito = !!(found.tab && found.tab.incognito);
+  details.index = tabIndex >= 0 ? tabIndex : 0;
+  details.pinned = false;
+  details.selected = active;
+  details.title = (found.tab && found.tab.title) || webContents.getTitle();
+  details.url = (found.view && found.view.tUrl) || webContents.getURL();
+  if (win && !win.isDestroyed()) details.windowId = win.id;
+}
+
+async function requestExtensionPermissions(extension, permissions = {}) {
+  const requested = []
+    .concat(Array.isArray(permissions.permissions) ? permissions.permissions : [])
+    .concat(Array.isArray(permissions.origins) ? permissions.origins.map((origin) => `host:${origin}`) : []);
+  const detail = requested.length
+    ? requested.map((permission) => `- ${permission}`).join("\n")
+    : "This extension did not list explicit additional permissions.";
+  const result = await dialog.showMessageBox({
+    type: "question",
+    buttons: ["Allow", "Block"],
+    defaultId: 1,
+    cancelId: 1,
+    title: "Extension Permission Request",
+    message: `${extension && extension.name ? extension.name : "An extension"} wants additional access.`,
+    detail
+  });
+  return result.response === 0;
+}
+
 function removeStoredExtensionForProfile(pIdx, extensionPath) {
   if (!bSett.profileExtensions[pIdx]) return;
   bSett.profileExtensions[pIdx] = bSett.profileExtensions[pIdx].filter((entry) => entry !== extensionPath);
@@ -1132,6 +1286,7 @@ function ensureSessionSecurity(partition, pIdx, incognito = false) {
     }
   });
   applyDnsOverHttpsSettings();
+  ensureProfileExtensionSupport(pIdx, sess, incognito);
 
   return sess;
 }
@@ -1156,7 +1311,7 @@ async function restoreStoredExtensionsForProfile(pIdx, partition, win) {
 
       storeExtensionMetadata(pIdx, extensionPath, inspection);
       mutated = true;
-      await sess.loadExtension(extensionPath);
+      await extensionManager.loadUnpackedExtension(pIdx, sess, extensionPath);
     } catch (_error) {
       removeStoredExtensionForProfile(pIdx, extensionPath);
       mutated = true;
@@ -1953,13 +2108,15 @@ function openTabInProfile(pIdx, tabLike = {}, options = {}) {
   };
   if (typeof tabLike.groupId === "string") nextTab.groupId = tabLike.groupId;
   const afterTabId = typeof options.afterTabId === "string" && options.afterTabId ? options.afterTabId : null;
+  const shouldActivate = options.activate !== false;
   insertTabAfter(pIdx, nextTab, afterTabId);
   scheduleRecoverySave();
   if (options.notify !== false) {
-    win.webContents.send("tab-created", { ...nextTab, afterTabId });
+    win.webContents.send("tab-created", { ...nextTab, afterTabId, active: shouldActivate });
   }
   createV(tabId, nextUrl, nextTab.incognito, pIdx);
-  switchT(tabId, pIdx);
+  if (shouldActivate) switchT(tabId, pIdx);
+  else updateB(pIdx);
   return nextTab;
 }
 
@@ -2164,6 +2321,14 @@ function isHttpUrl(url) {
   }
 }
 
+function isChromeExtensionUrl(url) {
+  try {
+    return new URL(url).protocol === "chrome-extension:";
+  } catch (_error) {
+    return false;
+  }
+}
+
 function normalizeHttpUrl(raw) {
   if (!raw) return null;
   const trimmed = raw.trim();
@@ -2318,6 +2483,9 @@ function loadTabUrl(tabId, pIdx, rawUrl, options = {}) {
     return prepareAdblockForNavigation()
       .then(() => view.webContents.loadURL(normalizedUrl))
       .catch(() => false);
+  }
+  if (isChromeExtensionUrl(normalizedUrl)) {
+    return view.webContents.loadURL(normalizedUrl).catch(() => false);
   }
   return loadInternal(view.webContents, "chrome://newtab");
 }
@@ -2559,8 +2727,10 @@ function createV(id, url, inc, pIdx) {
   const v = new WebContentsView({ webPreferences: webP });
   attachBrowserShortcutHandler(v.webContents, () => pIdx);
   v.tabId = id;
+  v.profileIndex = pIdx;
   hardenWebContents(v.webContents);
   views[id] = v;
+  if (!inc) extensionManager.addTab(pIdx, v.webContents, win);
   updateB(pIdx);
 
   v.webContents.on("will-navigate", (event, targetUrl) => {
@@ -2583,6 +2753,7 @@ function createV(id, url, inc, pIdx) {
       }
       return;
     }
+    if (isChromeExtensionUrl(targetUrl)) return;
     event.preventDefault();
   });
 
@@ -2678,6 +2849,12 @@ function createV(id, url, inc, pIdx) {
   v.webContents.on("context-menu", (_e, p) => {
     const m = new Menu();
     appendClipboardMenuItems(m, v.webContents, p.editFlags || {});
+    const extensionMenuItems = extensionManager.getContextMenuItems(v.webContents, p);
+    if (extensionMenuItems.length) {
+      if (m.items.length) m.append(new MenuItem({ type: "separator" }));
+      extensionMenuItems.forEach((item) => m.append(item));
+      m.append(new MenuItem({ type: "separator" }));
+    }
     // Validate URL to prevent javascript: and data: URL attacks
     const isValidUrl = (url) => {
       if (!url || typeof url !== "string") return false;
@@ -2733,6 +2910,9 @@ function createV(id, url, inc, pIdx) {
   });
   v.webContents.setWindowOpenHandler(({ url: targetUrl }) => {
     if (isHttpUrl(targetUrl)) openL(targetUrl, pIdx);
+    else if (isChromeExtensionUrl(targetUrl)) {
+      openTabInProfile(pIdx, { url: targetUrl, incognito: inc }, { win: windows[pIdx] });
+    }
     return { action: "deny" };
   });
 
@@ -2764,6 +2944,9 @@ function switchT(id, pIdx) {
   }
   if (win && !win.isDestroyed() && s.activeView && !s.activeView.webContents.isDestroyed()) {
     activeTabIds[pIdx] = id;
+    if (views[id] && views[id].webContents && !views[id].webContents.isDestroyed()) {
+      extensionManager.selectTab(pIdx, views[id].webContents);
+    }
     const tabRecord = pTabs[pIdx] && pTabs[pIdx].find((tab) => tab.id === id);
     const currentRawUrl = session && session.active
       ? (session.sourceUrl || (tabRecord && tabRecord.url) || "")
@@ -2813,6 +2996,13 @@ function closeTab(pIdx, id, win) {
   } catch (e) { }
   
   if (view.webContents && !view.webContents.isDestroyed()) {
+    try {
+      extensionTabRemovalNotifications.add(view.webContents);
+      extensionManager.removeTrackedTab(view.webContents);
+    } catch (_error) {
+    } finally {
+      extensionTabRemovalNotifications.delete(view.webContents);
+    }
     try {
       view.webContents.destroy();
     } catch (_error) { }
@@ -3273,37 +3463,52 @@ ipcMain.handle("load-extension", withTrustedSender(async (e, p) => {
     if (!approved) return { success: false, error: "Installation cancelled." };
 
     const sess = getSessionForWindow(w);
-    const ext = await sess.loadExtension(p);
+    const ext = await extensionManager.loadUnpackedExtension(pIdx, sess, p);
     const extensionStore = getProfileExtensionStore(pIdx);
     if (!extensionStore.includes(p)) extensionStore.push(p);
     storeExtensionMetadata(pIdx, p, inspection);
     saveS();
-    return { success: true, name: ext && ext.name ? ext.name : "Extension" };
+    return { success: true, name: ext && ext.name ? ext.name : "Extension", source: extensionManagerModule.UNPACKED_SOURCE };
   } catch (err) {
     return { success: false, error: err && err.message ? err.message : "Unknown error" };
   }
 }, { success: false, error: "Untrusted sender." }));
 ipcMain.handle("get-extensions", withTrustedSender((e) => {
   const w = getSenderWindow(e.sender);
+  if (w && w.incognitoWindow) return [];
   const sess = getSessionForWindow(w);
-  return sess.getAllExtensions().map((ext) => ({
-    id: ext.id,
-    name: ext.name,
-    version: ext.version,
-    description: ext.description
-  }));
+  const pIdx = w ? w.profileIndex : 0;
+  return extensionManager.getExtensions(pIdx, sess);
 }, []));
-ipcMain.handle("remove-extension", withTrustedSender((e, id) => {
+ipcMain.handle("remove-extension", withTrustedSender(async (e, id) => {
   const w = getSenderWindow(e.sender);
+  if (w && w.incognitoWindow) return { success: false, error: "Extensions cannot be managed from incognito windows." };
   const pIdx = w ? w.profileIndex : 0;
   const sess = getSessionForWindow(w);
-  const ext = sess.getExtension(id);
-  if (ext) {
-    removeStoredExtensionForProfile(pIdx, ext.path);
+  const result = await extensionManager.removeExtension(pIdx, sess, id);
+  if (result.success && result.source === extensionManagerModule.UNPACKED_SOURCE && result.path) {
+    removeStoredExtensionForProfile(pIdx, result.path);
     saveS();
   }
-  sess.removeExtension(id);
-}, null));
+  return result;
+}, { success: false, error: "Untrusted sender." }));
+ipcMain.handle("open-chrome-web-store", withTrustedSender((e) => {
+  const w = getSenderWindow(e.sender);
+  if (!w) return { success: false, error: "No window." };
+  if (w.incognitoWindow) return { success: false, error: "Chrome Web Store is unavailable in incognito windows." };
+  openTabInProfile(w.profileIndex, {
+    url: extensionManagerModule.CHROME_WEB_STORE_URL,
+    incognito: false
+  }, { win: w });
+  return { success: true };
+}, { success: false, error: "Untrusted sender." }));
+ipcMain.handle("update-extensions", withTrustedSender(async (e) => {
+  const w = getSenderWindow(e.sender);
+  if (!w) return { success: false, error: "No window." };
+  if (w.incognitoWindow) return { success: false, error: "Extensions cannot be updated from incognito windows." };
+  const sess = getSessionForWindow(w);
+  return extensionManager.updateExtensions(w.profileIndex, sess);
+}, { success: false, error: "Untrusted sender." }));
 ipcMain.handle("get-app-version", withTrustedSender(() => {
   return app.getVersion();
 }, null));

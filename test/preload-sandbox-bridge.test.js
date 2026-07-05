@@ -14,6 +14,7 @@ function runPreload(href) {
   const onCalls = [];
   const removeCalls = [];
   const exposedApis = {};
+  let browserActionInjected = false;
 
   const ipcRenderer = {
     invoke: (...args) => {
@@ -43,6 +44,13 @@ function runPreload(href) {
     require: (moduleName) => {
       requireCalls.push(moduleName);
       if (moduleName === "electron") return { contextBridge, ipcRenderer };
+      if (moduleName === "electron-chrome-extensions/browser-action") {
+        return {
+          injectBrowserAction: () => {
+            browserActionInjected = true;
+          }
+        };
+      }
       throw new Error(`Unexpected require: ${moduleName}`);
     }
   });
@@ -55,14 +63,16 @@ function runPreload(href) {
     invokeCalls,
     sendCalls,
     onCalls,
-    removeCalls
+    removeCalls,
+    browserActionInjected
   };
 }
 
-test("preload only requires electron in sandbox bridge", () => {
+test("preload initializes index bridge and extension action controls", () => {
   const runtime = runPreload("orion://app/index.html");
   assert.ok(runtime.apis.electron);
-  assert.deepEqual(runtime.requireCalls, ["electron"]);
+  assert.equal(runtime.browserActionInjected, true);
+  assert.deepEqual(runtime.requireCalls, ["electron", "electron-chrome-extensions/browser-action"]);
 });
 
 test("index page allows renderer-ready send and startup/navigation invokes", () => {
@@ -123,6 +133,8 @@ test("newtab page exposes only the scoped newtab helpers", async () => {
   assert.equal(localeResult, "invoke-result");
   assert.equal(settingsResult, "invoke-result");
   assert.equal(typeof orionPage.loadExtension, "undefined");
+  assert.equal(typeof orionPage.openChromeWebStore, "undefined");
+  assert.equal(typeof orionPage.updateExtensions, "undefined");
   assert.deepEqual(runtime.invokeCalls, [
     ["navigate-to", "example query"],
     ["get-language-settings"],
@@ -224,13 +236,19 @@ test("extensions page keeps extension management scoped to its own page", async 
 
   const folderResult = await orionPage.selectExtensionFolder();
   const loadResult = await orionPage.loadExtension("/tmp/sample-extension");
+  const webStoreResult = await orionPage.openChromeWebStore();
+  const updateResult = await orionPage.updateExtensions();
 
   assert.equal(folderResult, "invoke-result");
   assert.equal(loadResult, "invoke-result");
+  assert.equal(webStoreResult, "invoke-result");
+  assert.equal(updateResult, "invoke-result");
   assert.equal(typeof orionPage.navigateTo, "undefined");
   assert.deepEqual(runtime.invokeCalls, [
     ["select-extension-folder"],
-    ["load-extension", "/tmp/sample-extension"]
+    ["load-extension", "/tmp/sample-extension"],
+    ["open-chrome-web-store"],
+    ["update-extensions"]
   ]);
 });
 
@@ -242,10 +260,14 @@ test("packaged file extensions page keeps extension management scoped to its own
   assert.ok(orionPage);
   assert.equal(await orionPage.selectExtensionFolder(), "invoke-result");
   assert.equal(await orionPage.loadExtension("C:\\Users\\username\\Downloads\\my-extension"), "invoke-result");
+  assert.equal(await orionPage.openChromeWebStore(), "invoke-result");
+  assert.equal(await orionPage.updateExtensions(), "invoke-result");
   assert.equal(typeof orionPage.navigateTo, "undefined");
   assert.deepEqual(runtime.invokeCalls, [
     ["select-extension-folder"],
-    ["load-extension", "C:\\Users\\username\\Downloads\\my-extension"]
+    ["load-extension", "C:\\Users\\username\\Downloads\\my-extension"],
+    ["open-chrome-web-store"],
+    ["update-extensions"]
   ]);
 });
 

@@ -1057,7 +1057,7 @@ ipcRenderer.on('tab-created', (e, t) => {
   const anchorTabId = t.afterTabId || null;
   addTabToUI(t, anchorTabId);
   syncTabState(t);
-  setActiveTab(t.id);
+  if (t.active !== false) setActiveTab(t.id);
 });
 ipcRenderer.on('tab-switched', (e, { tabId, url, title, incognito, readerMode }) => {
   if (!tabs.find((t) => t.id === tabId)) {

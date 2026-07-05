@@ -159,8 +159,10 @@ function createInternalBridge(page) {
       getExtensions: () => ipcRenderer.invoke("get-extensions"),
       getLanguageSettings: () => ipcRenderer.invoke("get-language-settings"),
       loadExtension: (extensionPath) => ipcRenderer.invoke("load-extension", extensionPath),
+      openChromeWebStore: () => ipcRenderer.invoke("open-chrome-web-store"),
       removeExtension: (id) => ipcRenderer.invoke("remove-extension", id),
-      selectExtensionFolder: () => ipcRenderer.invoke("select-extension-folder")
+      selectExtensionFolder: () => ipcRenderer.invoke("select-extension-folder"),
+      updateExtensions: () => ipcRenderer.invoke("update-extensions")
     });
   }
 
@@ -186,9 +188,19 @@ function createInternalBridge(page) {
   return Object.freeze(newtabBridge);
 }
 
+function injectBrowserActionControls() {
+  try {
+    const { injectBrowserAction } = require("electron-chrome-extensions/browser-action");
+    if (typeof injectBrowserAction === "function") injectBrowserAction();
+  } catch (error) {
+    console.error("Unable to initialize extension action controls:", error);
+  }
+}
+
 const currentPage = getAppPageFileName(window.location.href);
 
 if (currentPage === "index.html") {
+  injectBrowserActionControls();
   contextBridge.exposeInMainWorld("electron", createIndexBridge());
 } else if (currentPage === "newtab.html" || currentPage === "offline.html" || currentPage === "extensions.html" || currentPage === "reader.html") {
   contextBridge.exposeInMainWorld("orionPage", createInternalBridge(currentPage));
