@@ -2,7 +2,7 @@ const ipcRenderer = window.electron || { invoke: async () => { }, send: () => { 
 const appUtils = window.OrionAppUtils;
 const localization = window.OrionLocalization;
 
-let tabBar, newTabBtn, groupTabsBtn, groupTabsMenu, clearTabsBtn, addressBar, backBtn, forwardBtn, reloadBtn, readerBtn, aiSummaryBtn, aiSummarySidebar, closeAiSummaryBtn, aiSummaryContent, historyBtn, historySidebar, closeHistoryBtn, historyList, chromeContainer, profileBtn, profileMenu, profileListContainer, addProfileBtn, settingsBtn, settingsSidebar, closeSettingsBtn, profileColorPicker, renameModal, renameInput, renameSaveBtn, renameCancelBtn, pendingRenameProfileId = null, bookmarkBtn, bookmarksSidebar, closeBookmarksBtn, bookmarksList, downloadsBtn, downloadsSidebar, closeDownloadsBtn, downloadsList, findBar, findInput, findResults, findPrev, findNext, findClose, openExtensionsBtn, progressBarContainer, progressBar, addBookmarkBtn, bookmarksBar, bookmarkDestModal, addToBarBtn, addToNewTabBtn, addToBothBtn, cancelBookmarkBtn, checkUpdatesBtn, versionEl, updateStatusEl, startupOverlay, startupLanguagePicker, settingsLanguagePicker, readerToast, metrics = () => { }, pendingBookmark = null, activeTabId = null, activeProfile = 0, isIncognitoWindow = false, tabs = [], tabGroups = [], profiles = [];
+let tabBar, newTabBtn, groupTabsBtn, groupTabsMenu, clearTabsBtn, addressBar, backBtn, forwardBtn, reloadBtn, readerBtn, aiSummaryBtn, aiSummarySidebar, closeAiSummaryBtn, aiSummaryContent, historyBtn, historySidebar, closeHistoryBtn, historyList, chromeContainer, profileBtn, profileMenu, profileListContainer, addProfileBtn, settingsBtn, settingsSidebar, closeSettingsBtn, profileColorPicker, renameModal, renameInput, renameSaveBtn, renameCancelBtn, pendingRenameProfileId = null, bookmarkBtn, bookmarksSidebar, closeBookmarksBtn, bookmarksList, downloadsBtn, downloadsSidebar, closeDownloadsBtn, downloadsList, findBar, findInput, findResults, findPrev, findNext, findClose, openExtensionsBtn, progressBarContainer, progressBar, addBookmarkBtn, bookmarksBar, bookmarkDestModal, addToBarBtn, addToNewTabBtn, addToBothBtn, cancelBookmarkBtn, checkUpdatesBtn, versionEl, updateStatusEl, startupOverlay, startupLanguagePicker, settingsLanguagePicker, readerToast, extensionActionList, extensionActionsMenuBtn, extensionActionsMenu, extensionActionsMenuList, extensionActionState = null, metrics = () => { }, pendingBookmark = null, activeTabId = null, activeProfile = 0, isIncognitoWindow = false, tabs = [], tabGroups = [], profiles = [];
 let updaterState = { state: 'idle', message: localization.t(localization.DEFAULT_LOCALE, 'updates.ready') };
 let currentLocale = localization.DEFAULT_LOCALE;
 let currentPlatform = getBrowserUiPlatform();
@@ -15,6 +15,7 @@ let tabStripRenderSignature = '';
 let metricsFrame = null;
 let lastChromeMetrics = { top: null, left: null };
 let closePanels = () => {};
+let closeExtensionActionsMenu = () => {};
 
 const SEARCH_ENGINES = [
   { id: 'google', label: 'Google', searchUrl: 'https://www.google.com/search?q=', homeUrl: 'https://www.google.com/' },
@@ -48,6 +49,289 @@ function safeSetStorage(key, value) {
   } catch (_error) {
     return false;
   }
+}
+
+const EXTENSION_PIN_STORAGE_KEY = 'browser-pinned-extensions';
+const EXTENSION_ACTION_PARTITION = '_self';
+
+function getBrowserActionBridge() {
+  if (typeof window === 'undefined') return null;
+  const bridge = window.browserAction;
+  if (!bridge || typeof bridge.getState !== 'function' || typeof bridge.activate !== 'function') {
+    return null;
+  }
+  return bridge;
+}
+
+function readPinnedExtensionIds() {
+  try {
+    const raw = safeGetStorage(EXTENSION_PIN_STORAGE_KEY, '[]');
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return new Set();
+    return new Set(parsed.filter((value) => typeof value === 'string' && value.trim()));
+  } catch (_error) {
+    return new Set();
+  }
+}
+
+function persistPinnedExtensionIds(ids) {
+  return safeSetStorage(EXTENSION_PIN_STORAGE_KEY, JSON.stringify(Array.from(ids)));
+}
+
+function getExtensionActionInfo(action, activeTabId) {
+  const tabInfo = action && action.tabs && activeTabId != null
+    ? action.tabs[String(activeTabId)] || action.tabs[activeTabId]
+    : null;
+  return {
+    ...action,
+    ...(tabInfo || {})
+  };
+}
+
+function getExtensionActionIconUrl(action, activeTabId) {
+  const info = getExtensionActionInfo(action, activeTabId);
+  const searchParams = new URLSearchParams({
+    tabId: `${activeTabId != null ? activeTabId : -1}`,
+    partition: EXTENSION_ACTION_PARTITION
+  });
+  if (info && info.iconModified) {
+    searchParams.append('t', info.iconModified);
+  }
+  return `crx://extension-icon/${action.id}/32/2?${searchParams.toString()}`;
+}
+
+function getExtensionActionLabel(action) {
+  return action && typeof action.title === 'string' && action.title.trim()
+    ? action.title.trim()
+    : (action && action.id) || 'Extension';
+}
+
+function getExtensionActionLetter(action) {
+  return getExtensionActionLabel(action).charAt(0).toUpperCase() || 'E';
+}
+
+function getExtensionActionAnchorRect(element) {
+  const rect = element.getBoundingClientRect();
+  return {
+    x: rect.left,
+    y: rect.top,
+    width: rect.width,
+    height: rect.height
+  };
+}
+
+function activateExtensionAction(action, eventType, anchorElement) {
+  const bridge = getBrowserActionBridge();
+  if (!bridge || !action || !action.id) return;
+  const activeTabId = extensionActionState && typeof extensionActionState.activeTabId === 'number'
+    ? extensionActionState.activeTabId
+    : -1;
+  const anchorRect = anchorElement ? getExtensionActionAnchorRect(anchorElement) : {
+    x: 0,
+    y: 0,
+    width: 0,
+    height: 0
+  };
+  bridge.activate(EXTENSION_ACTION_PARTITION, {
+    eventType,
+    extensionId: action.id,
+    tabId: activeTabId,
+    alignment: 'bottom right',
+    anchorRect
+  });
+}
+
+function setExtensionActionsMenuOpen(open) {
+  if (!extensionActionsMenu || !extensionActionsMenuBtn) return;
+  extensionActionsMenu.hidden = !open;
+  extensionActionsMenuBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  if (open) {
+    ipcRenderer.send('toggle-browser-view', false);
+  } else {
+    ipcRenderer.send('toggle-browser-view', true);
+  }
+}
+
+function closeExtensionActions() {
+  setExtensionActionsMenuOpen(false);
+}
+
+function renderExtensionActionsMenu(actions, pinnedIds) {
+  if (!extensionActionsMenuList) return;
+  const fragment = document.createDocumentFragment();
+  const activeTabId = extensionActionState && typeof extensionActionState.activeTabId === 'number'
+    ? extensionActionState.activeTabId
+    : -1;
+
+  actions.forEach((action) => {
+    const row = document.createElement('div');
+    row.className = 'extension-action-row';
+    row.tabIndex = 0;
+    row.setAttribute('role', 'button');
+    row.setAttribute('aria-label', getExtensionActionLabel(action));
+
+    const icon = document.createElement('div');
+    icon.className = 'extension-action-row-icon';
+    icon.style.backgroundImage = `url("${getExtensionActionIconUrl(action, activeTabId)}")`;
+    const iconImage = new Image();
+    iconImage.onerror = () => {
+      icon.classList.add('no-icon');
+      icon.dataset.letter = getExtensionActionLetter(action);
+    };
+    iconImage.src = getExtensionActionIconUrl(action, activeTabId);
+
+    const body = document.createElement('div');
+    body.className = 'extension-action-row-body';
+    const title = document.createElement('div');
+    title.className = 'extension-action-row-title';
+    title.textContent = getExtensionActionLabel(action);
+    const subtitle = document.createElement('div');
+    subtitle.className = 'extension-action-row-subtitle';
+    subtitle.textContent = pinnedIds.has(action.id) ? t('toolbar.extensionsPinned') : t('toolbar.extensionsHidden');
+    body.appendChild(title);
+    body.appendChild(subtitle);
+
+    const pinBtn = document.createElement('button');
+    pinBtn.type = 'button';
+    pinBtn.className = 'extension-action-pin-btn';
+    pinBtn.textContent = pinnedIds.has(action.id) ? t('toolbar.unpinExtension') : t('toolbar.pinExtension');
+    pinBtn.onclick = (event) => {
+      event.stopPropagation();
+      toggleExtensionPinned(action.id);
+    };
+
+    row.onclick = () => {
+      activateExtensionAction(action, 'click', row);
+      setExtensionActionsMenuOpen(false);
+    };
+    row.onkeydown = (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        row.click();
+      } else if (event.key === 'Escape') {
+        setExtensionActionsMenuOpen(false);
+      }
+    };
+    row.appendChild(icon);
+    row.appendChild(body);
+    row.appendChild(pinBtn);
+    fragment.appendChild(row);
+  });
+
+  if (!actions.length) {
+    const empty = document.createElement('div');
+    empty.className = 'extension-actions-menu-note';
+    empty.textContent = t('extension.empty');
+    fragment.appendChild(empty);
+  }
+
+  extensionActionsMenuList.replaceChildren(fragment);
+}
+
+function renderExtensionActionToolbar() {
+  if (!extensionActionList || !extensionActionsMenuList) return;
+  const state = extensionActionState || { actions: [], activeTabId: -1 };
+  const actions = Array.isArray(state.actions) ? state.actions : [];
+  const pinnedIds = readPinnedExtensionIds();
+  const pinnedActions = actions.filter((action) => pinnedIds.has(action.id));
+  const pinnedFragment = document.createDocumentFragment();
+  const activeTabId = typeof state.activeTabId === 'number' ? state.activeTabId : -1;
+
+  pinnedActions.forEach((action) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'extension-action-button';
+    button.title = getExtensionActionLabel(action);
+    button.setAttribute('aria-label', getExtensionActionLabel(action));
+    button.style.backgroundImage = `url("${getExtensionActionIconUrl(action, activeTabId)}")`;
+    const info = getExtensionActionInfo(action, activeTabId);
+    if (info && info.text) {
+      const badge = document.createElement('span');
+      badge.className = 'extension-action-badge';
+      badge.textContent = info.text;
+      button.appendChild(badge);
+    }
+    const loadIconFallback = () => {
+      button.classList.add('no-icon');
+      button.dataset.letter = getExtensionActionLetter(action);
+    };
+    const probe = new Image();
+    probe.onerror = loadIconFallback;
+    probe.src = getExtensionActionIconUrl(action, activeTabId);
+    button.onclick = () => activateExtensionAction(action, 'click', button);
+    button.oncontextmenu = (event) => {
+      event.preventDefault();
+      activateExtensionAction(action, 'contextmenu', button);
+    };
+    pinnedFragment.appendChild(button);
+  });
+
+  extensionActionList.replaceChildren(pinnedFragment);
+  extensionActionList.hidden = pinnedActions.length === 0;
+  renderExtensionActionsMenu(actions, pinnedIds);
+}
+
+function toggleExtensionPinned(extensionId) {
+  if (!extensionId) return;
+  const pinnedIds = readPinnedExtensionIds();
+  if (pinnedIds.has(extensionId)) {
+    pinnedIds.delete(extensionId);
+  } else {
+    pinnedIds.add(extensionId);
+  }
+  persistPinnedExtensionIds(pinnedIds);
+  renderExtensionActionToolbar();
+}
+
+async function refreshExtensionActionState() {
+  const bridge = getBrowserActionBridge();
+  if (!bridge) return;
+  try {
+    const state = await bridge.getState(EXTENSION_ACTION_PARTITION);
+    extensionActionState = state || { actions: [], activeTabId: -1 };
+    renderExtensionActionToolbar();
+  } catch (error) {
+    console.error('Failed to refresh extension actions:', error);
+  }
+}
+
+function initExtensionActionToolbar() {
+  extensionActionsMenuBtn = document.getElementById('extension-actions-menu-btn');
+  extensionActionList = document.getElementById('extension-action-list');
+  extensionActionsMenu = document.getElementById('extension-actions-menu');
+  extensionActionsMenuList = document.getElementById('extension-actions-menu-list');
+  const bridge = getBrowserActionBridge();
+
+  if (!bridge || !extensionActionList || !extensionActionsMenuBtn || !extensionActionsMenu || !extensionActionsMenuList) {
+    if (extensionActionList) extensionActionList.hidden = true;
+    if (extensionActionsMenuBtn) extensionActionsMenuBtn.style.display = 'none';
+    if (extensionActionsMenu) extensionActionsMenu.hidden = true;
+    return;
+  }
+
+  extensionActionsMenuBtn.title = t('toolbar.extensionsMenuButton');
+  extensionActionsMenuBtn.setAttribute('aria-label', t('toolbar.extensionsMenuButton'));
+  extensionActionsMenuBtn.setAttribute('aria-expanded', 'false');
+  extensionActionsMenuBtn.onclick = (event) => {
+    event.stopPropagation();
+    const nextOpen = extensionActionsMenu.hidden;
+    setExtensionActionsMenuOpen(nextOpen);
+    if (nextOpen) {
+      void refreshExtensionActionState();
+    }
+  };
+
+  document.addEventListener('click', (event) => {
+    if (extensionActionsMenu.hidden) return;
+    if (event.target && typeof event.target.closest === 'function' && event.target.closest('#extension-action-shell')) return;
+    setExtensionActionsMenuOpen(false);
+  });
+
+  bridge.addEventListener('update', refreshExtensionActionState);
+  bridge.addObserver(EXTENSION_ACTION_PARTITION);
+
+  closeExtensionActionsMenu = closeExtensionActions;
+  void refreshExtensionActionState();
 }
 
 async function resolveShowSecondsSetting() {
@@ -116,6 +400,11 @@ function applyStaticTranslations(root = document) {
     element.setAttribute('aria-label', t(element.dataset.i18nAriaLabel));
   });
   document.title = t('app.name');
+  if (extensionActionsMenuBtn) {
+    const label = t('toolbar.extensionsMenuButton');
+    extensionActionsMenuBtn.title = label;
+    extensionActionsMenuBtn.setAttribute('aria-label', label);
+  }
 }
 
 function getDisplayProfileName(profile) {
@@ -640,6 +929,7 @@ function init() {
   };
 
   void loadAdblockState();
+  initExtensionActionToolbar();
 
   const sidebars = [historySidebar, settingsSidebar, bookmarksSidebar, downloadsSidebar, adblockSidebar, aiSummarySidebar].filter(Boolean);
   const toggle = (s, v) => {
@@ -648,6 +938,7 @@ function init() {
     });
     if (s) s.classList.toggle('open', v);
     const hasOpen = sidebars.some((p) => p.classList.contains('open'));
+    closeExtensionActionsMenu();
     ipcRenderer.send('toggle-browser-view', !hasOpen);
     if (hasOpen && findBar) {
       findBar.style.display = 'none';
