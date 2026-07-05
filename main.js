@@ -1224,12 +1224,26 @@ function updateB(pIdx) {
   const activeTabId = getActiveT(pIdx);
   const readerActive = !!(activeTabId && readerSessions[activeTabId] && readerSessions[activeTabId].active);
   const top = readerActive ? 0 : (s.metrics.top || 76);
-  s.activeView.setBounds({
+  const nextBounds = {
     x: readerActive ? 0 : s.metrics.left,
     y: top,
     width: Math.max(0, w - (readerActive ? 0 : s.metrics.left)),
     height: Math.max(0, h - top)
-  });
+  };
+  const lastBounds = s.lastBounds;
+  if (
+    s.lastBoundsView === s.activeView &&
+    lastBounds &&
+    lastBounds.x === nextBounds.x &&
+    lastBounds.y === nextBounds.y &&
+    lastBounds.width === nextBounds.width &&
+    lastBounds.height === nextBounds.height
+  ) {
+    return;
+  }
+  s.activeView.setBounds(nextBounds);
+  s.lastBounds = nextBounds;
+  s.lastBoundsView = s.activeView;
 }
 
 function reloadActiveView(pIdx, options = {}) {
@@ -2365,11 +2379,6 @@ function createW(pIdx = 0, opts = {}) {
       fileUrl = `file://${indexPath}`;
     }
   }
-  console.log(`Loading index.html from: ${fileUrl}`);
-  console.log(`__dirname: ${__dirname}`);
-  console.log(`indexPath: ${indexPath}`);
-  console.log(`app.isPackaged: ${app.isPackaged}`);
-  console.log(`process.resourcesPath: ${process.resourcesPath}`);
   win.loadURL(fileUrl).catch((error) => {
     console.error(`Failed to load index.html: ${error.message}`);
     console.error(`Error code: ${error.code}`);
@@ -2382,9 +2391,6 @@ function createW(pIdx = 0, opts = {}) {
     console.error(`index.html failed to load: ${errorCode} - ${errorDescription}`);
   });
   
-  win.webContents.on('did-finish-load', () => {
-    console.log('index.html loaded successfully');
-  });
   win.on("resize", () => updateB(pIdx));
   win.on("closed", () => {
     delete windows[pIdx];

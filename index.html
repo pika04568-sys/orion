@@ -2347,6 +2347,381 @@
             box-shadow: inset 0 1px 0 rgba(255, 255, 255, .34), inset 0 -1px 0 rgba(7, 48, 103, .28), 0 16px 30px rgba(31, 95, 173, .28)
         }
 
+        :root {
+            --bg-color: #fff;
+            --sidebar-bg: #fff;
+            --card-bg: #fff;
+            --accent-color: #1a73e8;
+            --accent-hover: #185abc;
+            --text-primary: #202124;
+            --text-secondary: #5f6368;
+            --text-color: var(--text-primary);
+            --border-color: #dadce0;
+            --panel-glow: transparent;
+            --tab-active-bg: #fff;
+            --tab-inactive-bg: #dee1e6;
+            --glass-bg: #f1f3f4;
+            --glass-border: #dadce0;
+            --toolbar-bg: #fff;
+            --address-shell-bg: #f1f3f4;
+            --address-shell-border: transparent;
+            --address-shell-shadow: none;
+            --address-shell-highlight: transparent;
+            --vista-btn-face: transparent;
+            --vista-btn-face-hover: #e8f0fe;
+            --vista-btn-face-active: #d2e3fc;
+            --vista-btn-border: transparent;
+            --vista-btn-border-strong: transparent;
+            --vista-btn-highlight: transparent;
+            --vista-btn-shadow: none;
+            --vista-btn-primary-face: #e8f0fe;
+            --vista-btn-primary-face-hover: #d2e3fc;
+            --vista-btn-primary-face-active: #c6dafc;
+            --vista-btn-primary-border: transparent;
+            --vista-btn-primary-text: #174ea6
+        }
+
+        @media (prefers-color-scheme:dark) {
+            :root {
+                --bg-color: #202124;
+                --sidebar-bg: #202124;
+                --card-bg: #292a2d;
+                --accent-color: #8ab4f8;
+                --accent-hover: #aecbfa;
+                --text-primary: #e8eaed;
+                --text-secondary: #bdc1c6;
+                --text-color: var(--text-primary);
+                --border-color: #3c4043;
+                --tab-active-bg: #202124;
+                --tab-inactive-bg: #303134;
+                --glass-bg: #202124;
+                --glass-border: #3c4043;
+                --toolbar-bg: #202124;
+                --address-shell-bg: #303134;
+                --address-shell-border: transparent;
+                --vista-btn-face-hover: #303134;
+                --vista-btn-face-active: #3c4043;
+                --vista-btn-primary-face: #2b3f63;
+                --vista-btn-primary-face-hover: #334d75;
+                --vista-btn-primary-face-active: #3c5f94;
+                --vista-btn-primary-text: #d2e3fc
+            }
+        }
+
+        body {
+            background: var(--bg-color);
+            transition: background-color .15s ease, color .15s ease
+        }
+
+        body::before {
+            display: none
+        }
+
+        #chrome-container {
+            background: var(--glass-bg);
+            border-bottom: 1px solid var(--border-color);
+            box-shadow: none;
+            backdrop-filter: none
+        }
+
+        #tab-bar-wrapper {
+            padding: 8px 8px 0;
+            gap: 4px;
+            background: var(--glass-bg)
+        }
+
+        #tab-bar {
+            gap: 2px
+        }
+
+        .tab {
+            min-width: 112px;
+            max-width: 240px;
+            height: 36px;
+            padding: 8px 10px;
+            border: 1px solid transparent;
+            border-bottom: 0;
+            border-radius: 12px 12px 0 0;
+            background: transparent;
+            color: var(--text-secondary);
+            box-shadow: none;
+            transition: background-color .12s ease, color .12s ease
+        }
+
+        .tab:hover {
+            transform: none;
+            background: var(--tab-inactive-bg);
+            border-color: transparent
+        }
+
+        .tab.active {
+            background: var(--tab-active-bg);
+            color: var(--text-primary);
+            border-color: transparent;
+            box-shadow: none;
+            font-weight: 500
+        }
+
+        .tab[data-group-id] {
+            border-top: 3px solid var(--group-color)
+        }
+
+        .tab .tab-close {
+            width: 20px;
+            height: 20px;
+            margin-left: 6px;
+            border-radius: 999px;
+            font-size: 15px
+        }
+
+        .tab .tab-close:hover {
+            transform: none;
+            border-color: transparent;
+            background: rgba(95, 99, 104, .18)
+        }
+
+        .tab-group-header {
+            height: 28px;
+            border-radius: 999px;
+            box-shadow: none
+        }
+
+        #new-tab-btn,
+        #group-tabs-btn,
+        #incognito-tab-btn,
+        #clear-tabs-btn,
+        .nav-btn,
+        .panel-close-btn {
+            width: 32px;
+            height: 32px;
+            padding: 0;
+            border-radius: 999px;
+            border: 1px solid transparent;
+            background: transparent;
+            color: var(--text-secondary);
+            box-shadow: none;
+            transition: background-color .12s ease, color .12s ease, border-color .12s ease
+        }
+
+        #new-tab-btn:hover,
+        #group-tabs-btn:hover,
+        #incognito-tab-btn:hover,
+        #clear-tabs-btn:hover,
+        .nav-btn:hover,
+        .panel-close-btn:hover {
+            transform: none;
+            border-color: transparent;
+            background: var(--vista-btn-face-hover);
+            color: var(--text-primary);
+            box-shadow: none
+        }
+
+        .nav-btn.reader-active {
+            color: var(--vista-btn-primary-text);
+            border-color: transparent;
+            background: var(--vista-btn-primary-face);
+            box-shadow: none
+        }
+
+        .nav-btn:focus-visible,
+        .panel-close-btn:focus-visible {
+            outline: 0;
+            box-shadow: 0 0 0 3px rgba(26, 115, 232, .22)
+        }
+
+        .nav-btn:active,
+        #new-tab-btn:active,
+        #group-tabs-btn:active,
+        #incognito-tab-btn:active,
+        #clear-tabs-btn:active,
+        .bookmarks-bar-item:active,
+        .panel-close-btn:active,
+        .clear-history-btn:active,
+        .adblock-inline-actions button:active,
+        #refresh-adblock-lists:active,
+        #reset-adblock-defaults:active,
+        .modal-content button:active,
+        .settings-btn:active,
+        .language-choice-btn:active {
+            transform: none;
+            background: var(--vista-btn-face-active);
+            box-shadow: none
+        }
+
+        #toolbar {
+            padding: 6px 10px 8px;
+            gap: 8px;
+            background: var(--toolbar-bg);
+            border-top: 0
+        }
+
+        .nav-buttons,
+        .action-buttons {
+            gap: 4px
+        }
+
+        #address-bar-container {
+            min-height: 36px;
+            border-radius: 999px;
+            padding: 0;
+            background: var(--address-shell-bg);
+            border: 1px solid var(--address-shell-border);
+            box-shadow: none;
+            backdrop-filter: none;
+            transition: background-color .12s ease, border-color .12s ease, box-shadow .12s ease
+        }
+
+        #address-bar-container:focus-within {
+            transform: none;
+            background: var(--tab-active-bg);
+            border-color: var(--border-color);
+            box-shadow: 0 1px 6px rgba(32, 33, 36, .24)
+        }
+
+        #address-bar {
+            padding: 8px 44px 8px 42px;
+            font-size: 14px
+        }
+
+        #add-bookmark-btn {
+            right: 4px;
+            width: 28px;
+            height: 28px;
+            border-radius: 999px
+        }
+
+        #bookmarks-bar {
+            height: 34px;
+            padding: 0 10px;
+            gap: 4px;
+            background: var(--toolbar-bg);
+            border-bottom: 1px solid var(--border-color);
+            backdrop-filter: none
+        }
+
+        .bookmarks-bar-item {
+            padding: 5px 8px;
+            border-radius: 6px;
+            border-color: transparent;
+            background: transparent;
+            color: var(--text-primary);
+            box-shadow: none;
+            transition: background-color .12s ease, color .12s ease
+        }
+
+        .bookmarks-bar-item:hover {
+            transform: none;
+            border-color: transparent;
+            background: var(--glass-bg);
+            color: var(--text-primary);
+            box-shadow: none
+        }
+
+        #view-container {
+            background: var(--bg-color)
+        }
+
+        .dropdown-menu,
+        #find-bar,
+        .modal-content,
+        .settings-section,
+        .settings-hero,
+        .adblock-card,
+        .download-item,
+        .history-item,
+        .bookmark-item {
+            border-radius: 8px;
+            box-shadow: 0 8px 24px rgba(60, 64, 67, .16)
+        }
+
+        #history-sidebar,
+        #settings-sidebar,
+        #bookmarks-sidebar,
+        #downloads-sidebar,
+        #adblock-sidebar,
+        #ai-summary-sidebar {
+            background: var(--bg-color);
+            gap: 18px
+        }
+
+        .empty-state {
+            color: var(--text-secondary);
+            padding: 40px;
+            text-align: center
+        }
+
+        body.vertical-tabs #tab-bar-wrapper {
+            background: var(--glass-bg);
+            border-right: 1px solid var(--border-color);
+            backdrop-filter: none
+        }
+
+        body.vertical-tabs .tab {
+            border-radius: 999px;
+            border: 1px solid transparent
+        }
+
+        body.vertical-tabs .tab.active {
+            background: #e8f0fe;
+            color: #174ea6;
+            border-color: transparent;
+            box-shadow: none
+        }
+
+        body.incognito-window {
+            --bg-color: #202124;
+            --glass-bg: #202124;
+            --toolbar-bg: #202124;
+            --tab-active-bg: #303134;
+            --tab-inactive-bg: #3c4043;
+            --address-shell-bg: #303134;
+            --text-primary: #e8eaed;
+            --text-secondary: #bdc1c6;
+            --border-color: #3c4043;
+            --accent-color: #8ab4f8;
+            --vista-btn-face-hover: #303134;
+            --vista-btn-face-active: #3c4043
+        }
+
+        body.incognito-window #chrome-container,
+        body.incognito-window #tab-bar-wrapper,
+        body.incognito-window #toolbar,
+        body.incognito-window #bookmarks-bar {
+            background: var(--glass-bg);
+            border-color: var(--border-color);
+            box-shadow: none
+        }
+
+        body.incognito-window .tab,
+        body.incognito-window .nav-btn,
+        body.incognito-window #new-tab-btn,
+        body.incognito-window #group-tabs-btn,
+        body.incognito-window #incognito-tab-btn,
+        body.incognito-window #clear-tabs-btn {
+            background: transparent;
+            color: var(--text-secondary);
+            border-color: transparent;
+            box-shadow: none
+        }
+
+        body.incognito-window .tab:hover,
+        body.incognito-window .nav-btn:hover,
+        body.incognito-window #new-tab-btn:hover,
+        body.incognito-window #group-tabs-btn:hover,
+        body.incognito-window #incognito-tab-btn:hover,
+        body.incognito-window #clear-tabs-btn:hover {
+            background: var(--vista-btn-face-hover);
+            color: var(--text-primary);
+            border-color: transparent
+        }
+
+        body.incognito-window .tab.active {
+            background: var(--tab-active-bg);
+            color: var(--text-primary);
+            border-color: transparent;
+            box-shadow: none
+        }
+
         @media (max-width:900px) {
 
             #toolbar {

@@ -11,6 +11,10 @@ let discoInterval = null;
 let discoModeBtn = null;
 let adblockState = null;
 let adblockElements = null;
+let tabStripRenderSignature = '';
+let metricsFrame = null;
+let lastChromeMetrics = { top: null, left: null };
+let closePanels = () => {};
 
 const SEARCH_ENGINES = [
   { id: 'google', label: 'Google', searchUrl: 'https://www.google.com/search?q=', homeUrl: 'https://www.google.com/' },
@@ -396,6 +400,7 @@ function syncTabState(tabLike = {}) {
   if (Object.prototype.hasOwnProperty.call(tabLike, 'url')) nextTab.url = normalizeTabUrl(tabLike.url);
   if (Object.prototype.hasOwnProperty.call(tabLike, 'title')) nextTab.title = tabLike.title;
   if (Object.prototype.hasOwnProperty.call(tabLike, 'incognito')) nextTab.incognito = tabLike.incognito;
+  if (Object.prototype.hasOwnProperty.call(tabLike, 'readerMode')) nextTab.readerMode = tabLike.readerMode;
   if (Object.prototype.hasOwnProperty.call(tabLike, 'groupId')) nextTab.groupId = tabLike.groupId;
 
   return appUtils.upsertTabRecord(tabs, nextTab);
@@ -408,6 +413,7 @@ function normalizeBootstrapTab(tabLike = {}) {
     url: normalizeTabUrl(tabLike.url || 'chrome://newtab') || 'chrome://newtab',
     title: tabLike.title || t('app.newTab'),
     incognito: !!tabLike.incognito,
+    readerMode: !!tabLike.readerMode,
     groupId: typeof tabLike.groupId === 'string' ? tabLike.groupId : undefined
   };
 }
@@ -458,6 +464,7 @@ function hydrateFromBootstrapState(snapshot) {
         url: normalizeTabUrl(tabLike.url || 'chrome://newtab') || 'chrome://newtab',
         title: tabLike.title || localization.t(currentLocale, 'app.loading'),
         incognito: !!tabLike.incognito,
+        readerMode: !!tabLike.readerMode,
         groupId: tabLike.groupId
       });
     });
@@ -647,7 +654,7 @@ function init() {
       ipcRenderer.invoke('stop-find-in-page', 'clearSelection');
     }
   };
-  const closePanels = () => toggle(null, false);
+  closePanels = () => toggle(null, false);
 
   if (adblockBtn) adblockBtn.onclick = () => {
     adblockText.value = safeGetStorage('adblock-rules', '');
@@ -709,17 +716,29 @@ function init() {
     versionEl.textContent = `v${v}`;
   });
 
-  metrics = () => {
+  const updateChromeMetrics = () => {
+    metricsFrame = null;
     const chromeHeight = Math.ceil(chromeContainer.getBoundingClientRect().height);
     const barHeight = bookmarksBar && window.getComputedStyle(bookmarksBar).display !== 'none' ? Math.ceil(bookmarksBar.getBoundingClientRect().height) : 0;
     const top = chromeHeight + barHeight;
     const left = document.body.classList.contains('vertical-tabs') ? 240 : 0;
+    if (lastChromeMetrics.top === top && lastChromeMetrics.left === left) return;
+    lastChromeMetrics = { top, left };
     document.documentElement.style.setProperty('--chrome-top', `${top}px`);
     ipcRenderer.send('set-chrome-metrics', { top, left });
   };
 
-  window.onresize = metrics;
-  setInterval(metrics, 1000);
+  metrics = () => {
+    if (metricsFrame) return;
+    metricsFrame = window.requestAnimationFrame(updateChromeMetrics);
+  };
+
+  window.addEventListener('resize', metrics);
+  if (typeof ResizeObserver === 'function') {
+    const chromeMetricsObserver = new ResizeObserver(metrics);
+    chromeMetricsObserver.observe(chromeContainer);
+    if (bookmarksBar) chromeMetricsObserver.observe(bookmarksBar);
+  }
   metrics();
 
   const savedColor = safeGetStorage('browser-theme-color');
@@ -957,6 +976,7 @@ function initSettings() {
       const en = e.target.checked;
       localStorage.setItem('vertical-tabs', en);
       document.body.classList.toggle('vertical-tabs', en);
+      lastChromeMetrics = { top: null, left: null };
       metrics();
     };
   }
@@ -1049,6 +1069,7 @@ ipcRenderer.on('tab-switched', (e, { tabId, url, title, incognito, readerMode })
     });
   }
   syncTabState({ id: tabId, url, title, incognito, readerMode: !!readerMode });
+  activeTabId = tabId;
   renderTabStrip();
   setActiveTab(tabId);
   updateTabTitle(tabId, title);
@@ -1144,7 +1165,8 @@ ipcRenderer.on('updater-status', (e, status) => {
 });
 
 function renderProfileList() {
-  profileListContainer.innerHTML = '';
+  if (!profileListContainer) return;
+  const fragment = document.createDocumentFragment();
   profiles.forEach((p) => {
     const item = document.createElement('div');
     item.className = `dropdown-item ${p.id === activeProfile ? 'active' : ''}`;
@@ -1174,8 +1196,9 @@ function renderProfileList() {
       renameModal.classList.add('show');
       renameInput.focus();
     };
-    profileListContainer.appendChild(item);
+    fragment.appendChild(item);
   });
+  profileListContainer.replaceChildren(fragment);
 }
 
 function getGroupById(groupId) {
@@ -1212,14 +1235,33 @@ function createGroupHeader(group) {
 
 function renderTabStrip() {
   if (!tabBar) return;
-  tabBar.innerHTML = '';
+  const signature = JSON.stringify({
+    activeTabId,
+    tabs: tabs.map((tab) => ({
+      id: tab.id,
+      title: tab.title,
+      incognito: !!tab.incognito,
+      readerMode: !!tab.readerMode,
+      groupId: tab.groupId || ''
+    })),
+    groups: tabGroups.map((group) => ({
+      id: group.id,
+      name: group.name,
+      color: group.color,
+      collapsed: !!group.collapsed
+    }))
+  });
+  if (signature === tabStripRenderSignature && tabBar.childElementCount) return;
+  tabStripRenderSignature = signature;
+
+  const fragment = document.createDocumentFragment();
   const renderedGroups = new Set();
   const collapsedGroups = new Set(tabGroups.filter((group) => group.collapsed).map((group) => group.id));
 
   tabs.forEach((tab) => {
     const group = tab.groupId ? getGroupById(tab.groupId) : null;
     if (group && !renderedGroups.has(group.id)) {
-      tabBar.appendChild(createGroupHeader(group));
+      fragment.appendChild(createGroupHeader(group));
       renderedGroups.add(group.id);
     }
     if (group && collapsedGroups.has(group.id) && tab.id !== activeTabId) return;
@@ -1233,12 +1275,14 @@ function renderTabStrip() {
       if (event.target.classList.contains('tab-close')) ipcRenderer.invoke('close-tab', tab.id);
       else ipcRenderer.invoke('switch-tab', tab.id);
     };
-    tabBar.appendChild(el);
+    fragment.appendChild(el);
   });
 
   tabGroups.forEach((group) => {
-    if (!renderedGroups.has(group.id)) tabBar.appendChild(createGroupHeader(group));
+    if (!renderedGroups.has(group.id)) fragment.appendChild(createGroupHeader(group));
   });
+
+  tabBar.replaceChildren(fragment);
 }
 
 function applyGroupPayload(payload) {
@@ -1373,8 +1417,8 @@ function renderGroupTabsMenu() {
 function addTabToUI(t, anchorTabId = null) {
   if (tabs.find((x) => x.id === t.id)) {
     syncTabState(t);
-    updateTabTitle(t.id, t.title);
     renderTabStrip();
+    updateTabTitle(t.id, t.title);
     return;
   }
   const anchorIdx = anchorTabId ? tabs.findIndex((x) => x.id === anchorTabId) : -1;
@@ -1383,6 +1427,7 @@ function addTabToUI(t, anchorTabId = null) {
     url: normalizeTabUrl(t.url || 'chrome://newtab') || 'chrome://newtab',
     title: t.title || localization.t(currentLocale, 'app.loading'),
     incognito: !!t.incognito,
+    readerMode: !!t.readerMode,
     groupId: typeof t.groupId === 'string' ? t.groupId : undefined
   };
   if (anchorIdx >= 0) tabs.splice(anchorIdx + 1, 0, nextTab);
@@ -1432,7 +1477,7 @@ function setActiveTab(id, opts = {}) {
 function updateTabTitle(id, title) {
   const el = document.querySelector(`.tab[data-id="${id}"] .tab-title`);
   const nextTitle = title || t('app.loading');
-  if (el) el.textContent = nextTitle;
+  if (el && el.textContent !== nextTitle) el.textContent = nextTitle;
   appUtils.syncTabRecord(tabs, id, { title: nextTitle });
 }
 
@@ -1502,7 +1547,8 @@ function buildHistoryEntry(entry) {
   return el;
 }
 function renderHistory(h) {
-  historyList.innerHTML = '';
+  if (!historyList) return;
+  const fragment = document.createDocumentFragment();
   h.forEach((i) => {
     const el = buildHistoryEntry(i);
     const removeBtn = el.querySelector('.remove-history-btn');
@@ -1516,8 +1562,9 @@ function renderHistory(h) {
       ipcRenderer.invoke('navigate-to', i.url);
       closePanels();
     };
-    historyList.appendChild(el);
+    fragment.appendChild(el);
   });
+  historyList.replaceChildren(fragment);
 }
 function buildBookmarkBarItem(bookmark) {
   const host = getFaviconHost(bookmark.url);
@@ -1552,18 +1599,26 @@ function renderBookmarksBar() {
   if (!bookmarksBar) return;
   const bms = getBms().filter((b) => b.target === 'bar' || b.target === 'both');
   bookmarksBar.style.display = bms.length ? 'flex' : 'none';
-  bookmarksBar.innerHTML = '';
+  const fragment = document.createDocumentFragment();
   bms.forEach((b) => {
     const el = buildBookmarkBarItem(b);
     el.onclick = () => ipcRenderer.invoke('navigate-to', b.url);
-    bookmarksBar.appendChild(el);
+    fragment.appendChild(el);
   });
-  if (typeof window.onresize === 'function') window.onresize();
+  bookmarksBar.replaceChildren(fragment);
+  if (typeof metrics === 'function') metrics();
 }
 function renderBookmarks() {
   if (!bookmarksList) return;
   const bms = getBms();
-  bookmarksList.innerHTML = bms.length ? '' : `<div style="text-align:center;padding:40px">${t('bookmarks.empty')}</div>`;
+  if (!bms.length) {
+    const empty = document.createElement('div');
+    empty.className = 'empty-state';
+    empty.textContent = t('bookmarks.empty');
+    bookmarksList.replaceChildren(empty);
+    return;
+  }
+  const fragment = document.createDocumentFragment();
   bms.forEach((b) => {
     const el = buildBookmarkItem(b);
     const removeBtn = el.querySelector('.remove-bm');
@@ -1583,8 +1638,9 @@ function renderBookmarks() {
         renderBookmarksBar();
       };
     }
-    bookmarksList.appendChild(el);
+    fragment.appendChild(el);
   });
+  bookmarksList.replaceChildren(fragment);
 }
 function refreshDownloadElement(el, info) {
   while (el.firstChild) el.removeChild(el.firstChild);
