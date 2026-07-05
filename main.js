@@ -12,7 +12,6 @@ const {
   Menu,
   MenuItem
 } = require("electron");
-const { autoUpdater } = require("electron-updater");
 const path = require("path");
 const fs = require("fs");
 const os = require("os");
@@ -29,22 +28,6 @@ const readerUtils = require("./reader-utils");
 const readerSession = require("./reader-session");
 const aiSummary = require("./ai-summary");
 const extensionManagerModule = require("./extension-manager");
-const { ElectronChromeExtensions } = require("electron-chrome-extensions");
-const chromeWebStore = require("electron-chrome-web-store");
-
-protocol.registerSchemesAsPrivileged([
-  {
-    scheme: appUtils.ORION_SCHEME,
-    privileges: {
-      bypassCSP: false,
-      corsEnabled: true,
-      secure: true,
-      standard: true,
-      stream: true,
-      supportFetchAPI: true
-    }
-  }
-]);
 
 const INTERNAL_PAGES = new Map([
   ["chrome://newtab", "newtab.html"],
@@ -117,6 +100,24 @@ const STARTUP_DEFERRED_EXTENSION_RESTORE_DELAY_MS = 1200;
 const STARTUP_DEFERRED_UPDATE_CHECK_DELAY_MS = 8000;
 const FINGERPRINTING_PROTECTION_SCRIPT = browserPrivacy.createFingerprintingProtectionScript();
 
+if (protocol && typeof protocol.registerSchemesAsPrivileged === "function") {
+  protocol.registerSchemesAsPrivileged([
+    {
+      scheme: appUtils.ORION_SCHEME,
+      privileges: {
+        bypassCSP: false,
+        corsEnabled: true,
+        secure: true,
+        standard: true,
+        stream: true,
+        supportFetchAPI: true
+      }
+    }
+  ]);
+} else {
+  console.warn("Protocol scheme registration is unavailable in this runtime.");
+}
+
 let updaterState = {
   state: "idle",
   message: "Ready to check for updates.",
@@ -129,26 +130,48 @@ let updaterCheckPromise = null;
 let updaterCheckOrigin = "startup";
 let installPromptPromise = null;
 let installingUpdate = false;
+let autoUpdater = null;
+let extensionManager = null;
+let ElectronChromeExtensions = null;
+let chromeWebStore = null;
 let deferredStartup = appUtils.createDeferredStartupController({
   isDeferredNavigation: (url) => isHttpUrl(url)
 });
 let scheduledExtensionRestoreProfiles = new Set();
 let restoredExtensionProfiles = new Set();
 let startupDeferredTimers = new Set();
-const extensionManager = extensionManagerModule.createExtensionManager({
-  app,
-  dialog,
-  ElectronChromeExtensions,
-  chromeWebStore,
-  createTab: createExtensionTab,
-  selectTab: selectExtensionTab,
-  removeTab: removeExtensionTab,
-  createWindow: createExtensionWindow,
-  removeWindow: removeExtensionWindow,
-  assignTabDetails: assignExtensionTabDetails,
-  requestPermissions: requestExtensionPermissions
-});
 const extensionTabRemovalNotifications = new WeakSet();
+
+function getExtensionIntegration() {
+  if (!ElectronChromeExtensions) {
+    try {
+      ElectronChromeExtensions = require("electron-chrome-extensions").ElectronChromeExtensions;
+    } catch (error) {
+      console.warn("Chrome extension support is unavailable in this runtime:", error && error.message ? error.message : error);
+      ElectronChromeExtensions = null;
+    }
+  }
+  if (!chromeWebStore) {
+    try {
+      chromeWebStore = require("electron-chrome-web-store");
+    } catch (error) {
+      console.warn("Chrome Web Store integration is unavailable in this runtime:", error && error.message ? error.message : error);
+      chromeWebStore = null;
+    }
+  }
+  return { ElectronChromeExtensions, chromeWebStore };
+}
+
+function getAutoUpdater() {
+  if (autoUpdater) return autoUpdater;
+  try {
+    autoUpdater = require("electron-updater").autoUpdater;
+  } catch (error) {
+    console.warn("Auto-updater is unavailable in this runtime:", error && error.message ? error.message : error);
+    autoUpdater = null;
+  }
+  return autoUpdater;
+}
 
 function scheduleDeferredStartupTask(delayMs, task) {
   if (typeof task !== "function") return null;
@@ -475,6 +498,15 @@ async function promptToInstallUpdate() {
   if (installPromptPromise || updaterState.state !== "downloaded" || installingUpdate) {
     return getUpdaterState();
   }
+  const updater = getAutoUpdater();
+  if (!updater) {
+    setUpdaterState({
+      state: "unsupported",
+      message: "Auto-updates are unavailable in this runtime.",
+      progress: null
+    });
+    return getUpdaterState();
+  }
   installPromptPromise = (async () => {
     const releaseName = updaterState.releaseName || updaterState.version;
     const detail = releaseName
@@ -496,7 +528,7 @@ async function promptToInstallUpdate() {
         message: "Restarting to install update...",
         progress: 100
       });
-      autoUpdater.quitAndInstall();
+      updater.quitAndInstall();
     }
     return getUpdaterState();
   })().finally(() => {
@@ -506,11 +538,20 @@ async function promptToInstallUpdate() {
 }
 
 function configureAutoUpdater() {
-  autoUpdater.autoDownload = true;
-  autoUpdater.autoInstallOnAppQuit = true;
-  autoUpdater.setFeedURL(GITHUB_UPDATE_FEED);
+  const updater = getAutoUpdater();
+  if (!updater) {
+    setUpdaterState({
+      state: "unsupported",
+      message: "Auto-updates are unavailable in this runtime.",
+      progress: null
+    });
+    return;
+  }
+  updater.autoDownload = true;
+  updater.autoInstallOnAppQuit = true;
+  updater.setFeedURL(GITHUB_UPDATE_FEED);
 
-  autoUpdater.on("checking-for-update", () => {
+  updater.on("checking-for-update", () => {
     setUpdaterState({
       state: "checking",
       message: "Checking for updates...",
@@ -518,7 +559,7 @@ function configureAutoUpdater() {
     });
   });
 
-  autoUpdater.on("update-available", async (info) => {
+  updater.on("update-available", async (info) => {
     const releaseName = getReleaseName(info);
     setUpdaterState({
       state: "downloading",
@@ -540,7 +581,7 @@ function configureAutoUpdater() {
     }
   });
 
-  autoUpdater.on("update-not-available", async () => {
+  updater.on("update-not-available", async () => {
     setUpdaterState({
       state: "update-not-available",
       message: `You're up to date on v${app.getVersion()}.`,
@@ -561,7 +602,7 @@ function configureAutoUpdater() {
     }
   });
 
-  autoUpdater.on("download-progress", (progress) => {
+  updater.on("download-progress", (progress) => {
     const percent = Number.isFinite(progress.percent) ? Math.round(progress.percent) : null;
     setUpdaterState({
       state: "downloading",
@@ -570,7 +611,7 @@ function configureAutoUpdater() {
     });
   });
 
-  autoUpdater.on("update-downloaded", async (info) => {
+  updater.on("update-downloaded", async (info) => {
     const releaseName = getReleaseName(info) || updaterState.releaseName;
     setUpdaterState({
       state: "downloaded",
@@ -583,7 +624,7 @@ function configureAutoUpdater() {
     await promptToInstallUpdate();
   });
 
-  autoUpdater.on("error", async (error) => {
+  updater.on("error", async (error) => {
     const message = error && error.message ? error.message : "Unable to check for updates.";
     setUpdaterState({
       state: "error",
@@ -631,8 +672,29 @@ async function checkForUpdates(source = "manual") {
   }
   if (updaterCheckPromise) return updaterCheckPromise;
 
+  const updater = getAutoUpdater();
+  if (!updater) {
+    const message = "Auto-updates are unavailable in this runtime.";
+    setUpdaterState({
+      state: "unsupported",
+      message,
+      progress: null
+    });
+    if (source === "manual") {
+      await showUpdaterDialog({
+        type: "info",
+        buttons: ["OK"],
+        defaultId: 0,
+        title: "Updates Unavailable",
+        message: "Auto-updates are unavailable.",
+        detail: message
+      });
+    }
+    return getUpdaterState();
+  }
+
   updaterCheckOrigin = source;
-  updaterCheckPromise = autoUpdater
+  updaterCheckPromise = updater
     .checkForUpdates()
     .then(() => getUpdaterState())
     .catch((error) => {
@@ -3586,6 +3648,20 @@ app.whenReady().then(() => {
   setMacDockIcon();
   applyDnsOverHttpsSettings();
   restoreRecoveryState();
+  const extensionIntegration = getExtensionIntegration();
+  extensionManager = extensionManagerModule.createExtensionManager({
+    app,
+    dialog,
+    ElectronChromeExtensions: extensionIntegration.ElectronChromeExtensions,
+    chromeWebStore: extensionIntegration.chromeWebStore,
+    createTab: createExtensionTab,
+    selectTab: selectExtensionTab,
+    removeTab: removeExtensionTab,
+    createWindow: createExtensionWindow,
+    removeWindow: removeExtensionWindow,
+    assignTabDetails: assignExtensionTabDetails,
+    requestPermissions: requestExtensionPermissions
+  });
   adblockManager = adblock.createAdblockManager({
     userDataDir: app.getPath("userData")
   });
