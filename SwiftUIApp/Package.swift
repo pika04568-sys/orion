@@ -3,19 +3,19 @@
 import PackageDescription
 
 let package = Package(
-    name: "SwiftUIApp",
+    name: "Orion",
     platforms: [
         .macOS(.v14)
     ],
     products: [
         .executable(
-            name: "SwiftUIApp",
-            targets: ["SwiftUIApp"]
+            name: "Orion",
+            targets: ["Orion"]
         )
     ],
     targets: [
         .executableTarget(
-            name: "SwiftUIApp",
+            name: "Orion",
             path: "Sources/SwiftUIApp"
         )
     ]
