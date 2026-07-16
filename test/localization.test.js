@@ -64,3 +64,31 @@ test("privacy settings strings are localized for the settings panel and HTTPS-on
   assert.equal(localization.t("ja", "settings.antiFingerprinting"), "アンチフィンガープリンティング");
   assert.equal(localization.t("en", "privacy.httpsOnlyErrorTitle"), "Secure connection required");
 });
+
+test("RAM limiter settings and status strings are localized", () => {
+  assert.equal(localization.t("en", "settings.performanceTitle"), "Performance");
+  assert.equal(localization.t("fr", "settings.ramOff"), "Désactivée");
+  assert.equal(localization.t("de", "settings.ramUnavailable"), "Nutzung nicht verfügbar");
+  assert.equal(localization.t("ja", "settings.ramLimitLabel"), "RAM 上限");
+  assert.equal(
+    localization.t("en", "settings.ramAutomatic", { limit: "16" }),
+    "Automatic (16 GB)"
+  );
+  assert.equal(
+    localization.t("fr", "settings.ramAutomatic", { limit: "16" }),
+    "Automatique (16 Go)"
+  );
+  assert.equal(
+    localization.t("de", "settings.ramAutomaticUnavailable"),
+    "Automatisch (nicht verfügbar)"
+  );
+  assert.equal(localization.t("ja", "settings.ramAutomatic", { limit: "16" }), "自動（16 GB）");
+  assert.equal(
+    localization.t("en", "settings.ramUsageWithLimit", { used: "900", limit: "1" }),
+    "900 MB / 1 GB"
+  );
+  assert.match(localization.t("en", "settings.ramWarning"), /highest observed memory use/);
+  assert.match(localization.t("fr", "settings.ramWarning"), /mémoire observée/);
+  assert.match(localization.t("de", "settings.ramWarning"), /beobachteten Speichernutzung/);
+  assert.match(localization.t("ja", "settings.ramWarning"), /観測されたメモリ使用量/);
+});

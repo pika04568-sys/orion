@@ -2369,6 +2369,7 @@
         }
 
         #search-engine-select,
+        #ram-limit-select,
         .settings-input,
         .settings-color-wheel {
             border: 1px solid var(--border-color);
@@ -2381,13 +2382,53 @@
         }
 
         #search-engine-select:focus,
+        #ram-limit-select:focus,
         .settings-input:focus {
             border-color: var(--accent-color);
             box-shadow: 0 0 0 3px rgba(15, 107, 255, .12)
         }
 
-        #search-engine-select {
+        #search-engine-select,
+        #ram-limit-select {
             min-width: 180px
+        }
+
+        .memory-status-card {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            border: 1px solid var(--border-color);
+            border-radius: 14px;
+            padding: 14px;
+            background: rgba(15, 107, 255, .06)
+        }
+
+        .memory-status-card.over-limit {
+            border-color: rgba(220, 38, 38, .45);
+            background: rgba(220, 38, 38, .07)
+        }
+
+        .memory-status-main {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 14px;
+            font-size: 14px
+        }
+
+        .memory-status-main strong {
+            color: var(--text-primary)
+        }
+
+        .memory-status-detail,
+        .memory-warning {
+            color: var(--text-secondary);
+            font-size: 12px;
+            line-height: 1.5
+        }
+
+        .memory-warning {
+            margin: 0
         }
 
         .settings-actions {
@@ -3124,6 +3165,18 @@
                 max-width: none
             }
         }
+        #settings-sidebar:not(.open),
+        #adblock-sidebar:not(.open),
+        #downloads-sidebar:not(.open) {
+            content-visibility: hidden;
+            contain: layout paint style;
+        }
+
+        #settings-sidebar.open,
+        #adblock-sidebar.open,
+        #downloads-sidebar.open {
+            contain: layout paint style;
+        }
     </style>
 </head>
 
@@ -3396,6 +3449,27 @@
                         </div>
                         <input type="checkbox" id="dns-over-https-toggle">
                     </label>
+                </div>
+            </div>
+            <div class="settings-section" id="performance-settings">
+                <h3 data-i18n="settings.performanceTitle">Performance</h3>
+                <p class="settings-subtitle" data-i18n="settings.performanceSubtitle">Automatically cap Orion at half of this computer's RAM.</p>
+                <div class="settings-stack">
+                    <div class="settings-row">
+                        <div class="settings-label" data-i18n="settings.ramLimitLabel">RAM limit</div>
+                        <select id="ram-limit-select" aria-label="RAM limit" data-i18n-aria-label="settings.ramLimitLabel">
+                            <option value="off" data-i18n="settings.ramOff">Off</option>
+                            <option id="ram-limit-automatic-option" value="automatic">Automatic</option>
+                        </select>
+                    </div>
+                    <div class="memory-status-card">
+                        <div class="memory-status-main">
+                            <span data-i18n="settings.ramUsageLabel">Current usage</span>
+                            <strong id="memory-usage-status" aria-live="polite">Usage unavailable</strong>
+                        </div>
+                        <div id="memory-unloaded-status" class="memory-status-detail" aria-live="polite">0 tabs unloaded</div>
+                    </div>
+                    <p class="memory-warning" data-i18n="settings.ramWarning">When Orion is over the limit, the background tabs with the highest observed memory use reload when reopened. Scroll position, navigation history, form entries, and other unsaved page state may be lost. Active and audible tabs are protected.</p>
                 </div>
             </div>
             <div class="settings-section">

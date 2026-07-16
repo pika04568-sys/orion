@@ -88,3 +88,58 @@ test("HTTPS-only error page uses a data URL interstitial", () => {
   assert.match(page, /Secure%20connection%20required/);
   assert.match(page, /example\.com/);
 });
+
+test("legacy persistent incognito partitions exclude normal profiles", () => {
+  assert.deepEqual(
+    browserPrivacy.getLegacyPersistentIncognitoPartitionNames([
+      "profile-0",
+      "profile-9999",
+      "profile-10000",
+      "profile-10002",
+      "profile-not-a-number",
+      { name: "profile-10001" }
+    ]),
+    ["profile-10000", "profile-10001", "profile-10002"]
+  );
+});
+
+test("legacy persistent incognito cleanup clears storage and cache", async () => {
+  const calls = [];
+  const result = await browserPrivacy.clearLegacyPersistentIncognitoPartitions({
+    partitionNames: ["profile-0", "profile-10000", "profile-10001"],
+    getSession: (partition) => ({
+      clearStorageData: async () => calls.push([partition, "storage"]),
+      clearCache: async () => calls.push([partition, "cache"])
+    })
+  });
+
+  assert.deepEqual(result, {
+    cleared: ["profile-10000", "profile-10001"],
+    failed: [],
+    complete: true
+  });
+  assert.deepEqual(calls, [
+    ["persist:profile-10000", "storage"],
+    ["persist:profile-10000", "cache"],
+    ["persist:profile-10001", "storage"],
+    ["persist:profile-10001", "cache"]
+  ]);
+});
+
+test("legacy persistent incognito cleanup reports failures for retry", async () => {
+  const result = await browserPrivacy.clearLegacyPersistentIncognitoPartitions({
+    partitionNames: ["profile-10000", "profile-10001"],
+    getSession: (partition) => ({
+      clearStorageData: async () => {
+        if (partition.endsWith("10001")) throw new Error("locked");
+      },
+      clearCache: async () => {}
+    })
+  });
+
+  assert.deepEqual(result, {
+    cleared: ["profile-10000"],
+    failed: ["profile-10001"],
+    complete: false
+  });
+});

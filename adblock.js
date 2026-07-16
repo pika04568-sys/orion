@@ -1,5 +1,7 @@
 const fs = require("fs");
 const path = require("path");
+const { Worker } = require("node:worker_threads");
+const { createCoalescedAtomicWriter } = require("./async-store");
 
 const DEFAULT_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
@@ -244,7 +246,8 @@ function compilePattern(pattern) {
   try {
     return {
       hostAnchor,
-      regex: new RegExp(source, "i")
+      regex: new RegExp(source, "i"),
+      regexSource: source
     };
   } catch (_error) {
     return null;
@@ -258,7 +261,7 @@ function ruleTextLooksLikeNetworkRule(text) {
   return true;
 }
 
-function compileRule(line) {
+function compileRuleDescriptor(line) {
   const raw = line.trim();
   if (!ruleTextLooksLikeNetworkRule(raw)) return null;
 
@@ -279,31 +282,61 @@ function compileRule(line) {
   return {
     exception,
     hostKey,
+    regexSource: compiledPattern.regexSource,
+    requestTypes: options.requestTypes ? Array.from(options.requestTypes) : null,
+    thirdParty: options.thirdParty,
+    domainAllow: options.domainAllow,
+    domainDeny: options.domainDeny
+  };
+}
+
+function hydrateRuleDescriptor(descriptor) {
+  if (!descriptor || !descriptor.regexSource) return null;
+  const requestTypes = Array.isArray(descriptor.requestTypes)
+    ? new Set(descriptor.requestTypes)
+    : null;
+  const domainAllow = Array.isArray(descriptor.domainAllow) ? descriptor.domainAllow : [];
+  const domainDeny = Array.isArray(descriptor.domainDeny) ? descriptor.domainDeny : [];
+  const hostKey = descriptor.hostKey || "";
+  let regex;
+  try {
+    regex = new RegExp(descriptor.regexSource, "i");
+  } catch (_error) {
+    return null;
+  }
+
+  return {
+    exception: !!descriptor.exception,
+    hostKey,
     matcher: (context) => {
       if (!context || !context.url) return false;
-      if (options.requestTypes && (!context.requestType || !options.requestTypes.has(context.requestType))) {
+      if (requestTypes && (!context.requestType || !requestTypes.has(context.requestType))) {
         return false;
       }
-      if (options.thirdParty !== null) {
+      if (descriptor.thirdParty !== null) {
         if (!context.pageHost) return false;
         const sameSite = isSameSiteHost(context.requestHost, context.pageHost);
-        if (options.thirdParty && sameSite) return false;
-        if (options.thirdParty === false && !sameSite) return false;
+        if (descriptor.thirdParty && sameSite) return false;
+        if (descriptor.thirdParty === false && !sameSite) return false;
       }
-      if (options.domainAllow.length || options.domainDeny.length) {
+      if (domainAllow.length || domainDeny.length) {
         if (!context.pageHost) return false;
         const pageHost = context.pageHost;
-        const allowMatches = options.domainAllow.length === 0
-          || options.domainAllow.some((domain) => domain && (pageHost === domain || pageHost.endsWith(`.${domain}`)));
-        const denyMatches = options.domainDeny.some((domain) => domain && (pageHost === domain || pageHost.endsWith(`.${domain}`)));
+        const allowMatches = domainAllow.length === 0
+          || domainAllow.some((domain) => domain && (pageHost === domain || pageHost.endsWith(`.${domain}`)));
+        const denyMatches = domainDeny.some((domain) => domain && (pageHost === domain || pageHost.endsWith(`.${domain}`)));
         if (!allowMatches || denyMatches) return false;
       }
       if (hostKey && !context.requestHostCandidates.includes(hostKey)) {
         return false;
       }
-      return compiledPattern.regex.test(context.url);
+      return regex.test(context.url);
     }
   };
+}
+
+function compileRule(line) {
+  return hydrateRuleDescriptor(compileRuleDescriptor(line));
 }
 
 function parseFilterList(text = "") {
@@ -335,6 +368,40 @@ function parseFilterList(text = "") {
   return { allowRules, blockRules, counts };
 }
 
+function parseFilterListDescriptors(text = "") {
+  const allowRules = [];
+  const blockRules = [];
+  const counts = { allow: 0, block: 0, ignored: 0 };
+
+  String(text).split(/\r?\n/).forEach((line) => {
+    const descriptor = compileRuleDescriptor(line);
+    if (!descriptor) {
+      counts.ignored += line.trim() ? 1 : 0;
+      return;
+    }
+    if (descriptor.exception) {
+      allowRules.push(descriptor);
+      counts.allow += 1;
+    } else {
+      blockRules.push(descriptor);
+      counts.block += 1;
+    }
+  });
+
+  return { allowRules, blockRules, counts };
+}
+
+function compileFilterSnapshot(listEntries = [], customRulesText = "") {
+  return {
+    lists: listEntries.map((entry) => ({
+      id: entry && entry.id,
+      enabled: !!(entry && entry.enabled),
+      parsed: parseFilterListDescriptors(entry && entry.text ? entry.text : "")
+    })),
+    custom: parseFilterListDescriptors(customRulesText || "")
+  };
+}
+
 class FilterEngine {
   constructor() {
     this.allowBuckets = new Map();
@@ -354,11 +421,15 @@ class FilterEngine {
     }
   }
 
-  rebuild(listEntries, customRulesText) {
+  reset() {
     this.allowBuckets = new Map();
     this.blockBuckets = new Map();
     this.allowGeneric = [];
     this.blockGeneric = [];
+  }
+
+  rebuild(listEntries, customRulesText) {
+    this.reset();
 
     for (const entry of listEntries) {
       if (!entry || !entry.enabled || !entry.text) continue;
@@ -370,6 +441,21 @@ class FilterEngine {
     const customParsed = parseFilterList(customRulesText || "");
     this.addRules(customParsed.allowRules, this.allowBuckets, this.allowGeneric);
     this.addRules(customParsed.blockRules, this.blockBuckets, this.blockGeneric);
+  }
+
+  rebuildFromSnapshot(snapshot) {
+    this.reset();
+    const addParsed = (parsed) => {
+      if (!parsed) return;
+      const allowRules = (parsed.allowRules || []).map(hydrateRuleDescriptor).filter(Boolean);
+      const blockRules = (parsed.blockRules || []).map(hydrateRuleDescriptor).filter(Boolean);
+      this.addRules(allowRules, this.allowBuckets, this.allowGeneric);
+      this.addRules(blockRules, this.blockBuckets, this.blockGeneric);
+    };
+    for (const list of snapshot && Array.isArray(snapshot.lists) ? snapshot.lists : []) {
+      if (list && list.enabled) addParsed(list.parsed);
+    }
+    addParsed(snapshot && snapshot.custom);
   }
 
   shouldBlockRequest(details) {
@@ -480,7 +566,13 @@ function createAdblockManager(options = {}) {
   }
 
   const compiledLists = new Map();
-  const engine = new FilterEngine();
+  const stateWriter = createCoalescedAtomicWriter({
+    filePath: statePath,
+    delayMs: 100,
+    serialize: (value) => JSON.stringify(value, null, 2)
+  });
+  const cacheWriters = new Map();
+  let engine = new FilterEngine();
   let cacheHydrated = false;
   let blockingReady = false;
   let syncState = {
@@ -496,27 +588,84 @@ function createAdblockManager(options = {}) {
   }
 
   function persistState() {
-    safeWriteJson(statePath, state);
+    stateWriter.schedule(state);
   }
 
-  function ensureCompiledLists() {
-    const listEntries = listDefinitions.map((def) => {
+  function getCacheWriter(listId) {
+    if (!cacheWriters.has(listId)) {
+      cacheWriters.set(listId, createCoalescedAtomicWriter({
+        filePath: getListCachePath(listId),
+        delayMs: 50,
+        serialize: (value) => String(value || "")
+      }));
+    }
+    return cacheWriters.get(listId);
+  }
+
+  async function flushPersistence() {
+    await Promise.all([
+      stateWriter.flush(),
+      ...Array.from(cacheWriters.values(), (writer) => writer.flush())
+    ]);
+  }
+
+  function getCompiledListEntries(options = {}) {
+    return listDefinitions.map((def) => {
       const meta = state.lists[def.id] || {};
-      const cached = compiledLists.get(def.id) || {
-        text: "",
-        lastUpdatedAt: null,
-        ruleCount: 0
-      };
+      const cached = compiledLists.get(def.id) || {};
       return {
         id: def.id,
         enabled: meta.enabled !== false,
-        text: cached.text || "",
-        lastUpdatedAt: meta.lastUpdatedAt || cached.lastUpdatedAt || null,
-        ruleCount: meta.ruleCount || cached.ruleCount || 0
+        filePath: options.fileBacked ? getListCachePath(def.id) : undefined,
+        text: options.fileBacked ? undefined : (cached.text || "")
       };
     });
+  }
+
+  function ensureCompiledLists() {
+    const listEntries = getCompiledListEntries();
     engine.rebuild(listEntries, state.customRules);
     blockingReady = true;
+  }
+
+  function applyCompiledSnapshot(snapshot) {
+    const nextEngine = new FilterEngine();
+    nextEngine.rebuildFromSnapshot(snapshot);
+    for (const list of snapshot && Array.isArray(snapshot.lists) ? snapshot.lists : []) {
+      if (!list || !state.lists[list.id] || !list.parsed || !list.parsed.counts) continue;
+      state.lists[list.id].ruleCount = list.parsed.counts.block + list.parsed.counts.allow;
+    }
+    engine = nextEngine;
+    blockingReady = true;
+    persistState();
+    return getState();
+  }
+
+  function compileSnapshotInWorker() {
+    if (!options.workerPath) {
+      return Promise.resolve(compileFilterSnapshot(getCompiledListEntries(), state.customRules));
+    }
+    return new Promise((resolve, reject) => {
+      const worker = new Worker(options.workerPath);
+      const requestId = `${Date.now()}-${Math.random()}`;
+      const cleanup = () => void worker.terminate().catch(() => {});
+      worker.once("error", (error) => {
+        cleanup();
+        reject(error);
+      });
+      worker.on("message", (message) => {
+        if (!message || message.id !== requestId) return;
+        cleanup();
+        if (message.ok) resolve(message.snapshot);
+        else reject(new Error(message.error || "Unable to compile adblock filters"));
+      });
+      worker.postMessage({
+        type: "compile",
+        id: requestId,
+        listEntries: getCompiledListEntries({ fileBacked: true }),
+        customRules: state.customRules
+      });
+    });
   }
 
   function loadCachedList(listId) {
@@ -548,6 +697,28 @@ function createAdblockManager(options = {}) {
     cacheHydrated = true;
   }
 
+  async function hydrateFromCacheAsync() {
+    if (cacheHydrated) return;
+    await fs.promises.mkdir(cacheDir, { recursive: true });
+    if (!options.workerPath) {
+      await Promise.all(listDefinitions.map(async (def) => {
+        if (compiledLists.has(def.id)) return;
+        let text = "";
+        try {
+          text = await fs.promises.readFile(getListCachePath(def.id), "utf8");
+        } catch (error) {
+          if (!error || error.code !== "ENOENT") throw error;
+        }
+        compiledLists.set(def.id, {
+          text,
+          lastUpdatedAt: state.lists[def.id].lastUpdatedAt,
+          ruleCount: state.lists[def.id].ruleCount
+        });
+      }));
+    }
+    cacheHydrated = true;
+  }
+
   function ensureBlockingReady() {
     if (blockingReady) return getState();
     hydrateFromCache();
@@ -555,10 +726,23 @@ function createAdblockManager(options = {}) {
     return getState();
   }
 
+  async function ensureBlockingReadyAsync() {
+    if (blockingReady) return getState();
+    await hydrateFromCacheAsync();
+    const snapshot = await compileSnapshotInWorker();
+    return applyCompiledSnapshot(snapshot);
+  }
+
   function rebuildBlockingEngine() {
     hydrateFromCache();
     ensureCompiledLists();
     return getState();
+  }
+
+  async function rebuildBlockingEngineAsync() {
+    await hydrateFromCacheAsync();
+    const snapshot = await compileSnapshotInWorker();
+    return applyCompiledSnapshot(snapshot);
   }
 
   async function fetchText(url) {
@@ -583,18 +767,22 @@ function createAdblockManager(options = {}) {
     }
   }
 
-  function updateCompiledList(def, text) {
-    const parsed = parseFilterList(text);
+  async function updateCompiledList(def, text) {
+    const parsed = options.workerPath ? null : parseFilterList(text);
+    const ruleCount = parsed
+      ? parsed.counts.block + parsed.counts.allow
+      : (state.lists[def.id].ruleCount || 0);
     compiledLists.set(def.id, {
       text,
       lastUpdatedAt: Date.now(),
-      ruleCount: parsed.counts.block + parsed.counts.allow
+      ruleCount
     });
     state.lists[def.id].lastUpdatedAt = Date.now();
     state.lists[def.id].lastError = null;
-    state.lists[def.id].ruleCount = parsed.counts.block + parsed.counts.allow;
-    fs.mkdirSync(cacheDir, { recursive: true });
-    fs.writeFileSync(getListCachePath(def.id), text);
+    state.lists[def.id].ruleCount = ruleCount;
+    const writer = getCacheWriter(def.id);
+    writer.schedule(text);
+    await writer.flush();
   }
 
   function updateSyncState(patch) {
@@ -604,7 +792,7 @@ function createAdblockManager(options = {}) {
 
   async function refreshList(def) {
     const text = await fetchText(def.url);
-    updateCompiledList(def, text);
+    await updateCompiledList(def, text);
   }
 
   async function refreshBuiltInLists(options = {}) {
@@ -636,7 +824,7 @@ function createAdblockManager(options = {}) {
 
     refreshPromise = (async () => {
       const failures = [];
-      for (const def of staleLists) {
+      await Promise.all(staleLists.map(async (def) => {
         try {
           await refreshList(def);
         } catch (error) {
@@ -645,9 +833,10 @@ function createAdblockManager(options = {}) {
           failures.push(`${def.name}: ${message}`);
           logger.warn ? logger.warn(`Failed to refresh adblock list ${def.id}: ${message}`) : null;
         }
-      }
+      }));
       persistState();
-      ensureCompiledLists();
+      if (options.workerPath) await rebuildBlockingEngineAsync();
+      else ensureCompiledLists();
       const summary = {
         status: failures.length ? "degraded" : "ready",
         message: failures.length
@@ -657,6 +846,8 @@ function createAdblockManager(options = {}) {
         lastError: failures.length ? failures.join("\n") : null
       };
       updateSyncState(summary);
+      persistState();
+      await flushPersistence();
       return getState();
     })().finally(() => {
       refreshPromise = null;
@@ -702,15 +893,33 @@ function createAdblockManager(options = {}) {
     return getState();
   }
 
+  async function recompileAsync() {
+    if (blockingReady) await rebuildBlockingEngineAsync();
+    persistState();
+    await flushPersistence();
+    return getState();
+  }
+
   function updateCustomRules(text) {
     state.customRules = String(text || "");
     return recompile();
+  }
+
+  async function updateCustomRulesAsync(text) {
+    state.customRules = String(text || "");
+    return recompileAsync();
   }
 
   function setListEnabled(listId, enabled) {
     if (!state.lists[listId]) return getState();
     state.lists[listId].enabled = !!enabled;
     return recompile();
+  }
+
+  async function setListEnabledAsync(listId, enabled) {
+    if (!state.lists[listId]) return getState();
+    state.lists[listId].enabled = !!enabled;
+    return recompileAsync();
   }
 
   function resetToDefaults() {
@@ -721,8 +930,15 @@ function createAdblockManager(options = {}) {
     return recompile();
   }
 
+  async function resetToDefaultsAsync() {
+    for (const def of listDefinitions) {
+      if (state.lists[def.id]) state.lists[def.id].enabled = true;
+    }
+    return recompileAsync();
+  }
+
   function shouldBlockRequest(details) {
-    ensureBlockingReady();
+    if (!blockingReady) return false;
     return engine.shouldBlockRequest(details);
   }
 
@@ -736,20 +952,36 @@ function createAdblockManager(options = {}) {
     return getState();
   }
 
+  async function initializeAsync(initOptions = {}) {
+    cacheHydrated = false;
+    blockingReady = false;
+    persistState();
+    if (!initOptions || initOptions.lazy !== true) await ensureBlockingReadyAsync();
+    return getState();
+  }
+
   return {
     initialize,
+    initializeAsync,
     getState,
     ensureBlockingReady,
+    ensureBlockingReadyAsync,
+    flushPersistence,
     resetToDefaults,
+    resetToDefaultsAsync,
     refreshBuiltInLists,
     setListEnabled,
+    setListEnabledAsync,
     shouldBlockRequest,
-    updateCustomRules
+    updateCustomRules,
+    updateCustomRulesAsync
   };
 }
 
 module.exports = {
   BUILTIN_LISTS,
+  compileFilterSnapshot,
   createAdblockManager,
-  parseFilterList
+  parseFilterList,
+  parseFilterListDescriptors
 };

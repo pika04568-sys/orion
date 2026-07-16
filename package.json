@@ -3,17 +3,20 @@
   "productName": "Orion",
   "description": "My Electron application description",
   "keywords": [],
-  "main": "./main.js",
+  "main": "./.build/main.cjs",
   "version": "1.1.0",
   "author": "kenokayasu",
   "license": "GPL-3.0",
   "scripts": {
-    "start": "env -u ELECTRON_RUN_AS_NODE electron .",
-    "test": "node --test",
-    "pack": "electron-builder --dir",
-    "dist": "electron-builder",
-    "dist:mac": "electron-builder --mac",
-    "dist:win": "electron-builder --win --x64 --arm64"
+    "build:runtime": "node scripts/build-runtime.js",
+    "start": "npm run build:runtime && node scripts/run-electron.js .",
+    "test": "node --test --test-concurrency=1 test/*.test.js",
+    "test:electron": "npm run build:runtime && node --test --test-concurrency=1 test/electron/*.test.js",
+    "perf": "npm run build:runtime && node scripts/perf.js",
+    "pack": "npm run build:runtime && electron-builder --dir",
+    "dist": "npm run build:runtime && electron-builder",
+    "dist:mac": "npm run build:runtime && electron-builder --mac",
+    "dist:win": "npm run build:runtime && electron-builder --win --x64 --arm64"
   },
   "build": {
     "appId": "com.orion.browser",
@@ -92,45 +95,34 @@
       }
     ],
     "compression": "maximum",
+    "asar": {
+      "ordering": "scripts/asar-ordering.txt"
+    },
     "files": [
-      "adblock.js",
-      "app-utils.js",
-      "browser-privacy.js",
-      "browser-security.js",
-      "extensions.js",
-      "extension-manager.js",
-      "localization.js",
-      "ai-summary.js",
-      "main-tab-state.js",
-      "main.js",
-      "offline.js",
-      "renderer.js",
-      "preload.js",
-      "index.html",
-      "newtab.html",
-      "newtab.js",
-      "offline.html",
-      "extensions.html",
+      ".build/**",
       "package.json",
-      "offline-arcade.js",
-      "offline-game-helpers.js",
-      "reader-session.js",
-      "reader-utils.js",
-      "tab-groups.js",
-      "reader.html",
-      "reader.js",
       "node_modules/electron-chrome-extensions/**",
-      "node_modules/electron-chrome-web-store/**"
+      "node_modules/electron-chrome-web-store/**",
+      "node_modules/electron-updater/**"
     ]
   },
   "devDependencies": {
-    "electron": "39.1.2",
-    "electron-builder": "^26.4.0"
+    "electron": "39.8.10",
+    "electron-builder": "^26.15.3",
+    "esbuild": "^0.25.6",
+    "playwright-core": "^1.55.0"
   },
   "dependencies": {
     "electron-chrome-extensions": "4.9.0",
     "electron-chrome-web-store": "0.13.0",
-    "electron-updater": "^6.8.3",
-    "update-electron-app": "^3.1.2"
+    "electron-updater": "^6.8.9"
+  },
+  "overrides": {
+    "js-yaml": "4.3.0"
+  },
+  "allowScripts": {
+    "electron@39.8.10": true,
+    "esbuild@0.25.12": true,
+    "electron-winstaller@5.4.0": true
   }
 }

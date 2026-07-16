@@ -102,6 +102,7 @@ test("custom rules persist and survive restart from the cached state", async () 
     "||custom.example.com^",
     "@@||custom.example.com/allow"
   ].join("\n"));
+  await manager.flushPersistence();
 
   assert.equal(
     manager.shouldBlockRequest({
@@ -128,6 +129,15 @@ test("custom rules persist and survive restart from the cached state", async () 
 
   const restartedState = restarted.initialize({ lazy: true });
   assert.equal(restartedState.blockingReady, false);
+  assert.equal(
+    restarted.shouldBlockRequest({
+      url: "https://custom.example.com/ad.js",
+      resourceType: "script",
+      referrer: "https://news.example.org/"
+    }),
+    false
+  );
+  restarted.ensureBlockingReady();
   assert.equal(
     restarted.shouldBlockRequest({
       url: "https://custom.example.com/ad.js",

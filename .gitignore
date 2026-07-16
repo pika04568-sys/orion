@@ -378,3 +378,6 @@ SwiftUIApp/dist/
 .qwen/settings.json
 .qwen/settings.json.orig
 /.qwen
+/.build/
+/perf-results/
+/test-results/

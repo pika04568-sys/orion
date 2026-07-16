@@ -3,6 +3,25 @@ const { contextBridge, ipcRenderer } = require("electron");
 const ORION_PROTOCOL = "orion:";
 const ORION_HOST = "app";
 
+function normalizeFilePath(value) {
+  if (!value || typeof value !== "string") return "";
+  let normalized = value
+    .replace(/\\/g, "/")
+    .replace(/\/+/g, "/")
+    .replace(/\/$/, "");
+  if (/^\/[A-Za-z]:/.test(normalized)) normalized = normalized.slice(1);
+  return normalized;
+}
+
+function getTrustedPreloadRoot() {
+  if (typeof __dirname === "string" && __dirname) return __dirname;
+  if (typeof process !== "object" || !Array.isArray(process.argv)) return "";
+  const appPathArgument = process.argv.find((argument) => (
+    typeof argument === "string" && argument.startsWith("--app-path=")
+  ));
+  return appPathArgument ? appPathArgument.slice("--app-path=".length) : "";
+}
+
 const APP_INVOKE_CHANNELS = Object.freeze([
   "add-new-profile",
   "check-for-updates",
@@ -17,21 +36,21 @@ const APP_INVOKE_CHANNELS = Object.freeze([
   "delete-history-item",
   "assign-tab-to-group",
   "find-in-page",
-  "get-app-version",
   "get-language-settings",
   "get-reader-content",
   "summarize-active-page",
-  "get-updater-state",
-  "get-window-bootstrap-state",
+  "bootstrap-window",
   "go-back",
   "go-forward",
   "navigate-to",
   "open-incognito-window",
+  "preconnect-origin",
   "reload-page",
   "reopen-closed-tab",
   "set-language",
   "get-adblock-state",
   "get-browser-settings",
+  "get-memory-status",
   "refresh-adblock-lists",
   "reset-adblock-defaults",
   "set-adblock-list-enabled",
@@ -48,7 +67,6 @@ const APP_INVOKE_CHANNELS = Object.freeze([
 const APP_SEND_CHANNELS = Object.freeze([
   "apply-browser-color",
   "fetch-and-show-history",
-  "renderer-ready",
   "rename-profile",
   "set-chrome-metrics",
   "toggle-browser-view",
@@ -59,12 +77,14 @@ const APP_ON_CHANNELS = Object.freeze([
   "active-tab-changed",
   "download-started",
   "download-updated",
+  "extensions-ready",
   "find-result",
   "history-data-received",
   "history-loaded",
   "history-updated",
   "keyboard-shortcut",
   "browser-settings-changed",
+  "memory-status-changed",
   "profile-changed",
   "profile-list-updated",
   "reader-mode-changed",
@@ -83,8 +103,28 @@ function getAppPageFileName(url) {
     const parsed = new URL(url);
     let file = null;
     if (parsed.protocol === ORION_PROTOCOL && parsed.hostname === ORION_HOST) {
-      file = (parsed.pathname || "").split("/").filter(Boolean).pop();
+      const resourcePrefix = `${ORION_PROTOCOL}//${ORION_HOST}/`;
+      if (!url.startsWith(resourcePrefix)) return null;
+      const resourceWithSuffix = url.slice(resourcePrefix.length);
+      const suffixIndex = resourceWithSuffix.search(/[?#]/);
+      const resource = suffixIndex === -1
+        ? resourceWithSuffix
+        : resourceWithSuffix.slice(0, suffixIndex);
+      if (
+        !resource ||
+        resource.includes("/") ||
+        resource.includes("\\") ||
+        /%[0-9a-f]{2}/i.test(resource) ||
+        parsed.pathname !== `/${resource}`
+      ) {
+        return null;
+      }
+      file = resource;
     } else if (parsed.protocol === "file:") {
+      const rawPath = url.split(/[?#]/, 1)[0];
+      if (/%(?:2f|5c)/i.test(rawPath) || /(?:^|[\\/])\.{1,2}(?:[\\/]|$)/.test(rawPath)) {
+        return null;
+      }
       // Handle Windows file URLs which may have format like /C:/path/to/file.html
       let pathname = parsed.pathname || "";
       // Decode URI component first
@@ -97,6 +137,14 @@ function getAppPageFileName(url) {
       // Normalize backslashes to forward slashes
       pathname = pathname.replace(/\\/g, "/");
       file = pathname.split("/").filter(Boolean).pop();
+      const preloadRoot = normalizeFilePath(getTrustedPreloadRoot());
+      const normalizedFilePath = normalizeFilePath(pathname);
+      const expectedFilePath = preloadRoot && file ? `${preloadRoot}/${file}` : "";
+      const windowsPath = /^[A-Za-z]:\//.test(preloadRoot);
+      const trustedFilePath = windowsPath
+        ? normalizedFilePath.toLowerCase() === expectedFilePath.toLowerCase()
+        : normalizedFilePath === expectedFilePath;
+      if (!trustedFilePath) return null;
     } else {
       return null;
     }
@@ -139,6 +187,7 @@ function createInternalBridge(page) {
   const newtabBridge = {
     getLanguageSettings: () => ipcRenderer.invoke("get-language-settings"),
     getBrowserSettings: () => ipcRenderer.invoke("get-browser-settings"),
+    preconnectOrigin: (value) => ipcRenderer.invoke("preconnect-origin", value),
     navigateTo: (value) => {
       // Validate URL to prevent javascript: URLs
       if (typeof value === "string" && value.toLowerCase().trim().startsWith("javascript:")) {
@@ -200,8 +249,8 @@ function injectBrowserActionControls() {
 const currentPage = getAppPageFileName(window.location.href);
 
 if (currentPage === "index.html") {
-  injectBrowserActionControls();
   contextBridge.exposeInMainWorld("electron", createIndexBridge());
+  ipcRenderer.once("extensions-ready", injectBrowserActionControls);
 } else if (currentPage === "newtab.html" || currentPage === "offline.html" || currentPage === "extensions.html" || currentPage === "reader.html") {
   contextBridge.exposeInMainWorld("orionPage", createInternalBridge(currentPage));
 }

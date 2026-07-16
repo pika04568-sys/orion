@@ -1,0 +1,13 @@
+.build/main.cjs
+.build/preload.cjs
+.build/public/index.html
+.build/public/localization.js
+.build/public/app-utils.js
+.build/public/renderer.js
+.build/public/newtab.html
+.build/public/newtab.js
+.build/adblock-worker.cjs
+package.json
+node_modules/electron-chrome-extensions/
+node_modules/electron-chrome-web-store/
+node_modules/electron-updater/

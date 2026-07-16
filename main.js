@@ -15,6 +15,7 @@ const {
 const path = require("path");
 const fs = require("fs");
 const os = require("os");
+const { monitorEventLoopDelay, performance } = require("node:perf_hooks");
 const { URL: NodeURL } = require("url");
 const browserPrivacy = require("./browser-privacy");
 const browserSecurity = require("./browser-security");
@@ -28,6 +29,21 @@ const readerUtils = require("./reader-utils");
 const readerSession = require("./reader-session");
 const aiSummary = require("./ai-summary");
 const extensionManagerModule = require("./extension-manager");
+const memoryManagerModule = require("./memory-manager");
+const { createCoalescedAtomicWriter } = require("./async-store");
+const { createProtocolAssetHandler } = require("./protocol-assets");
+const {
+  createIntentPreconnector,
+  getInitialMaterializedTabId
+} = require("./startup-performance");
+const AUTOMATIC_RAM_LIMIT_MB = memoryManagerModule.calculateAutomaticRamLimitMb(os.totalmem());
+const APP_RESOURCE_ROOT = path.join(__dirname, "public");
+const PRELOAD_PATH = path.join(__dirname, "preload.cjs");
+const ADBLOCK_WORKER_PATH = path.join(__dirname, "adblock-worker.cjs");
+const DISABLE_BACKGROUND_NETWORK = process.env.ORION_DISABLE_BACKGROUND_NETWORK === "1";
+if (process.env.ORION_USER_DATA_DIR) app.setPath("userData", process.env.ORION_USER_DATA_DIR);
+const startupEventLoopDelay = monitorEventLoopDelay({ resolution: 10 });
+const startupMilestones = { mainStartedMs: performance.now() };
 
 const INTERNAL_PAGES = new Map([
   ["chrome://newtab", "newtab.html"],
@@ -38,7 +54,20 @@ const INTERNAL_PAGES = new Map([
 ]);
 const TRUSTED_PAGE_FILES = new Set(["index.html", "newtab.html", "offline.html", "extensions.html", "reader.html"]);
 const INTERNAL_PAGES_FILE_SET = new Set(["newtab.html", "offline.html", "extensions.html", "reader.html"]);
+const PROTOCOL_ASSET_FILES = new Set([
+  ...TRUSTED_PAGE_FILES,
+  "app-utils.js",
+  "extensions.js",
+  "localization.js",
+  "newtab.js",
+  "offline-game-helpers.js",
+  "offline.js",
+  "reader.js",
+  "renderer.js"
+]);
 const BROWSER_SETTINGS_CHANGED_CHANNEL = "browser-settings-changed";
+const MEMORY_STATUS_CHANNEL = "memory-status-changed";
+const LEGACY_INCOGNITO_PARTITION_MIGRATION = "legacyPersistentIncognitoPartitionsCleared";
 const MIME_TYPES = Object.freeze({
   ".html": "text/html",
   ".ico": "image/x-icon",
@@ -73,6 +102,9 @@ let pTabs = { 0: [] };
 let pGroups = { 0: [] };
 let pNames = { 0: localization.getProfileName(localization.DEFAULT_LOCALE, 0) };
 let activeTabIds = {};
+let tabActivitySequence = 0;
+const tabActivitySequences = new Map();
+const tabMemoryHistory = memoryManagerModule.createTabMemoryHistory();
 const INCOGNITO_PROFILE_BASE = 10000;
 let nextIncognitoProfileId = INCOGNITO_PROFILE_BASE;
 let defSearch = "chrome://newtab";
@@ -81,10 +113,22 @@ const hPath = path.join(app.getPath("userData"), "browser_history.json");
 const sPath = path.join(app.getPath("userData"), "browser_settings.json");
 const recoveryPath = path.join(app.getPath("userData"), "browser_session_recovery.json");
 
-let bHist = loadH();
-let bSett = loadS();
+let bHist = { visits: [], lastCleanup: Date.now() };
+let bSett = loadStartupDnsSettings();
 let intentionalQuit = false;
 let recoverySaveTimer = null;
+let startupDataPromise = null;
+let quitFlushComplete = false;
+let quitFlushPromise = null;
+let memoryController = null;
+let memoryStatus = {
+  supported: true,
+  enabled: false,
+  usedMb: 0,
+  limitMb: 0,
+  overLimit: false,
+  unloadedTabCount: 0
+};
 
 applyStartupDnsOverHttpsSettings();
 
@@ -106,6 +150,7 @@ if (protocol && typeof protocol.registerSchemesAsPrivileged === "function") {
       scheme: appUtils.ORION_SCHEME,
       privileges: {
         bypassCSP: false,
+        codeCache: true,
         corsEnabled: true,
         secure: true,
         standard: true,
@@ -132,6 +177,8 @@ let installPromptPromise = null;
 let installingUpdate = false;
 let autoUpdater = null;
 let extensionManager = null;
+let extensionRuntimePromise = null;
+let adblockRuntimePromise = null;
 let ElectronChromeExtensions = null;
 let chromeWebStore = null;
 let deferredStartup = appUtils.createDeferredStartupController({
@@ -140,7 +187,12 @@ let deferredStartup = appUtils.createDeferredStartupController({
 let scheduledExtensionRestoreProfiles = new Set();
 let restoredExtensionProfiles = new Set();
 let startupDeferredTimers = new Set();
+const prewarmedNewTabViews = new Map();
 const extensionTabRemovalNotifications = new WeakSet();
+const intentPreconnector = createIntentPreconnector({ delayMs: 200 });
+const historyWriter = createCoalescedAtomicWriter({ filePath: hPath, delayMs: 150 });
+const settingsWriter = createCoalescedAtomicWriter({ filePath: sPath, delayMs: 100 });
+const recoveryWriter = createCoalescedAtomicWriter({ filePath: recoveryPath, delayMs: 250 });
 
 function getExtensionIntegration() {
   if (!ElectronChromeExtensions) {
@@ -160,6 +212,64 @@ function getExtensionIntegration() {
     }
   }
   return { ElectronChromeExtensions, chromeWebStore };
+}
+
+async function ensureExtensionRuntime(win = null) {
+  if (!extensionRuntimePromise) {
+    extensionRuntimePromise = Promise.resolve().then(() => {
+      const extensionIntegration = getExtensionIntegration();
+      extensionManager = extensionManagerModule.createExtensionManager({
+        app,
+        dialog,
+        ElectronChromeExtensions: extensionIntegration.ElectronChromeExtensions,
+        chromeWebStore: extensionIntegration.chromeWebStore,
+        createTab: createExtensionTab,
+        selectTab: selectExtensionTab,
+        removeTab: removeExtensionTab,
+        createWindow: createExtensionWindow,
+        removeWindow: removeExtensionWindow,
+        assignTabDetails: assignExtensionTabDetails,
+        requestPermissions: requestExtensionPermissions
+      });
+      return extensionManager;
+    }).catch((error) => {
+      extensionRuntimePromise = null;
+      throw error;
+    });
+  }
+
+  const manager = await extensionRuntimePromise;
+  if (win && !win.isDestroyed() && !win.incognitoWindow) {
+    const sess = ensureSessionSecurity(getPartitionForProfile(win.profileIndex, false), win.profileIndex, false);
+    const profile = manager.ensureProfile(win.profileIndex, sess, { incognito: false });
+    Object.values(views).forEach((view) => {
+      if (view && view.profileIndex === win.profileIndex && view.webContents && !view.webContents.isDestroyed()) {
+        manager.addTab(win.profileIndex, view.webContents, win);
+      }
+    });
+    if (profile && profile.webStoreReady) await profile.webStoreReady;
+    if (!win.isDestroyed()) win.webContents.send("extensions-ready");
+  }
+  return manager;
+}
+
+async function ensureAdblockRuntime(options = {}) {
+  if (!adblockRuntimePromise) {
+    adblockRuntimePromise = Promise.resolve().then(async () => {
+      adblockManager = adblock.createAdblockManager({
+        userDataDir: app.getPath("userData"),
+        workerPath: ADBLOCK_WORKER_PATH
+      });
+      await adblockManager.initializeAsync({ lazy: true });
+      return adblockManager;
+    }).catch((error) => {
+      adblockRuntimePromise = null;
+      throw error;
+    });
+  }
+  const manager = await adblockRuntimePromise;
+  if (options.blockingReady) await manager.ensureBlockingReadyAsync();
+  return manager;
 }
 
 function getAutoUpdater() {
@@ -207,8 +317,8 @@ function noteHttpNavigation(url) {
 }
 
 function ensureAdblockReadyForSession() {
-  if (!adblockManager) return null;
-  return adblockManager.ensureBlockingReady();
+  void ensureAdblockRuntime({ blockingReady: true }).catch(() => {});
+  return adblockManager ? adblockManager.getState() : null;
 }
 
 function hasActiveAdblockRules(state) {
@@ -218,27 +328,23 @@ function hasActiveAdblockRules(state) {
     && state.lists.some((list) => list && list.enabled !== false && Number(list.ruleCount) > 0);
 }
 
-async function prepareAdblockForNavigation() {
-  const state = ensureAdblockReadyForSession();
-  if (!adblockManager || hasActiveAdblockRules(state)) return state;
-  try {
-    return await adblockManager.refreshBuiltInLists({ force: true, reason: "navigation" });
-  } catch (_error) {
-    return adblockManager.getState();
-  }
-}
-
 function scheduleAdblockWarmup() {
   runOnFirstHttpNavigation(() => {
     ensureAdblockReadyForSession();
   });
   runAfterFirstWindowReady(() => {
-    ensureAdblockReadyForSession();
-    void adblockManager.refreshBuiltInLists({ reason: "startup" });
+    void ensureAdblockRuntime().then(async (manager) => {
+      const refreshPromise = DISABLE_BACKGROUND_NETWORK
+        ? Promise.resolve(manager.getState())
+        : manager.refreshBuiltInLists({ reason: "startup" });
+      await manager.ensureBlockingReadyAsync();
+      await refreshPromise;
+    }).catch(() => {});
   }, STARTUP_DEFERRED_ADBLOCK_DELAY_MS);
 }
 
 function scheduleExtensionRestoreForWindow(win) {
+  if (DISABLE_BACKGROUND_NETWORK) return;
   if (!win || win.isDestroyed() || win.incognitoWindow) return;
   const profileIndex = win.profileIndex;
   if (restoredExtensionProfiles.has(profileIndex) || scheduledExtensionRestoreProfiles.has(profileIndex)) return;
@@ -251,12 +357,17 @@ function scheduleExtensionRestoreForWindow(win) {
     }
     scheduledExtensionRestoreProfiles.delete(profileIndex);
     restoredExtensionProfiles.add(profileIndex);
-    const partition = getPartitionForProfile(profileIndex, false);
-    void restoreStoredExtensionsForProfile(profileIndex, partition, win);
+    void ensureExtensionRuntime(win).then(() => {
+      const partition = getPartitionForProfile(profileIndex, false);
+      return restoreStoredExtensionsForProfile(profileIndex, partition, win);
+    }).catch((error) => {
+      console.warn("Deferred extension restore failed:", error && error.message ? error.message : error);
+    });
   }, STARTUP_DEFERRED_EXTENSION_RESTORE_DELAY_MS);
 }
 
 function scheduleStartupUpdateCheck() {
+  if (DISABLE_BACKGROUND_NETWORK) return;
   runAfterFirstWindowReady(() => {
     void checkForUpdates("startup");
   }, STARTUP_DEFERRED_UPDATE_CHECK_DELAY_MS);
@@ -275,11 +386,7 @@ function getOnboardingCompleted() {
 }
 
 function getTrustedAppRootPath() {
-  try {
-    return app.getAppPath();
-  } catch (_error) {
-    return __dirname;
-  }
+  return APP_RESOURCE_ROOT;
 }
 
 function isTrustedInternalPageUrl(url, trustedFiles) {
@@ -295,14 +402,14 @@ function getDefaultProfileName(index, opts = {}) {
 
 function getWindowsIconPath() {
   const packagedPath = path.join(process.resourcesPath, "assets", "orion.ico");
-  const devPath = path.join(__dirname, "assets", "orion.ico");
+  const devPath = path.join(__dirname, "..", "assets", "orion.ico");
   const iconPath = app.isPackaged ? packagedPath : devPath;
   return fs.existsSync(iconPath) ? iconPath : null;
 }
 
 function getMacIconPath() {
   const packagedPath = path.join(process.resourcesPath, "assets", "orion-mac.png");
-  const devPath = path.join(__dirname, "assets", "orion-mac.png");
+  const devPath = path.join(__dirname, "..", "assets", "orion-mac.png");
   const iconPath = app.isPackaged ? packagedPath : devPath;
   return fs.existsSync(iconPath) ? iconPath : null;
 }
@@ -316,7 +423,7 @@ function setMacDockIcon() {
 }
 
 function getAppHtmlPath(file) {
-  return path.join(__dirname, file);
+  return path.join(APP_RESOURCE_ROOT, file);
 }
 
 function getAppPageUrl(file, searchParams = null) {
@@ -329,86 +436,18 @@ function getContentType(filePath) {
 }
 
 function resolveProtocolAssetPath(requestUrl) {
-  try {
-    const parsed = new NodeURL(requestUrl);
-    if (parsed.protocol === appUtils.ORION_PROTOCOL && parsed.hostname === "games") {
-      const gamesPath = path.join(__dirname, "offline.html");
-      return fs.existsSync(gamesPath) ? gamesPath : null;
+  const file = appUtils.getCanonicalAppResourceFileName(requestUrl, PROTOCOL_ASSET_FILES);
+  return file ? path.join(APP_RESOURCE_ROOT, file) : null;
+}
+
+function createProtocolNotFoundResponse() {
+  return new Response("Not found", {
+    status: 404,
+    headers: {
+      "content-type": "text/plain; charset=utf-8",
+      "x-content-type-options": "nosniff"
     }
-    if (parsed.protocol !== appUtils.ORION_PROTOCOL || parsed.hostname !== appUtils.ORION_HOST) return null;
-    
-    // Decode the pathname carefully
-    let requestedPath = parsed.pathname || "/";
-    
-    // Reject null bytes and other dangerous characters
-    if (requestedPath.includes("\0") || requestedPath.includes("%00")) return null;
-    
-    // Decode URI component safely
-    try {
-      requestedPath = decodeURIComponent(requestedPath);
-    } catch (_decodeError) {
-      return null; // Malformed URI
-    }
-    
-    // Normalize path separators and remove leading slashes
-    requestedPath = requestedPath.replace(/^\/+/, "").replace(/\\/g, "/");
-    if (!requestedPath) return null;
-
-    // Prevent path traversal attacks - check for .. in various forms
-    // Split by both forward and backward slashes to catch all variants
-    const pathSegments = requestedPath.split(/[\/\\]/);
-    if (pathSegments.some(segment => segment === ".." || segment === ".")) {
-      return null;
-    }
-    
-    // Additional check: decoded path should not contain ..
-    if (requestedPath.includes("..")) return null;
-
-    let basePath = __dirname;
-    // Handle ASAR archive detection on all platforms
-    const normalizedBase = basePath.replace(/\\/g, "/");
-    // Check if we're running from an ASAR archive
-    if (normalizedBase.endsWith(".asar") || basePath.endsWith(".asar") || process.execPath.endsWith(".asar")) {
-      // In packaged builds, __dirname points inside the ASAR
-      // We need to use it directly, not try to reconstruct the path
-      // Only use process.resourcesPath if __dirname is not already in the right place
-      if (process.resourcesPath && !basePath.includes("app.asar")) {
-        console.log(`Reconstructing ASAR path: ${basePath} -> ${path.join(process.resourcesPath, "app.asar")}`);
-        basePath = path.join(process.resourcesPath, "app.asar");
-      }
-    }
-
-    const rootPath = path.resolve(basePath);
-    const resolved = path.resolve(rootPath, requestedPath);
-    const normalizedRoot = path.normalize(rootPath);
-
-    console.log(`resolveProtocolAssetPath: requestedPath=${requestedPath}, basePath=${basePath}, resolved=${resolved}`);
-
-    // Use path.relative for secure path validation
-    // Normalize both paths to use forward slashes for consistent comparison on Windows
-    const relativePath = path.relative(normalizedRoot, resolved).replace(/\\/g, "/");
-    const normalizedRelative = relativePath.replace(/\\/g, "/");
-
-    // Check if the resolved path is within the root directory
-    // Path is invalid if it goes outside root (starts with ..) or is absolute
-    if (normalizedRelative.startsWith("..") || normalizedRelative.startsWith("/") || path.isAbsolute(relativePath.replace(/\//g, path.sep))) {
-      console.log(`Path validation failed: ${relativePath}`);
-      return null;
-    }
-    
-    // Final verification: resolved path must start with root path
-    const normalizedResolved = path.normalize(resolved).replace(/\\/g, "/");
-    const normalizedRootWithSlash = normalizedRoot.replace(/\\/g, "/") + "/";
-    if (!normalizedResolved.startsWith(normalizedRootWithSlash) && normalizedResolved !== normalizedRoot.replace(/\\/g, "/")) {
-      console.log(`Path validation failed (prefix check): ${normalizedResolved}`);
-      return null;
-    }
-
-    return resolved;
-  } catch (_error) {
-    console.error(`resolveProtocolAssetPath error: ${_error.message}`);
-    return null;
-  }
+  });
 }
 
 function registerAppProtocolForSession(sess) {
@@ -416,37 +455,10 @@ function registerAppProtocolForSession(sess) {
   if (protocolSessions.has(sess)) return;
   protocolSessions.add(sess);
   
-  sess.protocol.handle(appUtils.ORION_SCHEME, (request) => {
-    const filePath = resolveProtocolAssetPath(request.url);
-    console.log(`orion:// request: ${request.url} -> filePath: ${filePath}`);
-    const contentType = getContentType(filePath || "");
-    if (!filePath) {
-      console.error(`orion:// file not found: ${request.url}`);
-      return net.fetch("data:text/plain,Not%20found");
-    }
-
-    try {
-      const stats = fs.statSync(filePath);
-      if (!stats.isFile()) {
-        console.error(`orion:// path is not a file: ${filePath}`);
-        return net.fetch("data:text/plain,Not%20found");
-      }
-
-      const fileContent = fs.readFileSync(filePath);
-      const response = new Response(fileContent, {
-        status: 200,
-        headers: {
-          "content-type": /^(text\/|application\/(javascript|json))/.test(contentType)
-            ? `${contentType}; charset=utf-8`
-            : contentType
-        }
-      });
-      return response;
-    } catch (_error) {
-      console.error(`orion:// read error: ${_error.message}`);
-      return net.fetch("data:text/plain,Not%20found");
-    }
-  });
+  sess.protocol.handle(appUtils.ORION_SCHEME, createProtocolAssetHandler({
+    resolveAssetPath: resolveProtocolAssetPath,
+    getContentType
+  }));
 }
 
 function registerAppProtocol() {
@@ -716,39 +728,19 @@ async function checkForUpdates(source = "manual") {
   return updaterCheckPromise;
 }
 
-function loadS() {
-  try {
-    if (fs.existsSync(sPath)) {
-      const s = JSON.parse(fs.readFileSync(sPath, "utf8"));
-      const privacySettings = browserPrivacy.sanitizePrivacySettings(s);
-      return {
-        themeColor: "#e9e9f0",
-        profileExtensions: {},
-        profileExtensionMetadata: {},
-        sitePermissions: {},
-        ...s,
-        profileExtensions: sanitizeProfileExtensions(s.profileExtensions),
-        profileExtensionMetadata: sanitizeProfileExtensionMetadata(s.profileExtensionMetadata),
-        sitePermissions: browserSecurity.sanitizePermissionStore(s.sitePermissions),
-        locale: localization.sanitizeLocale(s.locale),
-        showSeconds: typeof s.showSeconds === "boolean" ? s.showSeconds : undefined,
-        httpsOnlyMode: privacySettings.httpsOnlyMode,
-        antiFingerprinting: privacySettings.antiFingerprinting,
-        dnsOverHttpsEnabled: privacySettings.dnsOverHttpsEnabled,
-        dnsOverHttpsMode: privacySettings.dnsOverHttpsMode,
-        dnsOverHttpsTemplate: privacySettings.dnsOverHttpsTemplate,
-        onboardingCompleted: typeof s.onboardingCompleted === "boolean" ? s.onboardingCompleted : true
-      };
-    }
-  } catch (e) {}
+function createDefaultSettings() {
   const privacyDefaults = browserPrivacy.sanitizePrivacySettings();
   return {
     themeColor: "#e9e9f0",
     profileExtensionMetadata: {},
     profileExtensions: {},
     sitePermissions: {},
+    securityMigrations: {
+      [LEGACY_INCOGNITO_PARTITION_MIGRATION]: false
+    },
     locale: null,
     showSeconds: undefined,
+    ramLimitMode: memoryManagerModule.RAM_LIMIT_MODE_OFF,
     httpsOnlyMode: privacyDefaults.httpsOnlyMode,
     antiFingerprinting: privacyDefaults.antiFingerprinting,
     dnsOverHttpsEnabled: privacyDefaults.dnsOverHttpsEnabled,
@@ -758,27 +750,105 @@ function loadS() {
   };
 }
 
-function saveS() {
-  try { fs.writeFileSync(sPath, JSON.stringify(bSett)); } catch (e) {}
+function loadS(value) {
+  if (!value || typeof value !== "object") return createDefaultSettings();
+  const s = value;
+  const privacySettings = browserPrivacy.sanitizePrivacySettings(s);
+  return {
+    ...createDefaultSettings(),
+    ...s,
+    profileExtensions: sanitizeProfileExtensions(s.profileExtensions),
+    profileExtensionMetadata: sanitizeProfileExtensionMetadata(s.profileExtensionMetadata),
+    sitePermissions: browserSecurity.sanitizePermissionStore(s.sitePermissions),
+    securityMigrations: {
+      [LEGACY_INCOGNITO_PARTITION_MIGRATION]: !!(
+        s.securityMigrations && s.securityMigrations[LEGACY_INCOGNITO_PARTITION_MIGRATION]
+      )
+    },
+    locale: localization.sanitizeLocale(s.locale),
+    showSeconds: typeof s.showSeconds === "boolean" ? s.showSeconds : undefined,
+    ramLimitMode: memoryManagerModule.resolveRamLimitMode(s.ramLimitMode, s.ramLimitMb),
+    ramLimitMb: undefined,
+    httpsOnlyMode: privacySettings.httpsOnlyMode,
+    antiFingerprinting: privacySettings.antiFingerprinting,
+    dnsOverHttpsEnabled: privacySettings.dnsOverHttpsEnabled,
+    dnsOverHttpsMode: privacySettings.dnsOverHttpsMode,
+    dnsOverHttpsTemplate: privacySettings.dnsOverHttpsTemplate,
+    onboardingCompleted: typeof s.onboardingCompleted === "boolean" ? s.onboardingCompleted : true
+  };
 }
 
-function readRecoveryState() {
+function loadStartupDnsSettings() {
+  const defaults = createDefaultSettings();
   try {
-    if (!fs.existsSync(recoveryPath)) return null;
-    return tabGroups.sanitizeRecoveryState(JSON.parse(fs.readFileSync(recoveryPath, "utf8")));
+    const raw = JSON.parse(fs.readFileSync(sPath, "utf8"));
+    const privacy = browserPrivacy.sanitizePrivacySettings(raw);
+    return {
+      ...defaults,
+      dnsOverHttpsEnabled: privacy.dnsOverHttpsEnabled,
+      dnsOverHttpsMode: privacy.dnsOverHttpsMode,
+      dnsOverHttpsTemplate: privacy.dnsOverHttpsTemplate
+    };
   } catch (_error) {
-    return null;
+    return defaults;
   }
 }
 
-function deleteRecoveryState() {
+function saveS() {
+  settingsWriter.schedule(bSett);
+}
+
+async function runLegacyIncognitoPartitionMigration() {
+  if (
+    bSett.securityMigrations &&
+    bSett.securityMigrations[LEGACY_INCOGNITO_PARTITION_MIGRATION]
+  ) {
+    return true;
+  }
+
+  const sessionDataPath = app.getPath("sessionData") || app.getPath("userData");
+  const partitionsPath = path.join(sessionDataPath, "Partitions");
+  let partitionEntries = [];
+
+  try {
+    partitionEntries = (await fs.promises.readdir(partitionsPath, { withFileTypes: true }))
+      .filter((entry) => entry && entry.isDirectory())
+      .map((entry) => entry.name);
+  } catch (error) {
+    if (!error || error.code !== "ENOENT") {
+      console.warn("Unable to inspect legacy incognito partitions; cleanup will retry next launch.");
+      return false;
+    }
+  }
+
+  const result = await browserPrivacy.clearLegacyPersistentIncognitoPartitions({
+    partitionNames: partitionEntries,
+    getSession: (partition) => session.fromPartition(partition)
+  });
+  if (!result.complete) {
+    console.warn("Unable to clear every legacy incognito partition; cleanup will retry next launch.");
+    return false;
+  }
+
+  if (!bSett.securityMigrations || typeof bSett.securityMigrations !== "object") {
+    bSett.securityMigrations = {};
+  }
+  bSett.securityMigrations[LEGACY_INCOGNITO_PARTITION_MIGRATION] = true;
+  saveS();
+  return true;
+}
+
+async function readRecoveryState() {
+  const value = await recoveryWriter.read(null);
+  return value ? tabGroups.sanitizeRecoveryState(value) : null;
+}
+
+async function deleteRecoveryState() {
   if (recoverySaveTimer) {
     clearTimeout(recoverySaveTimer);
     recoverySaveTimer = null;
   }
-  try {
-    if (fs.existsSync(recoveryPath)) fs.unlinkSync(recoveryPath);
-  } catch (_error) {}
+  await recoveryWriter.remove().catch(() => {});
 }
 
 function getProfileRecoverySnapshot(profileId) {
@@ -807,23 +877,16 @@ function buildCurrentRecoveryState() {
 
 function saveRecoveryStateNow() {
   if (intentionalQuit) return;
-  const state = buildCurrentRecoveryState();
-  try {
-    fs.writeFileSync(recoveryPath, JSON.stringify(state));
-  } catch (_error) {}
+  recoveryWriter.schedule(buildCurrentRecoveryState());
 }
 
 function scheduleRecoverySave() {
   if (intentionalQuit) return;
-  if (recoverySaveTimer) clearTimeout(recoverySaveTimer);
-  recoverySaveTimer = setTimeout(() => {
-    recoverySaveTimer = null;
-    saveRecoveryStateNow();
-  }, 250);
+  saveRecoveryStateNow();
 }
 
-function restoreRecoveryState() {
-  const state = readRecoveryState();
+async function restoreRecoveryState() {
+  const state = await readRecoveryState();
   if (!state || !state.profiles.length) return false;
 
   pTabs = {};
@@ -846,8 +909,33 @@ function restoreRecoveryState() {
   return true;
 }
 
+async function loadStartupData() {
+  const historyPromise = historyWriter.read({ visits: [], lastCleanup: Date.now() });
+  const settingsPromise = settingsWriter.read(null);
+  const recoveryPromise = restoreRecoveryState();
+  const [history, settings] = await Promise.all([historyPromise, settingsPromise]);
+  bHist = history && Array.isArray(history.visits)
+    ? { ...history, visits: history.visits }
+    : { visits: [], lastCleanup: Date.now() };
+  if (settings) bSett = loadS(settings);
+  await recoveryPromise;
+  return true;
+}
+
 function getBrowserSettings() {
-  return browserPrivacy.buildBrowserSettingsPayload(bSett);
+  return {
+    ...browserPrivacy.buildBrowserSettingsPayload(bSett),
+    ramLimitMode: memoryManagerModule.sanitizeRamLimitMode(bSett.ramLimitMode),
+    automaticRamLimitMb: AUTOMATIC_RAM_LIMIT_MB,
+    ramLimitMb: getEffectiveRamLimitMb()
+  };
+}
+
+function getEffectiveRamLimitMb() {
+  return memoryManagerModule.resolveRamLimitMb(
+    bSett && bSett.ramLimitMode,
+    AUTOMATIC_RAM_LIMIT_MB
+  );
 }
 
 function broadcastBrowserSettings() {
@@ -875,6 +963,15 @@ function updateBrowserSettings(patch = {}) {
     }
   }
 
+  if (
+    Object.prototype.hasOwnProperty.call(patch, "ramLimitMode") &&
+    memoryManagerModule.isValidRamLimitMode(patch.ramLimitMode) &&
+    bSett.ramLimitMode !== patch.ramLimitMode
+  ) {
+    bSett.ramLimitMode = patch.ramLimitMode;
+    changed = true;
+  }
+
   const privacyUpdate = browserPrivacy.updatePrivacySettings(bSett, patch);
   if (privacyUpdate.changed) {
     Object.assign(bSett, privacyUpdate.next);
@@ -885,6 +982,7 @@ function updateBrowserSettings(patch = {}) {
     saveS();
     applyDnsOverHttpsSettings();
     broadcastBrowserSettings();
+    if (memoryController) memoryController.requestEvaluation();
   }
 
   return getBrowserSettings();
@@ -1019,25 +1117,20 @@ function genId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2);
 }
 
-function loadH() {
-  try {
-    if (fs.existsSync(hPath)) return JSON.parse(fs.readFileSync(hPath, "utf8"));
-  } catch (e) {}
-  return { visits: [], lastCleanup: Date.now() };
+async function loadH() {
+  return historyWriter.read({ visits: [], lastCleanup: Date.now() });
 }
 
 function saveH() {
-  try {
-    const limit = Date.now() - 90 * 864e5;
-    fs.writeFileSync(hPath, JSON.stringify({
-      ...bHist,
-      visits: bHist.visits.filter((v) => v.timestamp > limit)
-    }));
-  } catch (e) {}
+  const limit = Date.now() - 90 * 864e5;
+  historyWriter.schedule({
+    ...bHist,
+    visits: bHist.visits.filter((v) => v.timestamp > limit)
+  });
 }
 
 function getPartitionForProfile(pIdx, incognito = false) {
-  return incognito ? `orion-incognito-profile-${pIdx}` : `persist:profile-${pIdx}`;
+  return appUtils.getProfilePartitionName(pIdx, incognito);
 }
 
 function getPermissionScopeKey(pIdx, incognito = false) {
@@ -1055,7 +1148,7 @@ function getProfileExtensionMetadataStore(pIdx) {
 }
 
 function ensureProfileExtensionSupport(pIdx, sess, incognito = false) {
-  return extensionManager.ensureProfile(pIdx, sess, { incognito });
+  return extensionManager ? extensionManager.ensureProfile(pIdx, sess, { incognito }) : null;
 }
 
 function getBrowserWindowById(windowId) {
@@ -1348,7 +1441,6 @@ function ensureSessionSecurity(partition, pIdx, incognito = false) {
     }
   });
   applyDnsOverHttpsSettings();
-  ensureProfileExtensionSupport(pIdx, sess, incognito);
 
   return sess;
 }
@@ -1933,7 +2025,7 @@ function ensureReaderView(tabId, pIdx) {
       webviewTag: false,
       safeDialogs: true,
       allowRunningInsecureContent: false,
-      preload: path.join(__dirname, "preload.js"),
+      preload: PRELOAD_PATH,
       partition
     };
     const readerView = new WebContentsView({ webPreferences: webP });
@@ -2152,6 +2244,7 @@ function openTabInProfile(pIdx, tabLike = {}, options = {}) {
   const win = options.win || windows[pIdx];
   const tabList = getProfileTabList(pIdx);
   if (!win || win.isDestroyed()) return null;
+  const incognito = appUtils.resolveTabIncognito(win);
 
   const tabId = tabLike.id || `p-${pIdx}-t-${Date.now()}`;
   const existing = tabList.find((entry) => entry && entry.id === tabId);
@@ -2164,8 +2257,8 @@ function openTabInProfile(pIdx, tabLike = {}, options = {}) {
   const nextTab = {
     id: tabId,
     url: nextUrl,
-    title: tabLike.title || getDefaultTabTitle(pIdx, { incognito: !!tabLike.incognito }),
-    incognito: !!tabLike.incognito,
+    title: tabLike.title || getDefaultTabTitle(pIdx, { incognito }),
+    incognito,
     readerMode: !!tabLike.readerMode
   };
   if (typeof tabLike.groupId === "string") nextTab.groupId = tabLike.groupId;
@@ -2176,8 +2269,12 @@ function openTabInProfile(pIdx, tabLike = {}, options = {}) {
   if (options.notify !== false) {
     win.webContents.send("tab-created", { ...nextTab, afterTabId, active: shouldActivate });
   }
-  createV(tabId, nextUrl, nextTab.incognito, pIdx);
-  if (shouldActivate) switchT(tabId, pIdx);
+  if (shouldActivate) {
+    createV(tabId, nextUrl, nextTab.incognito, pIdx, {
+      restoreReaderMode: !!nextTab.readerMode
+    });
+    switchT(tabId, pIdx);
+  }
   else updateB(pIdx);
   return nextTab;
 }
@@ -2357,10 +2454,27 @@ function appendClipboardMenuItems(menu, webContents, editFlags = {}) {
   }
 }
 
-function isTrustedSender(webContents) {
+function isTrustedSenderEvent(event) {
+  if (!appUtils.isMainFrameIpcEvent(event)) {
+    if (process.env.ORION_LOG_IPC === "1") {
+      const frame = event && event.senderFrame;
+      const mainFrame = event && event.sender && event.sender.mainFrame;
+      console.error("Rejected Orion IPC frame", {
+        frameUrl: frame && frame.url,
+        mainUrl: mainFrame && mainFrame.url,
+        frameProcessId: frame && frame.processId,
+        mainProcessId: mainFrame && mainFrame.processId,
+        frameRoutingId: frame && frame.routingId,
+        mainRoutingId: mainFrame && mainFrame.routingId,
+        frameParent: frame && frame.parent ? "present" : frame && frame.parent
+      });
+    }
+    return false;
+  }
+  const webContents = event.sender;
   if (!webContents || webContents.isDestroyed()) return false;
   try {
-    return isTrustedInternalPageUrl(webContents.getURL(), TRUSTED_PAGE_FILES);
+    return isTrustedInternalPageUrl(event.senderFrame.url, TRUSTED_PAGE_FILES);
   } catch (_error) {
     return false;
   }
@@ -2410,13 +2524,8 @@ function loadInternal(webContents, url) {
     if (typeof errorCode === "string" && errorCode.includes("ERR_ABORTED")) {
       return;
     }
-    return webContents.loadFile(getAppHtmlPath(targetFile)).catch((fallbackError) => {
-      const fallbackCode = fallbackError && (fallbackError.code || fallbackError.message || "");
-      if (typeof fallbackCode === "string" && fallbackCode.includes("ERR_ABORTED")) {
-        return;
-      }
-      showHtmlLoadError(targetFile, fallbackError);
-    });
+    showHtmlLoadError(targetFile, error);
+    return false;
   });
 }
 
@@ -2542,9 +2651,8 @@ function loadTabUrl(tabId, pIdx, rawUrl, options = {}) {
   if (isInternalUrl(normalizedUrl)) return loadInternal(view.webContents, normalizedUrl);
   if (isHttpUrl(normalizedUrl)) {
     noteHttpNavigation(normalizedUrl);
-    return prepareAdblockForNavigation()
-      .then(() => view.webContents.loadURL(normalizedUrl))
-      .catch(() => false);
+    ensureAdblockReadyForSession();
+    return view.webContents.loadURL(normalizedUrl).catch(() => false);
   }
   if (isChromeExtensionUrl(normalizedUrl)) {
     return view.webContents.loadURL(normalizedUrl).catch(() => false);
@@ -2564,9 +2672,7 @@ function createW(pIdx = 0, opts = {}) {
     icon:
       process.platform === "win32"
         ? getWindowsIconPath() || undefined
-        : process.platform === "darwin"
-          ? getMacIconPath() || undefined
-          : undefined,
+        : undefined,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -2575,11 +2681,12 @@ function createW(pIdx = 0, opts = {}) {
       webviewTag: false,
       safeDialogs: true,
       allowRunningInsecureContent: false,
-      preload: path.join(__dirname, "preload.js"),
+      preload: PRELOAD_PATH,
       partition
     },
     autoHideMenuBar: true
   });
+  if (!startupMilestones.windowCreatedMs) startupMilestones.windowCreatedMs = performance.now();
   win.profileIndex = pIdx;
   win.incognitoWindow = isIncognito;
   windows[pIdx] = win;
@@ -2589,27 +2696,7 @@ function createW(pIdx = 0, opts = {}) {
   pNames[pIdx] = isIncognito ? getDefaultProfileName(pIdx, { incognito: true }) : (pNames[pIdx] || getDefaultProfileName(pIdx));
   states[pIdx] = { activeView: null, metrics: { top: 76, left: 0 }, visible: true, readerMode: false, readerTabId: null };
 
-  // Use file:// protocol for main window with proper cross-platform URL handling
-  const indexPath = path.join(__dirname, "index.html");
-  // Use pathToFileURL for proper file URL construction on all platforms
-  let fileUrl;
-  try {
-    // Use Node.js pathToFileURL for correct file URL format on all platforms
-    const { pathToFileURL } = require('url');
-    fileUrl = pathToFileURL(indexPath).href;
-  } catch (_error) {
-    // Fallback to manual construction if pathToFileURL fails
-    if (process.platform === "win32") {
-      // Windows requires file:///C:/path format with forward slashes
-      const normalizedPath = indexPath.replace(/\\/g, "/");
-      // Handle drive letter paths like C:/ -> /C:/
-      const withDriveSlash = normalizedPath.replace(/^([A-Za-z]):/, '/$1:');
-      fileUrl = `file://${withDriveSlash}`;
-    } else {
-      fileUrl = `file://${indexPath}`;
-    }
-  }
-  win.loadURL(fileUrl).catch((error) => {
+  win.loadURL(getAppPageUrl("index.html")).catch((error) => {
     console.error(`Failed to load index.html: ${error.message}`);
     console.error(`Error code: ${error.code}`);
     showHtmlLoadError("index.html", error);
@@ -2623,10 +2710,20 @@ function createW(pIdx = 0, opts = {}) {
   
   win.on("resize", () => updateB(pIdx));
   win.on("closed", () => {
+    Object.entries(views).forEach(([tabId, view]) => {
+      if (view && view.profileIndex === pIdx) tabMemoryHistory.remove(tabId);
+    });
     delete windows[pIdx];
     delete states[pIdx];
     delete offlineRotationStates[pIdx];
     clearOfflineTabContextsForProfile(pIdx);
+    for (const [key, entry] of prewarmedNewTabViews) {
+      if (!key.startsWith(`${pIdx}:`)) continue;
+      prewarmedNewTabViews.delete(key);
+      if (entry.view && entry.view.webContents && !entry.view.webContents.isDestroyed()) {
+        entry.view.webContents.destroy();
+      }
+    }
     if (isIncognito) {
       delete incognitoSitePermissions[getPermissionScopeKey(pIdx, true)];
       delete pTabs[pIdx];
@@ -2639,6 +2736,7 @@ function createW(pIdx = 0, opts = {}) {
   });
   broadcast();
   scheduleExtensionRestoreForWindow(win);
+  scheduleNewTabPrewarm(pIdx, isIncognito);
   return win;
 }
 
@@ -2674,6 +2772,168 @@ function getActiveT(pIdx) {
   return null;
 }
 
+function isRamLimiterEnabled() {
+  return getEffectiveRamLimitMb() > 0;
+}
+
+function getUnloadedTabCount() {
+  const unmaterialized = Object.values(pTabs).reduce((count, tabs) => (
+    count + (Array.isArray(tabs) ? tabs.filter((tab) => tab && !views[tab.id]).length : 0)
+  ), 0);
+  return unmaterialized + Object.values(views).filter((view) => (
+    view && (view.memoryDiscarded || view.memoryDiscarding)
+  )).length;
+}
+
+function isViewAudible(view) {
+  if (!view || !view.webContents || view.webContents.isDestroyed()) return false;
+  if (typeof view.webContents.isCurrentlyAudible !== "function") return false;
+  try {
+    return !!view.webContents.isCurrentlyAudible();
+  } catch (_error) {
+    return true;
+  }
+}
+
+function appendMemoryProcessOwner(processOwners, tabId, webContents) {
+  if (
+    !webContents ||
+    (typeof webContents.isDestroyed === "function" && webContents.isDestroyed()) ||
+    typeof webContents.getOSProcessId !== "function"
+  ) {
+    return;
+  }
+  try {
+    const pid = webContents.getOSProcessId();
+    if (Number.isInteger(pid) && pid > 0) processOwners.push({ tabId, pid });
+  } catch (_error) {}
+}
+
+function getMemoryProcessOwners() {
+  const processOwners = [];
+  Object.entries(views).forEach(([tabId, view]) => {
+    if (
+      !view || !view.webContents ||
+      view.memoryDiscarded || view.memoryDiscarding
+    ) {
+      return;
+    }
+    appendMemoryProcessOwner(processOwners, tabId, view.webContents);
+    const readerView = readerSessions[tabId] && readerSessions[tabId].readerView;
+    if (readerView && readerView.webContents) {
+      appendMemoryProcessOwner(processOwners, tabId, readerView.webContents);
+    }
+  });
+  return processOwners;
+}
+
+function observeTabMemoryMetrics(metrics) {
+  return tabMemoryHistory.observe(metrics, getMemoryProcessOwners());
+}
+
+function getMemoryUnloadCandidates() {
+  return Object.entries(views).map(([id, view]) => {
+    const pIdx = view && view.profileIndex;
+    return {
+      id,
+      profileIndex: pIdx,
+      active: Number.isInteger(pIdx) && (getActiveT(pIdx) === id || activeTabIds[pIdx] === id),
+      audible: isViewAudible(view),
+      unloaded: !view || !view.webContents || view.webContents.isDestroyed() || !!(
+        view.memoryDiscarded || view.memoryDiscarding
+      ),
+      peakWorkingSetKb: tabMemoryHistory.getPeakWorkingSetKb(id),
+      lastActiveSequence: tabActivitySequences.get(id) || 0
+    };
+  });
+}
+
+function broadcastMemoryStatus(status = memoryStatus) {
+  Object.values(windows).forEach((win) => {
+    if (win && !win.isDestroyed()) win.webContents.send(MEMORY_STATUS_CHANNEL, status);
+  });
+}
+
+async function unloadTabForMemory(candidate) {
+  const id = candidate && candidate.id;
+  const view = id ? views[id] : null;
+  const pIdx = view && view.profileIndex;
+  const win = Number.isInteger(pIdx) ? windows[pIdx] : null;
+  const tab = Number.isInteger(pIdx) && pTabs[pIdx]
+    ? pTabs[pIdx].find((entry) => entry && entry.id === id) || null
+    : null;
+  if (
+    !id || !view || !tab || !win || win.isDestroyed() ||
+    !view.webContents || view.webContents.isDestroyed() ||
+    view.memoryDiscarded || view.memoryDiscarding ||
+    getActiveT(pIdx) === id || activeTabIds[pIdx] === id ||
+    isViewAudible(view)
+  ) {
+    return false;
+  }
+
+  const webContents = view.webContents;
+  const currentUrl = view.tUrl || getDisplayUrlForTab(id, webContents.getURL(), tab.url) || tab.url || "chrome://newtab";
+  const currentTitle = webContents.getTitle() || tab.title || currentUrl;
+  const readerMode = !!(tab.readerMode || (readerSessions[id] && readerSessions[id].active));
+  return memoryManagerModule.unloadTabPage({
+    view,
+    tab,
+    savedUrl: currentUrl,
+    savedTitle: currentTitle,
+    readerMode,
+    syncTabRecord: (patch) => appUtils.syncTabRecord(pTabs[pIdx], id, patch),
+    destroyReaderView: readerSessions[id] ? () => destroyReaderView(id) : null,
+    onDiscarded: scheduleRecoverySave
+  });
+}
+
+function finishPendingReaderRestore(pIdx, id, view) {
+  if (
+    !view || !view.pendingReaderRestore ||
+    !view.webContents || view.webContents.isDestroyed() ||
+    view.webContents.isLoading() || activeTabIds[pIdx] !== id
+  ) {
+    return false;
+  }
+
+  view.pendingReaderRestore = false;
+  void enterReaderMode(pIdx, id).then((result) => {
+    if (!result || result.active !== true) updateReaderTabRecord(pIdx, id, false);
+  }).catch(() => {
+    updateReaderTabRecord(pIdx, id, false);
+  });
+  return true;
+}
+
+function restoreMemoryDiscardedTab(id, pIdx) {
+  const view = views[id];
+  const tab = pTabs[pIdx] && pTabs[pIdx].find((entry) => entry && entry.id === id) || null;
+  return memoryManagerModule.restoreUnloadedTabPage({
+    view,
+    tab,
+    loadUrl: (targetUrl) => loadTabUrl(id, pIdx, targetUrl, { source: "memory-restore" })
+  });
+}
+
+function initializeMemoryController() {
+  if (memoryController) memoryController.stop();
+  memoryController = memoryManagerModule.createMemoryController({
+    getMetrics: () => app.getAppMetrics(),
+    getLimitMb: getEffectiveRamLimitMb,
+    getCandidates: getMemoryUnloadCandidates,
+    unloadTab: unloadTabForMemory,
+    getUnloadedTabCount,
+    observeMetrics: observeTabMemoryMetrics,
+    onStatus: (status) => {
+      memoryStatus = { ...status };
+      broadcastMemoryStatus(memoryStatus);
+    }
+  });
+  memoryController.start();
+  return memoryController;
+}
+
 function insertTabAfter(pIdx, tab, afterTabId) {
   if (!pTabs[pIdx]) pTabs[pIdx] = [];
   const list = pTabs[pIdx];
@@ -2703,13 +2963,17 @@ function createT(pIdx, win) {
       incognito: isIncognito,
       readerMode: false
     });
-    createV(id, initialUrl, isIncognito, pIdx);
     if (pendingUrl) delete win.pendingIncognitoUrl;
-  } else {
-    pTabs[pIdx].forEach((tab) => {
-      if (tab && tab.id && !views[tab.id]) {
-        createV(tab.id, tab.url || home, !!tab.incognito, pIdx);
-      }
+  }
+
+  const nextActive = getInitialMaterializedTabId(pTabs[pIdx], activeTabIds[pIdx]);
+  pTabs[pIdx].forEach((tab) => {
+    if (tab) tab.incognito = isIncognito;
+  });
+  const activeTab = pTabs[pIdx].find((tab) => tab && tab.id === nextActive);
+  if (activeTab && !views[nextActive]) {
+    createV(nextActive, activeTab.url || home, isIncognito, pIdx, {
+      restoreReaderMode: !!activeTab.readerMode
     });
   }
   win.webContents.send("profile-changed", {
@@ -2718,9 +2982,6 @@ function createT(pIdx, win) {
     groups: pGroups[pIdx],
     incognitoWindow: isIncognito
   });
-  const nextActive = activeTabIds[pIdx] && pTabs[pIdx].some((tab) => tab && tab.id === activeTabIds[pIdx])
-    ? activeTabIds[pIdx]
-    : pTabs[pIdx][0].id;
   switchT(nextActive, pIdx);
   broadcast();
   if (!isIncognito) win.webContents.send("history-loaded", getH());
@@ -2748,8 +3009,54 @@ function getWindowGroupSnapshot(pIdx) {
   return tabGroups.sanitizeGroups(getProfileGroupList(pIdx));
 }
 
-function ensureWindowBootstrapState(win) {
+function getTabWebPreferences(pIdx, inc) {
+  return {
+    contextIsolation: true,
+    nodeIntegration: false,
+    sandbox: true,
+    webSecurity: true,
+    webviewTag: false,
+    safeDialogs: true,
+    allowRunningInsecureContent: false,
+    preload: PRELOAD_PATH,
+    partition: getPartitionForProfile(pIdx, inc)
+  };
+}
+
+function getPrewarmedNewTabKey(pIdx, inc) {
+  return `${pIdx}:${inc ? "incognito" : "normal"}`;
+}
+
+function prewarmNewTabView(pIdx, inc = false) {
+  const win = windows[pIdx];
   if (!win || win.isDestroyed()) return null;
+  const key = getPrewarmedNewTabKey(pIdx, inc);
+  const current = prewarmedNewTabViews.get(key);
+  if (current && current.view && current.view.webContents && !current.view.webContents.isDestroyed()) return current;
+
+  const partition = getPartitionForProfile(pIdx, inc);
+  ensureSessionSecurity(partition, pIdx, inc);
+  const view = new WebContentsView({ webPreferences: getTabWebPreferences(pIdx, inc) });
+  hardenWebContents(view.webContents);
+  view.__orionHardened = true;
+  const entry = { view, ready: false };
+  prewarmedNewTabViews.set(key, entry);
+  loadInternal(view.webContents, "chrome://newtab").then(() => {
+    if (prewarmedNewTabViews.get(key) === entry && !view.webContents.isDestroyed()) entry.ready = true;
+  }).catch(() => {
+    if (prewarmedNewTabViews.get(key) === entry) prewarmedNewTabViews.delete(key);
+    if (!view.webContents.isDestroyed()) view.webContents.destroy();
+  });
+  return entry;
+}
+
+function scheduleNewTabPrewarm(pIdx, inc = false, delayMs = 250) {
+  runAfterFirstWindowReady(() => prewarmNewTabView(pIdx, inc), delayMs);
+}
+
+async function ensureWindowBootstrapState(win) {
+  if (!win || win.isDestroyed()) return null;
+  if (startupDataPromise) await startupDataPromise;
   const pIdx = win.profileIndex;
   if (!pTabs[pIdx]) pTabs[pIdx] = [];
   if (!states[pIdx]) {
@@ -2758,41 +3065,69 @@ function ensureWindowBootstrapState(win) {
 
   if (!pTabs[pIdx].length) createT(pIdx, win);
   const tabList = getProfileTabList(pIdx);
-  if (tabList.length && !getActiveT(pIdx)) switchT(tabList[0].id, pIdx);
+  if (tabList.length) {
+    const requestedActiveId = getActiveT(pIdx) || tabList[0].id;
+    if (!views[requestedActiveId]) switchT(requestedActiveId, pIdx);
+  }
 
-  return {
+  const snapshot = {
     profileIndex: pIdx,
     incognitoWindow: !!win.incognitoWindow,
     profiles: getProfileListSnapshot(),
     tabs: getWindowTabSnapshot(pIdx),
     groups: getWindowGroupSnapshot(pIdx),
-    activeTabId: getActiveT(pIdx) || (tabList[0] && tabList[0].id) || null
+    activeTabId: getActiveT(pIdx) || (tabList[0] && tabList[0].id) || null,
+    locale: getCurrentLocale(),
+    onboardingCompleted: getOnboardingCompleted(),
+    platform: getCurrentUiPlatform(),
+    browserSettings: getBrowserSettings(),
+    memoryStatus: { ...memoryStatus },
+    updaterState: getUpdaterState(),
+    version: app.getVersion(),
+    startupPerformance: {
+      ...startupMilestones,
+      mainTimeOriginMs: performance.timeOrigin,
+      bootstrapReadyMs: performance.now(),
+      maxMainEventLoopDelayMs: startupEventLoopDelay.max / 1e6
+    }
   };
+  startupEventLoopDelay.disable();
+  markFirstWindowReady();
+  return snapshot;
 }
 
-function createV(id, url, inc, pIdx) {
+function createV(id, url, inc, pIdx, options = {}) {
+  if (views[id] && views[id].webContents && !views[id].webContents.isDestroyed()) return views[id];
   const win = windows[pIdx];
   const s = states[pIdx];
   const partition = getPartitionForProfile(pIdx, inc);
-  const webP = {
-    contextIsolation: true,
-    nodeIntegration: false,
-    sandbox: true,
-    webSecurity: true,
-    webviewTag: false,
-    safeDialogs: true,
-    allowRunningInsecureContent: false,
-    preload: path.join(__dirname, "preload.js"),
-    partition
-  };
   ensureSessionSecurity(partition, pIdx, inc);
-  const v = new WebContentsView({ webPreferences: webP });
+  const prewarmKey = getPrewarmedNewTabKey(pIdx, inc);
+  const prewarmed = url === "chrome://newtab" ? prewarmedNewTabViews.get(prewarmKey) : null;
+  const usedPrewarmedView = !!(
+    prewarmed && prewarmed.ready && prewarmed.view && prewarmed.view.webContents && !prewarmed.view.webContents.isDestroyed()
+  );
+  const v = usedPrewarmedView
+    ? prewarmed.view
+    : new WebContentsView({ webPreferences: getTabWebPreferences(pIdx, inc) });
+  if (usedPrewarmedView) prewarmedNewTabViews.delete(prewarmKey);
   attachBrowserShortcutHandler(v.webContents, () => pIdx);
   v.tabId = id;
   v.profileIndex = pIdx;
-  hardenWebContents(v.webContents);
+  v.tUrl = url || "chrome://newtab";
+  v.memoryHistoryPageUrl = v.tUrl;
+  v.memoryDiscarding = false;
+  v.memoryDiscarded = !!options.startDiscarded;
+  v.memoryRestoring = false;
+  v.pendingReaderRestore = !!options.restoreReaderMode;
+  if (!v.__orionHardened) {
+    hardenWebContents(v.webContents);
+    v.__orionHardened = true;
+  }
   views[id] = v;
-  if (!inc) extensionManager.addTab(pIdx, v.webContents, win);
+  if (extensionManager && appUtils.shouldPersistTabActivity({ incognito: inc })) {
+    extensionManager.addTab(pIdx, v.webContents, win);
+  }
   updateB(pIdx);
 
   v.webContents.on("will-navigate", (event, targetUrl) => {
@@ -2820,19 +3155,29 @@ function createV(id, url, inc, pIdx) {
   });
 
   v.webContents.on("did-navigate", (_e, u) => {
+    if ((v.memoryDiscarding || v.memoryDiscarded || v.memoryRestoring) && u === "about:blank") return;
+    if (v.memoryRestoring) v.memoryRestoring = false;
+    const previousMemoryHistoryPageUrl = v.memoryHistoryPageUrl || "";
     const offlinePage = isOfflinePageUrl(u);
     const httpsOnlyInterstitial = typeof u === "string" && u.startsWith("data:text/html");
     if (!offlinePage) clearOfflineTabContext(id);
     if (!offlinePage && !httpsOnlyInterstitial) v.pendingHttpsUpgrade = null;
     const navigationUrl = httpsOnlyInterstitial ? (v.pendingTargetUrl || v.tUrl || u) : u;
     const displayUrl = getDisplayUrlForTab(id, navigationUrl, v.tUrl || navigationUrl);
+    if (
+      previousMemoryHistoryPageUrl && displayUrl &&
+      previousMemoryHistoryPageUrl !== displayUrl
+    ) {
+      tabMemoryHistory.reset(id);
+    }
+    v.memoryHistoryPageUrl = displayUrl || previousMemoryHistoryPageUrl;
     v.tUrl = displayUrl || v.tUrl;
     const updatedTab = tabState.updateTabOnNavigate(pTabs[pIdx], id, displayUrl);
     scheduleRecoverySave();
     if (win) {
       win.webContents.send("view-event", { tabId: id, type: "did-navigate", url: displayUrl });
       const tab = pTabs[pIdx].find((t) => t.id === id);
-      if (!offlinePage && !httpsOnlyInterstitial && (!tab || !tab.incognito)) {
+      if (!offlinePage && !httpsOnlyInterstitial && appUtils.shouldPersistTabActivity(tab)) {
         try {
           const host = new URL(displayUrl).hostname;
           addH(displayUrl, (updatedTab && updatedTab.title) || host);
@@ -2844,13 +3189,18 @@ function createV(id, url, inc, pIdx) {
     }
   });
   v.webContents.on("did-start-loading", () => {
+    if (v.memoryDiscarding || v.memoryDiscarded) return;
     v.lastHandledFailure = null;
     if (win) win.webContents.send("view-event", { tabId: id, type: "did-start-loading" });
   });
   v.webContents.on("did-stop-loading", () => {
+    if (v.memoryDiscarding || v.memoryDiscarded) return;
+    if (v.memoryRestoring && v.webContents.getURL() === "about:blank") return;
     if (win) win.webContents.send("view-event", { tabId: id, type: "did-stop-loading" });
+    finishPendingReaderRestore(pIdx, id, v);
   });
   v.webContents.on("page-title-updated", (_e, t) => {
+    if (v.memoryDiscarding || v.memoryDiscarded) return;
     const rawCurrentUrl = v.webContents.getURL();
     const httpsOnlyInterstitial = typeof rawCurrentUrl === "string" && rawCurrentUrl.startsWith("data:text/html");
     const currentUrl = getDisplayUrlForTab(
@@ -2869,13 +3219,14 @@ function createV(id, url, inc, pIdx) {
         title: (updatedTab && updatedTab.title) || title
       });
       const tab = pTabs[pIdx].find((tabEntry) => tabEntry.id === id);
-      if ((!tab || !tab.incognito) && currentUrl && !isOfflinePageUrl(rawCurrentUrl) && !httpsOnlyInterstitial) {
+      if (appUtils.shouldPersistTabActivity(tab) && currentUrl && !isOfflinePageUrl(rawCurrentUrl) && !httpsOnlyInterstitial) {
         addH(currentUrl, title);
         win.webContents.send("history-updated", getH());
       }
     }
   });
   const handleLoadFailure = (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+    if (v.memoryDiscarding || v.memoryDiscarded) return;
     const failureKey = `${errorCode}:${validatedURL}:${isMainFrame}`;
     if (v.lastHandledFailure === failureKey) return;
     v.lastHandledFailure = failureKey;
@@ -2911,7 +3262,9 @@ function createV(id, url, inc, pIdx) {
   v.webContents.on("context-menu", (_e, p) => {
     const m = new Menu();
     appendClipboardMenuItems(m, v.webContents, p.editFlags || {});
-    const extensionMenuItems = extensionManager.getContextMenuItems(v.webContents, p);
+    const extensionMenuItems = extensionManager
+      ? extensionManager.getContextMenuItems(v.webContents, p)
+      : [];
     if (extensionMenuItems.length) {
       if (m.items.length) m.append(new MenuItem({ type: "separator" }));
       extensionMenuItems.forEach((item) => m.append(item));
@@ -2978,16 +3331,33 @@ function createV(id, url, inc, pIdx) {
     return { action: "deny" };
   });
 
-  loadTabUrl(id, pIdx, url, {
-    source: url === "chrome://newtab" ? "new-tab" : "startup"
-  });
+  if (v.memoryDiscarded) {
+    if (memoryController) memoryController.requestEvaluation();
+    return v;
+  }
+
+  if (!usedPrewarmedView) {
+    loadTabUrl(id, pIdx, url, {
+      source: url === "chrome://newtab" ? "new-tab" : "startup"
+    });
+  } else {
+    scheduleNewTabPrewarm(pIdx, inc, 500);
+  }
+  return v;
 }
 
 function switchT(id, pIdx) {
   const win = windows[pIdx];
   const s = states[pIdx];
   if (!win || !s) return;
-  
+
+  const tabRecord = pTabs[pIdx] && pTabs[pIdx].find((tab) => tab && tab.id === id);
+  if (!views[id] && tabRecord) {
+    createV(id, tabRecord.url || "chrome://newtab", !!tabRecord.incognito, pIdx, {
+      restoreReaderMode: !!tabRecord.readerMode
+    });
+  }
+  const wasMemoryRestored = restoreMemoryDiscardedTab(id, pIdx);
   const session = getReaderSession(id);
   const nextView = session && session.active && session.readerView ? session.readerView : views[id];
   if (!nextView) return;
@@ -3006,14 +3376,19 @@ function switchT(id, pIdx) {
   }
   if (win && !win.isDestroyed() && s.activeView && !s.activeView.webContents.isDestroyed()) {
     activeTabIds[pIdx] = id;
+    tabActivitySequence += 1;
+    tabActivitySequences.set(id, tabActivitySequence);
     if (views[id] && views[id].webContents && !views[id].webContents.isDestroyed()) {
-      extensionManager.selectTab(pIdx, views[id].webContents);
+      if (extensionManager) extensionManager.selectTab(pIdx, views[id].webContents);
     }
-    const tabRecord = pTabs[pIdx] && pTabs[pIdx].find((tab) => tab.id === id);
-    const currentRawUrl = session && session.active
+    const currentRawUrl = wasMemoryRestored
+      ? ((tabRecord && tabRecord.url) || (views[id] && views[id].tUrl) || "")
+      : session && session.active
       ? (session.sourceUrl || (tabRecord && tabRecord.url) || "")
       : (s.activeView.webContents.getURL() || (views[id] && views[id].tUrl) || "");
-    const currentTitle = session && session.active
+    const currentTitle = wasMemoryRestored
+      ? ((tabRecord && tabRecord.title) || currentRawUrl)
+      : session && session.active
       ? (session.sourceTitle || (tabRecord && tabRecord.title) || "")
       : s.activeView.webContents.getTitle();
     const payload = tabState.buildTabSwitchPayload(
@@ -3024,22 +3399,24 @@ function switchT(id, pIdx) {
     );
     if (payload.url && views[id]) views[id].tUrl = payload.url;
     win.webContents.send("tab-switched", payload);
+    finishPendingReaderRestore(pIdx, id, views[id]);
+    if (memoryController) memoryController.requestEvaluation();
   }
   scheduleRecoverySave();
   setTimeout(() => updateB(pIdx), 100);
 }
 
-function openL(u, pIdx, inc = false) {
+function openL(u, pIdx) {
   const url = normalizeHttpUrl(u);
   if (!url) return;
-  openTabInProfile(pIdx, { url, incognito: inc }, { win: windows[pIdx] });
+  openTabInProfile(pIdx, { url }, { win: windows[pIdx] });
 }
 
 function closeTab(pIdx, id, win) {
   const w = win || windows[pIdx];
   const s = states[pIdx];
   const view = views[id] || null;
-  if (!view || !w) return;
+  if (!w) return;
   
   const session = getReaderSession(id);
   const profileTabs = pTabs[pIdx] || [];
@@ -3047,20 +3424,28 @@ function closeTab(pIdx, id, win) {
   const closingIncognito = !!(closingTab ? closingTab.incognito : w.incognitoWindow);
   
   rememberClosedTab(pIdx, {
-    url: view.tUrl || (closingTab && closingTab.url) || "",
-    title: (view.webContents && !view.webContents.isDestroyed()) ? view.webContents.getTitle() : (closingTab && closingTab.title) || "",
+    url: (view && view.tUrl) || (closingTab && closingTab.url) || "",
+    title: view && view.memoryDiscarded
+      ? (closingTab && closingTab.title) || ""
+      : (view && view.webContents && !view.webContents.isDestroyed())
+        ? view.webContents.getTitle()
+        : (closingTab && closingTab.title) || "",
     incognito: closingIncognito
   });
   
-  const wasA = (s && s.activeView === view) || (session && session.readerView && s && s.activeView === session.readerView);
-  try {
-    if (s && s.activeView) w.contentView.removeChildView(s.activeView);
-  } catch (e) { }
+  const wasA = activeTabIds[pIdx] === id
+    || (view && s && s.activeView === view)
+    || (session && session.readerView && s && s.activeView === session.readerView);
+  if (wasA) {
+    try {
+      if (s && s.activeView) w.contentView.removeChildView(s.activeView);
+    } catch (e) { }
+  }
   
-  if (view.webContents && !view.webContents.isDestroyed()) {
+  if (view && view.webContents && !view.webContents.isDestroyed()) {
     try {
       extensionTabRemovalNotifications.add(view.webContents);
-      extensionManager.removeTrackedTab(view.webContents);
+      if (extensionManager) extensionManager.removeTrackedTab(view.webContents);
     } catch (_error) {
     } finally {
       extensionTabRemovalNotifications.delete(view.webContents);
@@ -3069,7 +3454,9 @@ function closeTab(pIdx, id, win) {
       view.webContents.destroy();
     } catch (_error) { }
   }
-  delete views[id];
+  if (view) delete views[id];
+  tabActivitySequences.delete(id);
+  tabMemoryHistory.remove(id);
   
   if (session && session.readerView && session.readerView.webContents && !session.readerView.webContents.isDestroyed()) {
     try {
@@ -3091,20 +3478,24 @@ function closeTab(pIdx, id, win) {
     else {
       const nid = `p-${pIdx}-t-${Date.now()}`;
       const locale = getCurrentLocale() || localization.DEFAULT_LOCALE;
+      const replacementIncognito = appUtils.resolveTabIncognito(w);
       pTabs[pIdx].push({
         id: nid,
         url: "chrome://newtab",
-        title: localization.t(locale, "app.newTab"),
-        incognito: closingIncognito,
+        title: replacementIncognito
+          ? localization.getIncognitoProfileName(locale)
+          : localization.t(locale, "app.newTab"),
+        incognito: replacementIncognito,
         readerMode: false
       });
-      createV(nid, "chrome://newtab", closingIncognito, pIdx);
+      createV(nid, "chrome://newtab", replacementIncognito, pIdx);
       switchT(nid, pIdx);
     }
   }
   w.webContents.send("tab-closed", id);
   scheduleRecoverySave();
   updateB(pIdx);
+  if (memoryController) memoryController.requestEvaluation();
 }
 
 function clearOtherTabs(pIdx, keepId, win) {
@@ -3155,7 +3546,7 @@ function getSessionForWindow(win) {
 
 function withTrustedSender(handler, fallback) {
   return (e, ...args) => {
-    if (!e || !isTrustedSender(e.sender)) {
+    if (!isTrustedSenderEvent(e)) {
       return typeof fallback === "function" ? fallback(e, ...args) : fallback;
     }
     return handler(e, ...args);
@@ -3172,22 +3563,22 @@ ipcMain.on("set-chrome-metrics", withTrustedSender((e, m) => {
     updateB(w.profileIndex);
   }
 }));
-ipcMain.on("renderer-ready", withTrustedSender((e) => {
-  const w = getSenderWindow(e.sender);
-  if (w) {
-    createT(w.profileIndex, w);
-    broadcast();
-    markFirstWindowReady();
-  }
-}, null));
-ipcMain.handle("get-window-bootstrap-state", withTrustedSender((e) => {
+ipcMain.handle("bootstrap-window", withTrustedSender((e) => {
   const w = getSenderWindow(e.sender);
   if (!w) return null;
   return ensureWindowBootstrapState(w);
 }, null));
+ipcMain.handle("preconnect-origin", withTrustedSender((e, value) => {
+  const sender = e.sender;
+  if (!sender || !sender.session) return false;
+  return intentPreconnector.schedule(sender.id, sender.session, value);
+}, false));
 ipcMain.handle("get-browser-settings", withTrustedSender(() => {
   return getBrowserSettings();
-}, () => getBrowserSettings()));
+}, null));
+ipcMain.handle("get-memory-status", withTrustedSender(() => {
+  return { ...memoryStatus };
+}, null));
 ipcMain.handle("get-reader-content", withTrustedSender((e) => {
   const session = readerViewTabs[e.sender.id] ? readerSessions[readerViewTabs[e.sender.id]] : null;
   return session && session.snapshot ? session.snapshot : null;
@@ -3238,7 +3629,7 @@ ipcMain.handle("toggle-reader-mode", withTrustedSender((e) => {
 }, { active: false, available: false }));
 ipcMain.handle("set-browser-settings", withTrustedSender((e, patch) => {
   return updateBrowserSettings(patch || {});
-}, () => getBrowserSettings()));
+}, null));
 ipcMain.on("fetch-and-show-history", withTrustedSender((e, q) => {
   e.reply("history-data-received", getH(q));
 }));
@@ -3309,16 +3700,14 @@ ipcMain.on("rename-profile", withTrustedSender((e, { profileIndex, newName }) =>
     scheduleRecoverySave();
   }
 }, null));
-ipcMain.handle("create-tab", withTrustedSender((e, { tabId, url, inc, afterTabId }) => {
+ipcMain.handle("create-tab", withTrustedSender((e, { tabId, url, afterTabId } = {}) => {
   const w = getSenderWindow(e.sender);
   if (!w) return;
   const pIdx = w.profileIndex;
   const u = url || "https://www.google.com/";
-  const isIncognito = !!inc;
   openTabInProfile(pIdx, {
     id: tabId,
-    url: u,
-    incognito: isIncognito
+    url: u
   }, {
     win: w,
     afterTabId: typeof afterTabId === "string" && afterTabId.length ? afterTabId : null
@@ -3425,15 +3814,18 @@ ipcMain.handle("navigate-to", withTrustedSender((e, u) => {
   }
   
   if (tu === "chrome://extensions" || tu === "chrome://newtab" || tu === "chrome://offline") {
-    return loadTabUrl(activeTabId, w.profileIndex, tu, {
+    loadTabUrl(activeTabId, w.profileIndex, tu, {
       source: tu === "chrome://newtab" ? "new-tab" : "internal"
     });
+    return true;
   }
   if (tu.startsWith("chrome://") && INTERNAL_PAGES.has(tu)) {
-    return loadTabUrl(activeTabId, w.profileIndex, tu, { source: "internal" });
+    loadTabUrl(activeTabId, w.profileIndex, tu, { source: "internal" });
+    return true;
   }
   if (appUtils.isTrustedAppPage(tu, TRUSTED_PAGE_FILES)) {
-    return loadTabUrl(activeTabId, w.profileIndex, tu, { source: "internal" });
+    loadTabUrl(activeTabId, w.profileIndex, tu, { source: "internal" });
+    return true;
   }
   const templates = {
     google: "https://www.google.com/search?q=",
@@ -3463,8 +3855,12 @@ ipcMain.handle("navigate-to", withTrustedSender((e, u) => {
       final = t + encodeURIComponent(tu);
     }
   }
-  if (isHttpUrl(final)) return loadTabUrl(activeTabId, w.profileIndex, final, { source: "navigate" });
-  return loadTabUrl(activeTabId, w.profileIndex, "chrome://newtab", { source: "new-tab" });
+  if (isHttpUrl(final)) {
+    loadTabUrl(activeTabId, w.profileIndex, final, { source: "navigate" });
+    return true;
+  }
+  loadTabUrl(activeTabId, w.profileIndex, "chrome://newtab", { source: "new-tab" });
+  return true;
 }, null));
 ipcMain.handle("go-back", withTrustedSender((e) => {
   const w = getSenderWindow(e.sender);
@@ -3520,12 +3916,13 @@ ipcMain.handle("load-extension", withTrustedSender(async (e, p) => {
   if (w.incognitoWindow) return { success: false, error: "Extensions cannot be installed from incognito windows." };
   const pIdx = w.profileIndex;
   try {
+    const manager = await ensureExtensionRuntime(w);
     const inspection = browserSecurity.inspectExtensionDirectory(p);
     const approved = await confirmExtensionInstall(w, p, inspection);
     if (!approved) return { success: false, error: "Installation cancelled." };
 
     const sess = getSessionForWindow(w);
-    const ext = await extensionManager.loadUnpackedExtension(pIdx, sess, p);
+    const ext = await manager.loadUnpackedExtension(pIdx, sess, p);
     const extensionStore = getProfileExtensionStore(pIdx);
     if (!extensionStore.includes(p)) extensionStore.push(p);
     storeExtensionMetadata(pIdx, p, inspection);
@@ -3535,19 +3932,21 @@ ipcMain.handle("load-extension", withTrustedSender(async (e, p) => {
     return { success: false, error: err && err.message ? err.message : "Unknown error" };
   }
 }, { success: false, error: "Untrusted sender." }));
-ipcMain.handle("get-extensions", withTrustedSender((e) => {
+ipcMain.handle("get-extensions", withTrustedSender(async (e) => {
   const w = getSenderWindow(e.sender);
   if (w && w.incognitoWindow) return [];
+  const manager = await ensureExtensionRuntime(w);
   const sess = getSessionForWindow(w);
   const pIdx = w ? w.profileIndex : 0;
-  return extensionManager.getExtensions(pIdx, sess);
+  return manager.getExtensions(pIdx, sess);
 }, []));
 ipcMain.handle("remove-extension", withTrustedSender(async (e, id) => {
   const w = getSenderWindow(e.sender);
   if (w && w.incognitoWindow) return { success: false, error: "Extensions cannot be managed from incognito windows." };
+  const manager = await ensureExtensionRuntime(w);
   const pIdx = w ? w.profileIndex : 0;
   const sess = getSessionForWindow(w);
-  const result = await extensionManager.removeExtension(pIdx, sess, id);
+  const result = await manager.removeExtension(pIdx, sess, id);
   if (result.success && result.source === extensionManagerModule.UNPACKED_SOURCE && result.path) {
     removeStoredExtensionForProfile(pIdx, result.path);
     saveS();
@@ -3568,8 +3967,9 @@ ipcMain.handle("update-extensions", withTrustedSender(async (e) => {
   const w = getSenderWindow(e.sender);
   if (!w) return { success: false, error: "No window." };
   if (w.incognitoWindow) return { success: false, error: "Extensions cannot be updated from incognito windows." };
+  const manager = await ensureExtensionRuntime(w);
   const sess = getSessionForWindow(w);
-  return extensionManager.updateExtensions(w.profileIndex, sess);
+  return manager.updateExtensions(w.profileIndex, sess);
 }, { success: false, error: "Untrusted sender." }));
 ipcMain.handle("get-app-version", withTrustedSender(() => {
   return app.getVersion();
@@ -3583,7 +3983,7 @@ ipcMain.handle("get-language-settings", withTrustedSender(() => {
     onboardingCompleted: getOnboardingCompleted(),
     platform: getCurrentUiPlatform()
   };
-}, () => ({ locale: null, onboardingCompleted: true, platform: getCurrentUiPlatform() })));
+}, null));
 ipcMain.handle("set-language", withTrustedSender((e, locale) => {
   const nextState = appUtils.resolveLanguageSettingsState({
     currentLocale: getCurrentLocale(),
@@ -3595,15 +3995,16 @@ ipcMain.handle("set-language", withTrustedSender((e, locale) => {
   bSett.onboardingCompleted = nextState.onboardingCompleted;
   saveS();
   return nextState;
-}, () => ({
-  locale: getCurrentLocale(),
-  onboardingCompleted: getOnboardingCompleted()
-})));
+}, null));
 ipcMain.handle("check-for-updates", withTrustedSender((e) => {
   return checkForUpdates("manual");
 }, null));
-ipcMain.handle("get-adblock-state", withTrustedSender(() => {
-  return adblockManager ? adblockManager.getState() : {
+ipcMain.handle("get-adblock-state", withTrustedSender(async () => {
+  try {
+    const manager = await ensureAdblockRuntime({ blockingReady: true });
+    return manager.getState();
+  } catch (_error) {
+    return {
     customRules: "",
     hasCustomRules: false,
     lists: [],
@@ -3617,57 +4018,65 @@ ipcMain.handle("get-adblock-state", withTrustedSender(() => {
       refreshIntervalMs: null,
       builtInListCount: 0
     }
-  };
+    };
+  }
 }, null));
-ipcMain.handle("update-adblock-rules", withTrustedSender((e, r) => {
-  return adblockManager ? adblockManager.updateCustomRules(r || "") : null;
+ipcMain.handle("update-adblock-rules", withTrustedSender(async (e, r) => {
+  const manager = await ensureAdblockRuntime({ blockingReady: true });
+  return manager.updateCustomRulesAsync(r || "");
 }, null));
-ipcMain.handle("set-adblock-list-enabled", withTrustedSender((e, { listId, enabled }) => {
-  return adblockManager ? adblockManager.setListEnabled(listId, enabled) : null;
+ipcMain.handle("set-adblock-list-enabled", withTrustedSender(async (e, { listId, enabled }) => {
+  const manager = await ensureAdblockRuntime({ blockingReady: true });
+  return manager.setListEnabledAsync(listId, enabled);
 }, null));
 ipcMain.handle("refresh-adblock-lists", withTrustedSender(async () => {
-  return adblockManager ? adblockManager.refreshBuiltInLists({ force: true }) : null;
+  const manager = await ensureAdblockRuntime({ blockingReady: true });
+  return manager.refreshBuiltInLists({ force: true });
 }, null));
-ipcMain.handle("reset-adblock-defaults", withTrustedSender(() => {
-  return adblockManager ? adblockManager.resetToDefaults() : null;
+ipcMain.handle("reset-adblock-defaults", withTrustedSender(async () => {
+  const manager = await ensureAdblockRuntime({ blockingReady: true });
+  return manager.resetToDefaultsAsync();
 }, null));
 
 app.on("window-all-closed", () => {
   intentionalQuit = true;
-  deleteRecoveryState();
+  void deleteRecoveryState();
   if (process.platform !== "darwin") app.quit();
 });
 
-app.on("before-quit", () => {
+app.on("before-quit", (event) => {
+  if (quitFlushComplete) return;
+  event.preventDefault();
   intentionalQuit = true;
-  deleteRecoveryState();
+  if (memoryController) memoryController.stop();
+  intentPreconnector.clear();
+  if (quitFlushPromise) return;
+  quitFlushPromise = Promise.all([
+    historyWriter.flush(),
+    settingsWriter.flush(),
+    adblockManager && typeof adblockManager.flushPersistence === "function"
+      ? adblockManager.flushPersistence()
+      : Promise.resolve()
+  ]).then(() => deleteRecoveryState()).catch(() => {}).finally(() => {
+    quitFlushComplete = true;
+    app.quit();
+  });
 });
 
 app.whenReady().then(() => {
+  startupMilestones.appReadyMs = performance.now();
   registerAppProtocol();
-  setMacDockIcon();
   applyDnsOverHttpsSettings();
-  restoreRecoveryState();
-  const extensionIntegration = getExtensionIntegration();
-  extensionManager = extensionManagerModule.createExtensionManager({
-    app,
-    dialog,
-    ElectronChromeExtensions: extensionIntegration.ElectronChromeExtensions,
-    chromeWebStore: extensionIntegration.chromeWebStore,
-    createTab: createExtensionTab,
-    selectTab: selectExtensionTab,
-    removeTab: removeExtensionTab,
-    createWindow: createExtensionWindow,
-    removeWindow: removeExtensionWindow,
-    assignTabDetails: assignExtensionTabDetails,
-    requestPermissions: requestExtensionPermissions
+  startupDataPromise = loadStartupData().catch((error) => {
+    console.warn("Unable to restore startup data:", error && error.message ? error.message : error);
+    return false;
   });
-  adblockManager = adblock.createAdblockManager({
-    userDataDir: app.getPath("userData")
-  });
-  adblockManager.initialize({ lazy: true });
   createW(0);
-  configureAutoUpdater();
+  startupEventLoopDelay.enable();
+  runAfterFirstWindowReady(() => void runLegacyIncognitoPartitionMigration(), 3000);
+  runAfterFirstWindowReady(setMacDockIcon, 300);
+  runAfterFirstWindowReady(initializeMemoryController, 1200);
+  if (!DISABLE_BACKGROUND_NETWORK) runAfterFirstWindowReady(configureAutoUpdater, 3000);
   scheduleAdblockWarmup();
   scheduleStartupUpdateCheck();
 });

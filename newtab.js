@@ -330,6 +330,11 @@
     link.setAttribute('aria-label', displayTitle);
     link.title = displayTitle;
     link.append(label, title);
+    link.addEventListener('pointerenter', () => {
+      if (pageBridge && typeof pageBridge.preconnectOrigin === 'function') {
+        void pageBridge.preconnectOrigin(shortcut.url);
+      }
+    }, { once: true });
     link.addEventListener('click', (event) => {
       event.preventDefault();
       navigateShortcut(shortcut.url);
@@ -473,6 +478,10 @@
     let py = 0;
 
     const paintParallax = () => {
+      if (document.hidden) {
+        frame = null;
+        return;
+      }
       orbLayer.style.transform = `translate3d(${px}px, ${py}px, 0)`;
       cardOrbLayer.style.transform = `translate3d(${px * 0.55}px, ${py * 0.55}px, 0)`;
       frame = null;
@@ -513,6 +522,33 @@
       scheduleClockTick();
     });
   }
-  window.addEventListener('storage', handleStorageEvent);
-  startReducedMotionParallax();
+  const recordNewTabInteractive = () => {
+    try {
+    const intentEpochMs = Number(localStorage.getItem('orion-newtab-intent-at'));
+    const interactiveEpochMs = performance.timeOrigin + performance.now();
+    if (Number.isFinite(intentEpochMs) && intentEpochMs > 0 && interactiveEpochMs >= intentEpochMs) {
+      window.__orionNewtabInteractiveMs = interactiveEpochMs - intentEpochMs;
+      localStorage.removeItem('orion-newtab-intent-at');
+    }
+    } catch (_error) { }
+  };
+  window.addEventListener('storage', (event) => {
+    handleStorageEvent(event);
+    if (event.key === 'orion-newtab-intent-at') recordNewTabInteractive();
+  });
+  document.documentElement.dataset.orionNewtabReady = 'true';
+  recordNewTabInteractive();
+  if (typeof performance !== 'undefined' && typeof performance.mark === 'function') {
+    performance.mark('orion-newtab-interactive');
+  }
+  document.body.classList.toggle('effects-paused', document.hidden);
+  document.addEventListener('visibilitychange', () => {
+    document.body.classList.toggle('effects-paused', document.hidden);
+  });
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      document.body.classList.add('effects-ready');
+      startReducedMotionParallax();
+    });
+  });
 })();

@@ -1,6 +1,7 @@
 const DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36";
 const DEFAULT_ACCEPT_LANGUAGE = "en-US,en;q=0.9";
 const DEFAULT_DOH_TEMPLATE = "https://cloudflare-dns.com/dns-query";
+const INCOGNITO_PROFILE_BASE = 10000;
 const DEFAULT_PRIVACY_SETTINGS = Object.freeze({
   httpsOnlyMode: true,
   antiFingerprinting: true,
@@ -179,6 +180,55 @@ function buildHttpsOnlyErrorPage(url, localeStrings = {}) {
 </html>`)}`
 }
 
+function getLegacyPersistentIncognitoPartitionNames(entries = []) {
+  if (!Array.isArray(entries)) return [];
+
+  return Array.from(new Set(entries.map((entry) => {
+    if (typeof entry === "string") return entry;
+    return entry && typeof entry.name === "string" ? entry.name : "";
+  }).filter((name) => {
+    const match = /^profile-(\d+)$/.exec(name);
+    return !!match && Number(match[1]) >= INCOGNITO_PROFILE_BASE;
+  }))).sort((left, right) => left.localeCompare(right, undefined, { numeric: true }));
+}
+
+async function clearLegacyPersistentIncognitoPartitions(options = {}) {
+  const partitionNames = getLegacyPersistentIncognitoPartitionNames(options.partitionNames);
+  const getSession = options.getSession;
+  const cleared = [];
+  const failed = [];
+
+  if (typeof getSession !== "function") {
+    return { cleared, failed: partitionNames, complete: false };
+  }
+
+  for (const partitionName of partitionNames) {
+    try {
+      const targetSession = getSession(`persist:${partitionName}`);
+      if (
+        !targetSession ||
+        typeof targetSession.clearStorageData !== "function" ||
+        typeof targetSession.clearCache !== "function"
+      ) {
+        throw new Error("Session cleanup APIs are unavailable.");
+      }
+
+      const results = await Promise.allSettled([
+        targetSession.clearStorageData(),
+        targetSession.clearCache()
+      ]);
+      if (results.some((result) => result.status === "rejected")) {
+        throw new Error("One or more session cleanup operations failed.");
+      }
+      cleared.push(partitionName);
+    } catch (_error) {
+      failed.push(partitionName);
+    }
+  }
+
+  return { cleared, failed, complete: failed.length === 0 };
+}
+
 module.exports = {
   DEFAULT_ACCEPT_LANGUAGE,
   DEFAULT_DOH_TEMPLATE,
@@ -186,7 +236,9 @@ module.exports = {
   DEFAULT_USER_AGENT,
   buildBrowserSettingsPayload,
   buildHttpsOnlyErrorPage,
+  clearLegacyPersistentIncognitoPartitions,
   createFingerprintingProtectionScript,
+  getLegacyPersistentIncognitoPartitionNames,
   hardenRequestHeaders,
   sanitizePrivacySettings,
   updatePrivacySettings,

@@ -4,9 +4,14 @@ const localization = window.OrionLocalization;
 
 let tabBar, newTabBtn, groupTabsBtn, groupTabsMenu, clearTabsBtn, addressBar, backBtn, forwardBtn, reloadBtn, readerBtn, aiSummaryBtn, aiSummarySidebar, closeAiSummaryBtn, aiSummaryContent, historyBtn, historySidebar, closeHistoryBtn, historyList, chromeContainer, profileBtn, profileMenu, profileListContainer, addProfileBtn, settingsBtn, settingsSidebar, closeSettingsBtn, profileColorPicker, renameModal, renameInput, renameSaveBtn, renameCancelBtn, pendingRenameProfileId = null, bookmarkBtn, bookmarksSidebar, closeBookmarksBtn, bookmarksList, downloadsBtn, downloadsSidebar, closeDownloadsBtn, downloadsList, findBar, findInput, findResults, findPrev, findNext, findClose, openExtensionsBtn, progressBarContainer, progressBar, addBookmarkBtn, bookmarksBar, bookmarkDestModal, addToBarBtn, addToNewTabBtn, addToBothBtn, cancelBookmarkBtn, checkUpdatesBtn, versionEl, updateStatusEl, startupOverlay, startupLanguagePicker, settingsLanguagePicker, readerToast, extensionActionList, extensionActionsMenuBtn, extensionActionsMenu, extensionActionsMenuList, extensionActionState = null, metrics = () => { }, pendingBookmark = null, activeTabId = null, activeProfile = 0, isIncognitoWindow = false, tabs = [], tabGroups = [], profiles = [];
 let updaterState = { state: 'idle', message: localization.t(localization.DEFAULT_LOCALE, 'updates.ready') };
+let memoryStatus = { supported: true, enabled: false, usedMb: 0, limitMb: 0, overLimit: false, unloadedTabCount: 0 };
+let ramLimitSettings = { mode: 'off', automaticLimitMb: 0 };
 let currentLocale = localization.DEFAULT_LOCALE;
 let currentPlatform = getBrowserUiPlatform();
-let hasStartedRenderer = false;
+let bootstrapSnapshot = null;
+let settingsInitialized = false;
+let adblockInitialized = false;
+let extensionToolbarInitialized = false;
 let discoInterval = null;
 let discoModeBtn = null;
 let adblockState = null;
@@ -424,6 +429,62 @@ function updateDynamicTranslationContent() {
   if (colorInput) colorInput.setAttribute('placeholder', t('settings.colorPlaceholder'));
   if (applyBtn) applyBtn.textContent = t('settings.applyColor');
   if (discoModeBtn) discoModeBtn.textContent = discoInterval ? t('settings.stopDisco') : t('settings.discoMode');
+  renderRamLimitControl();
+  renderMemoryStatus();
+}
+
+function formatMemoryNumber(value) {
+  const numeric = Number.isFinite(value) ? value : 0;
+  return numeric.toLocaleString(localization.getIntlLocale(currentLocale), {
+    maximumFractionDigits: 1
+  });
+}
+
+function renderRamLimitControl() {
+  const select = document.getElementById('ram-limit-select');
+  const automaticOption = document.getElementById('ram-limit-automatic-option');
+  if (!select || !automaticOption) return;
+
+  const automaticLimitMb = Number.isInteger(ramLimitSettings.automaticLimitMb)
+    ? ramLimitSettings.automaticLimitMb
+    : 0;
+  automaticOption.textContent = automaticLimitMb > 0
+    ? t('settings.ramAutomatic', { limit: formatMemoryNumber(automaticLimitMb / 1024) })
+    : t('settings.ramAutomaticUnavailable');
+  automaticOption.disabled = automaticLimitMb <= 0 && ramLimitSettings.mode !== 'automatic';
+  select.value = ramLimitSettings.mode;
+}
+
+function renderMemoryStatus() {
+  const usageEl = document.getElementById('memory-usage-status');
+  const unloadedEl = document.getElementById('memory-unloaded-status');
+  if (!usageEl || !unloadedEl) return;
+
+  if (!memoryStatus || memoryStatus.supported === false || !Number.isFinite(memoryStatus.usedMb)) {
+    usageEl.textContent = t('settings.ramUnavailable');
+  } else if (memoryStatus.enabled && memoryStatus.limitMb > 0) {
+    usageEl.textContent = t('settings.ramUsageWithLimit', {
+      used: formatMemoryNumber(memoryStatus.usedMb),
+      limit: formatMemoryNumber(memoryStatus.limitMb / 1024)
+    });
+  } else {
+    usageEl.textContent = t('settings.ramUsageNoLimit', {
+      used: formatMemoryNumber(memoryStatus.usedMb)
+    });
+  }
+
+  const count = Number.isFinite(memoryStatus && memoryStatus.unloadedTabCount)
+    ? Math.max(0, Math.floor(memoryStatus.unloadedTabCount))
+    : 0;
+  unloadedEl.textContent = t(count === 1 ? 'settings.ramUnloadedTab' : 'settings.ramUnloadedTabs', { count });
+  const card = usageEl.closest('.memory-status-card');
+  if (card) card.classList.toggle('over-limit', !!(memoryStatus && memoryStatus.overLimit));
+}
+
+function applyMemoryStatus(status) {
+  if (!status || typeof status !== 'object') return;
+  memoryStatus = { ...memoryStatus, ...status };
+  renderMemoryStatus();
 }
 
 function formatAdblockTimestamp(value) {
@@ -641,12 +702,6 @@ function hideStartupOverlay() {
   document.body.classList.remove('onboarding-active');
 }
 
-function ensureRendererStarted() {
-  if (hasStartedRenderer) return;
-  hasStartedRenderer = true;
-  ipcRenderer.send('renderer-ready');
-}
-
 function getStoredLocale() {
   try {
     return localization.sanitizeLocale(safeGetStorage('orion-locale'));
@@ -674,7 +729,6 @@ async function changeLanguage(locale, options = {}) {
 
   if (options.finishOnboarding) {
     hideStartupOverlay();
-    ensureRendererStarted();
   }
 }
 
@@ -843,7 +897,10 @@ function applyColor(c) {
   document.body.style.setProperty('--sidebar-bg', `rgba(${r},${g},${b},0.9)`);
 }
 
-function init() {
+function init(snapshot = {}) {
+  bootstrapSnapshot = snapshot || {};
+  window.__orionBootstrapSnapshot = bootstrapSnapshot;
+  window.__orionStartupPerformance = bootstrapSnapshot.startupPerformance || null;
   tabBar = document.getElementById('tab-bar');
   newTabBtn = document.getElementById('new-tab-btn');
   groupTabsBtn = document.getElementById('group-tabs-btn');
@@ -928,8 +985,10 @@ function init() {
     resetButton: resetAdblockBtn
   };
 
-  void loadAdblockState();
-  initExtensionActionToolbar();
+  if (bootstrapSnapshot.updaterState) {
+    updaterState = { ...updaterState, ...bootstrapSnapshot.updaterState };
+  }
+  if (bootstrapSnapshot.memoryStatus) applyMemoryStatus(bootstrapSnapshot.memoryStatus);
 
   const sidebars = [historySidebar, settingsSidebar, bookmarksSidebar, downloadsSidebar, adblockSidebar, aiSummarySidebar].filter(Boolean);
   const toggle = (s, v) => {
@@ -950,6 +1009,10 @@ function init() {
   if (adblockBtn) adblockBtn.onclick = () => {
     adblockText.value = safeGetStorage('adblock-rules', '');
     toggle(adblockSidebar, true);
+    if (!adblockInitialized) {
+      adblockInitialized = true;
+      void loadAdblockState();
+    }
   };
   if (closeAdblockBtn) closeAdblockBtn.onclick = () => toggle(adblockSidebar, false);
   if (saveAdblockBtn) saveAdblockBtn.onclick = () => {
@@ -997,15 +1060,7 @@ function init() {
 
   renderUpdaterState();
 
-  ipcRenderer.invoke('get-updater-state').then((state) => {
-    if (!state) return;
-    updaterState = { ...updaterState, ...state };
-    renderUpdaterState();
-  });
-
-  if (versionEl) ipcRenderer.invoke('get-app-version').then((v) => {
-    versionEl.textContent = `v${v}`;
-  });
+  if (versionEl && bootstrapSnapshot.version) versionEl.textContent = `v${bootstrapSnapshot.version}`;
 
   const updateChromeMetrics = () => {
     metricsFrame = null;
@@ -1040,13 +1095,21 @@ function init() {
   renderBookmarksBar();
 
   if (addressBar) {
+    addressBar.oninput = () => {
+      void ipcRenderer.invoke('preconnect-origin', addressBar.value.trim());
+    };
     addressBar.onkeydown = (e) => {
       if (e.key === 'Enter') {
         let url = addressBar.value.trim();
         if (url && !url.includes('.') && !url.includes('://')) {
           url = (S_ENG[safeGetStorage('default-search-engine', 'google')] || S_ENG.google) + encodeURIComponent(url);
         }
-        ipcRenderer.invoke('navigate-to', url);
+        const navigationIntentAt = performance.now();
+        window.__orionLastNavigationDispatchPromise = ipcRenderer.invoke('navigate-to', url).then(() => {
+          const dispatchMs = performance.now() - navigationIntentAt;
+          window.__orionLastNavigationDispatchMs = dispatchMs;
+          return dispatchMs;
+        });
         addressBar.blur();
       }
     };
@@ -1075,11 +1138,17 @@ function init() {
   }
   if (aiSummaryBtn) aiSummaryBtn.onclick = () => openAiSummaryPanel(toggle);
   if (closeAiSummaryBtn) closeAiSummaryBtn.onclick = () => toggle(aiSummarySidebar, false);
-  if (newTabBtn) newTabBtn.onclick = () => ipcRenderer.invoke('create-tab', {
-    tabId: `p-${activeProfile}-t-${Date.now()}`,
-    url: 'chrome://newtab',
-    inc: isIncognitoWindow
-  });
+  if (newTabBtn) newTabBtn.onclick = () => {
+    const intentEpochMs = performance.timeOrigin + performance.now();
+    try {
+      localStorage.setItem('orion-newtab-intent-at', String(intentEpochMs));
+    } catch (_error) { }
+    ipcRenderer.invoke('create-tab', {
+      tabId: `p-${activeProfile}-t-${Date.now()}`,
+      url: 'chrome://newtab',
+      inc: isIncognitoWindow
+    });
+  };
   const incognitoTabBtn = document.getElementById('incognito-tab-btn');
   if (incognitoTabBtn) incognitoTabBtn.onclick = () => ipcRenderer.invoke('open-incognito-window', 'chrome://newtab');
   if (addBookmarkBtn) addBookmarkBtn.onclick = () => openBookmarkModal();
@@ -1151,6 +1220,10 @@ function init() {
   };
   if (closeBookmarksBtn) closeBookmarksBtn.onclick = () => toggle(bookmarksSidebar, false);
   if (settingsBtn) settingsBtn.onclick = () => {
+    if (!settingsInitialized) {
+      settingsInitialized = true;
+      initSettings(bootstrapSnapshot.browserSettings || {}, bootstrapSnapshot.memoryStatus || null);
+    }
     toggle(settingsSidebar, true);
     const hero = document.getElementById('settings-hero');
     const opened = safeGetStorage('settings-opened-once', 'false') === 'true';
@@ -1164,7 +1237,10 @@ function init() {
     closePanels();
     ipcRenderer.invoke('navigate-to', 'chrome://extensions');
   };
-  if (downloadsBtn) downloadsBtn.onclick = () => toggle(downloadsSidebar, !downloadsSidebar.classList.contains('open'));
+  if (downloadsBtn) downloadsBtn.onclick = () => {
+    if (downloadsSidebar && !downloadsSidebar.dataset.initialized) downloadsSidebar.dataset.initialized = 'true';
+    toggle(downloadsSidebar, !downloadsSidebar.classList.contains('open'));
+  };
   if (closeDownloadsBtn) closeDownloadsBtn.onclick = () => toggle(downloadsSidebar, false);
   if (findInput) {
     findInput.oninput = () => {
@@ -1189,11 +1265,16 @@ function init() {
     if (findBar) findBar.style.display = 'none';
     ipcRenderer.invoke('stop-find-in-page', 'clearSelection');
   };
-  initSettings();
+  ipcRenderer.on('extensions-ready', () => {
+    if (extensionToolbarInitialized) return;
+    extensionToolbarInitialized = true;
+    document.documentElement.dataset.extensionsReady = 'true';
+    initExtensionActionToolbar();
+  });
   applyTranslations();
 }
 
-function initSettings() {
+function initSettings(initialSettings = {}, initialMemoryStatus = null) {
   const colors = ['#e9e9f0', '#ffffff', '#f0f4f8', '#e3f2fd', '#e8f5e9', '#fff3e0', '#fce4ec', '#f3e5f5', '#202124', '#3c4043', '#E0115F'];
   if (!profileColorPicker) return;
   
@@ -1244,6 +1325,7 @@ function initSettings() {
   const httpsOnlyToggle = document.getElementById('https-only-toggle');
   const antiFingerprintingToggle = document.getElementById('anti-fingerprinting-toggle');
   const dnsOverHttpsToggle = document.getElementById('dns-over-https-toggle');
+  const ramLimitSelect = document.getElementById('ram-limit-select');
   const se = document.getElementById('search-engine-select');
   const applySharedSettings = (settings = {}) => {
     if (ss && typeof settings.showSeconds === 'boolean') {
@@ -1259,6 +1341,13 @@ function initSettings() {
     if (dnsOverHttpsToggle && typeof settings.dnsOverHttpsEnabled === 'boolean') {
       dnsOverHttpsToggle.checked = settings.dnsOverHttpsEnabled;
     }
+    if (settings.ramLimitMode === 'off' || settings.ramLimitMode === 'automatic') {
+      ramLimitSettings.mode = settings.ramLimitMode;
+    }
+    if (Number.isInteger(settings.automaticRamLimitMb)) {
+      ramLimitSettings.automaticLimitMb = settings.automaticRamLimitMb;
+    }
+    renderRamLimitControl();
   };
   if (vt) {
     vt.checked = localStorage.getItem('vertical-tabs') === 'true';
@@ -1273,10 +1362,9 @@ function initSettings() {
   }
   if (ss) {
     applySharedSettings({
-      showSeconds: safeGetStorage('show-seconds', 'false') === 'true'
-    });
-    void resolveShowSecondsSetting().then((enabled) => {
-      applySharedSettings({ showSeconds: enabled });
+      showSeconds: typeof initialSettings.showSeconds === 'boolean'
+        ? initialSettings.showSeconds
+        : safeGetStorage('show-seconds', 'false') === 'true'
     });
 
     ss.onchange = async (e) => {
@@ -1316,6 +1404,19 @@ function initSettings() {
       } catch (_error) {}
     };
   }
+  if (ramLimitSelect) {
+    ramLimitSelect.onchange = async (event) => {
+      const previousMode = ramLimitSettings.mode;
+      const ramLimitMode = event.target.value;
+      try {
+        const settings = await ipcRenderer.invoke('set-browser-settings', { ramLimitMode });
+        if (settings) applySharedSettings(settings);
+      } catch (_error) {
+        ramLimitSettings.mode = previousMode;
+        renderRamLimitControl();
+      }
+    };
+  }
   if (se) {
     se.innerHTML = SEARCH_ENGINES.map((engine) => `<option value="${engine.id}">${engine.label}</option>`).join('');
     se.value = localStorage.getItem('default-search-engine') || 'google';
@@ -1327,13 +1428,15 @@ function initSettings() {
     };
   }
 
-  void ipcRenderer.invoke('get-browser-settings').then((settings) => {
-    if (settings) applySharedSettings(settings);
-  }).catch(() => {});
+  applySharedSettings(initialSettings);
+  if (initialMemoryStatus) applyMemoryStatus(initialMemoryStatus);
 
   ipcRenderer.on('browser-settings-changed', (_event, settings) => {
     if (!settings) return;
     applySharedSettings(settings);
+  });
+  ipcRenderer.on('memory-status-changed', (_event, status) => {
+    applyMemoryStatus(status);
   });
 
   updateDynamicTranslationContent();
@@ -1893,6 +1996,7 @@ function renderBookmarksBar() {
   const fragment = document.createDocumentFragment();
   bms.forEach((b) => {
     const el = buildBookmarkBarItem(b);
+    el.addEventListener('pointerenter', () => void ipcRenderer.invoke('preconnect-origin', b.url), { once: true });
     el.onclick = () => ipcRenderer.invoke('navigate-to', b.url);
     fragment.appendChild(el);
   });
@@ -1912,6 +2016,7 @@ function renderBookmarks() {
   const fragment = document.createDocumentFragment();
   bms.forEach((b) => {
     const el = buildBookmarkItem(b);
+    el.addEventListener('pointerenter', () => void ipcRenderer.invoke('preconnect-origin', b.url), { once: true });
     const removeBtn = el.querySelector('.remove-bm');
     el.onclick = (e) => {
       if (e.target === removeBtn) return;
@@ -1997,21 +2102,17 @@ document.addEventListener('keydown', (event) => {
 });
 
 async function bootstrap() {
-  init();
-  ensureRendererStarted();
+  let snapshot = null;
   try {
-    const snapshot = await ipcRenderer.invoke('get-window-bootstrap-state');
-    hydrateFromBootstrapState(snapshot);
-  } catch (_error) { }
+    snapshot = await ipcRenderer.invoke('bootstrap-window');
+  } catch (error) {
+    window.__orionBootstrapError = error && error.message ? error.message : String(error);
+    console.error('Orion bootstrap failed:', error);
+  }
 
-  let persistedLocale = null;
-  let onboardingCompleted = true;
-  try {
-    const response = await ipcRenderer.invoke('get-language-settings');
-    persistedLocale = localization.sanitizeLocale(response && response.locale);
-    onboardingCompleted = response && response.onboardingCompleted === false ? false : true;
-    currentPlatform = localization.normalizeUiPlatform(response && response.platform ? response.platform : currentPlatform);
-  } catch (_error) { }
+  const persistedLocale = localization.sanitizeLocale(snapshot && snapshot.locale);
+  const onboardingCompleted = snapshot && snapshot.onboardingCompleted === false ? false : true;
+  currentPlatform = localization.normalizeUiPlatform(snapshot && snapshot.platform ? snapshot.platform : currentPlatform);
 
   const bootstrapState = appUtils.resolveRendererBootstrapState({
     onboardingCompleted,
@@ -2022,6 +2123,8 @@ async function bootstrap() {
   });
 
   setLocale(bootstrapState.locale);
+  init(snapshot || {});
+  hydrateFromBootstrapState(snapshot);
   if (!bootstrapState.showOnboarding) {
     try {
       localStorage.setItem('orion-locale', bootstrapState.locale);
@@ -2030,6 +2133,23 @@ async function bootstrap() {
   applyTranslations();
   if (bootstrapState.showOnboarding) showStartupOverlay();
   else hideStartupOverlay();
+  document.documentElement.dataset.orionReady = 'true';
+  if (window.__orionStartupPerformance) {
+    const mainTimeOriginMs = Number(window.__orionStartupPerformance.mainTimeOriginMs);
+    const mainStartedMs = Number(window.__orionStartupPerformance.mainStartedMs);
+    if (Number.isFinite(mainTimeOriginMs) && Number.isFinite(mainStartedMs)) {
+      window.__orionStartupPerformance.shellInteractiveMs = Math.max(
+        0,
+        performance.timeOrigin + performance.now() - mainTimeOriginMs - mainStartedMs
+      );
+    }
+  }
+  if (typeof performance !== 'undefined' && typeof performance.mark === 'function') {
+    performance.mark('orion-shell-interactive');
+  }
+  requestAnimationFrame(() => {
+    document.documentElement.dataset.orionFirstPaint = 'true';
+  });
 }
 
 bootstrap();

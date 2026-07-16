@@ -7,11 +7,12 @@ const vm = require("vm");
 const preloadPath = path.join(__dirname, "..", "preload.js");
 const preloadSource = fs.readFileSync(preloadPath, "utf8");
 
-function runPreload(href) {
+function runPreload(href, preloadDir = "C:\\Program Files\\Orion\\resources\\app.asar") {
   const requireCalls = [];
   const invokeCalls = [];
   const sendCalls = [];
   const onCalls = [];
+  const onceCalls = [];
   const removeCalls = [];
   const exposedApis = {};
   let browserActionInjected = false;
@@ -27,6 +28,9 @@ function runPreload(href) {
     on: (...args) => {
       onCalls.push(args);
     },
+    once: (...args) => {
+      onceCalls.push(args);
+    },
     removeListener: (...args) => {
       removeCalls.push(args);
     }
@@ -40,6 +44,9 @@ function runPreload(href) {
 
   const context = vm.createContext({
     URL,
+    process: {
+      argv: ["Orion Helper (Renderer)", `--app-path=${preloadDir}`]
+    },
     window: { location: { href } },
     require: (moduleName) => {
       requireCalls.push(moduleName);
@@ -63,24 +70,28 @@ function runPreload(href) {
     invokeCalls,
     sendCalls,
     onCalls,
+    onceCalls,
     removeCalls,
     browserActionInjected
   };
 }
 
-test("preload initializes index bridge and extension action controls", () => {
+test("preload defers extension action controls until extensions are ready", () => {
   const runtime = runPreload("orion://app/index.html");
   assert.ok(runtime.apis.electron);
-  assert.equal(runtime.browserActionInjected, true);
+  assert.equal(runtime.browserActionInjected, false);
+  assert.deepEqual(runtime.requireCalls, ["electron"]);
+  assert.equal(runtime.onceCalls[0][0], "extensions-ready");
+  runtime.onceCalls[0][1]();
   assert.deepEqual(runtime.requireCalls, ["electron", "electron-chrome-extensions/browser-action"]);
 });
 
-test("index page allows renderer-ready send and startup/navigation invokes", () => {
+test("index page allows one bootstrap and navigation invokes", () => {
   const runtime = runPreload("orion://app/index.html");
   const { electron } = runtime.apis;
 
   const invokeResult = electron.invoke("navigate-to", "https://example.com");
-  const bootstrapInvokeResult = electron.invoke("get-window-bootstrap-state");
+  const bootstrapInvokeResult = electron.invoke("bootstrap-window");
   const settingsInvokeResult = electron.invoke("get-browser-settings");
   const settingsUpdateResult = electron.invoke("set-browser-settings", {
     showSeconds: true,
@@ -98,7 +109,7 @@ test("index page allows renderer-ready send and startup/navigation invokes", () 
   assert.equal(settingsUpdateResult, "invoke-result");
   assert.equal(runtime.invokeCalls.length, 4);
   assert.deepEqual(runtime.invokeCalls[0], ["navigate-to", "https://example.com"]);
-  assert.deepEqual(runtime.invokeCalls[1], ["get-window-bootstrap-state"]);
+  assert.deepEqual(runtime.invokeCalls[1], ["bootstrap-window"]);
   assert.deepEqual(runtime.invokeCalls[2], ["get-browser-settings"]);
   assert.deepEqual(runtime.invokeCalls[3], ["set-browser-settings", {
     showSeconds: true,
@@ -106,14 +117,27 @@ test("index page allows renderer-ready send and startup/navigation invokes", () 
     antiFingerprinting: true,
     dnsOverHttpsEnabled: true
   }]);
-  assert.equal(runtime.sendCalls.length, 1);
-  assert.deepEqual(runtime.sendCalls[0], ["renderer-ready"]);
+  assert.equal(runtime.sendCalls.length, 0);
   assert.equal(runtime.onCalls.length, 1);
   assert.equal(runtime.onCalls[0][0], "tab-created");
   assert.equal(typeof runtime.onCalls[0][1], "function");
   assert.equal(runtime.removeCalls.length, 1);
   assert.equal(runtime.removeCalls[0][0], "tab-created");
   assert.equal(typeof runtime.removeCalls[0][1], "function");
+});
+
+test("index page exposes RAM status IPC without widening internal page access", () => {
+  const runtime = runPreload("orion://app/index.html");
+  const { electron } = runtime.apis;
+
+  const statusResult = electron.invoke("get-memory-status");
+  const unsubscribe = electron.on("memory-status-changed", () => {});
+  unsubscribe();
+
+  assert.equal(statusResult, "invoke-result");
+  assert.deepEqual(runtime.invokeCalls, [["get-memory-status"]]);
+  assert.equal(runtime.onCalls[0][0], "memory-status-changed");
+  assert.equal(runtime.removeCalls[0][0], "memory-status-changed");
 });
 
 test("newtab page exposes only the scoped newtab helpers", async () => {
@@ -126,19 +150,22 @@ test("newtab page exposes only the scoped newtab helpers", async () => {
   const navigateResult = await orionPage.navigateTo("example query");
   const localeResult = await orionPage.getLanguageSettings();
   const settingsResult = await orionPage.getBrowserSettings();
+  const preconnectResult = await orionPage.preconnectOrigin("https://example.com/path");
   const unsubscribe = orionPage.on("browser-settings-changed", () => {});
   unsubscribe();
 
   assert.equal(navigateResult, "invoke-result");
   assert.equal(localeResult, "invoke-result");
   assert.equal(settingsResult, "invoke-result");
+  assert.equal(preconnectResult, "invoke-result");
   assert.equal(typeof orionPage.loadExtension, "undefined");
   assert.equal(typeof orionPage.openChromeWebStore, "undefined");
   assert.equal(typeof orionPage.updateExtensions, "undefined");
   assert.deepEqual(runtime.invokeCalls, [
     ["navigate-to", "example query"],
     ["get-language-settings"],
-    ["get-browser-settings"]
+    ["get-browser-settings"],
+    ["preconnect-origin", "https://example.com/path"]
   ]);
   assert.equal(runtime.sendCalls.length, 0);
   assert.equal(runtime.onCalls.length, 1);
@@ -153,11 +180,11 @@ test("packaged file index page keeps the shell bridge", () => {
   const { electron } = runtime.apis;
 
   assert.ok(electron);
-  assert.equal(electron.invoke("get-window-bootstrap-state"), "invoke-result");
+  assert.equal(electron.invoke("bootstrap-window"), "invoke-result");
   electron.send("renderer-ready");
 
-  assert.deepEqual(runtime.invokeCalls, [["get-window-bootstrap-state"]]);
-  assert.deepEqual(runtime.sendCalls, [["renderer-ready"]]);
+  assert.deepEqual(runtime.invokeCalls, [["bootstrap-window"]]);
+  assert.deepEqual(runtime.sendCalls, []);
 });
 
 test("packaged file newtab page keeps the scoped newtab bridge", async () => {
@@ -278,4 +305,22 @@ test("non-app pages block all privileged channels", () => {
   assert.equal(runtime.sendCalls.length, 0);
   assert.equal(runtime.onCalls.length, 0);
   assert.equal(runtime.removeCalls.length, 0);
+});
+
+test("nested and encoded custom-protocol pages do not receive a privileged bridge", () => {
+  const nested = runPreload("orion://app/nested/index.html");
+  const encoded = runPreload("orion://app/nested%2Findex.html");
+
+  assert.deepEqual(nested.apis, {});
+  assert.deepEqual(encoded.apis, {});
+  assert.equal(nested.invokeCalls.length, 0);
+  assert.equal(encoded.invokeCalls.length, 0);
+});
+
+test("file pages outside the exact preload directory do not receive a privileged bridge", () => {
+  const nested = runPreload("file:///C:/Program%20Files/Orion/resources/app.asar/nested/index.html");
+  const outside = runPreload("file:///C:/Users/username/Downloads/index.html");
+
+  assert.deepEqual(nested.apis, {});
+  assert.deepEqual(outside.apis, {});
 });

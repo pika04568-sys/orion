@@ -30,12 +30,12 @@
     "delete-tab-group",
     "get-language-settings",
     "get-reader-content",
-    "get-window-bootstrap-state",
+    "bootstrap-window",
     "open-incognito-window",
+    "preconnect-origin",
     "find-in-page",
-    "get-app-version",
     "get-browser-settings",
-    "get-updater-state",
+    "get-memory-status",
     "go-back",
     "go-forward",
     "navigate-to",
@@ -59,7 +59,6 @@
   const APP_SEND_CHANNELS = Object.freeze([
     "apply-browser-color",
     "fetch-and-show-history",
-    "renderer-ready",
     "set-chrome-metrics",
     "toggle-browser-view",
     "update-default-search-engine",
@@ -69,12 +68,14 @@
     "active-tab-changed",
     "download-started",
     "download-updated",
+    "extensions-ready",
     "find-result",
     "history-data-received",
     "history-loaded",
     "history-updated",
     "keyboard-shortcut",
     "browser-settings-changed",
+    "memory-status-changed",
     "profile-changed",
     "profile-list-updated",
     "reader-mode-changed",
@@ -88,6 +89,7 @@
   const NEWTAB_INVOKE_CHANNELS = Object.freeze([
     "get-language-settings",
     "get-browser-settings",
+    "preconnect-origin",
     "navigate-to"
   ]);
   const OFFLINE_INVOKE_CHANNELS = Object.freeze([
@@ -181,31 +183,74 @@
     }
   }
 
-  function normalizeFilePathCandidates(value) {
-    if (!value || typeof value !== "string") return [];
+  function getCanonicalAppResourceFileName(url, allowedFiles) {
+    if (!allowedFiles || typeof allowedFiles.has !== "function") return null;
+    if (!url || typeof url !== "string" || url.trim() !== url) return null;
+
+    const resourcePrefix = `${ORION_PROTOCOL}//${ORION_HOST}/`;
+    if (url.startsWith(resourcePrefix)) {
+      const resourceWithSuffix = url.slice(resourcePrefix.length);
+      const suffixIndex = resourceWithSuffix.search(/[?#]/);
+      const resource = suffixIndex === -1
+        ? resourceWithSuffix
+        : resourceWithSuffix.slice(0, suffixIndex);
+
+      if (!resource || resource.includes("/") || resource.includes("\\") || /%[0-9a-f]{2}/i.test(resource)) {
+        return null;
+      }
+
+      try {
+        const parsed = new URL(url);
+        if (
+          parsed.protocol !== ORION_PROTOCOL ||
+          parsed.hostname !== ORION_HOST ||
+          parsed.pathname !== `/${resource}`
+        ) {
+          return null;
+        }
+      } catch (_error) {
+        return null;
+      }
+
+      return allowedFiles.has(resource) ? resource : null;
+    }
+
+    try {
+      const parsed = new URL(url);
+      const alias = ORION_HOST_ALIASES[parsed.hostname];
+      if (
+        parsed.protocol !== ORION_PROTOCOL ||
+        !alias ||
+        (parsed.pathname !== "" && parsed.pathname !== "/")
+      ) {
+        return null;
+      }
+
+      const withoutSuffix = url.split(/[?#]/, 1)[0];
+      const canonicalAliasUrls = new Set([
+        `${ORION_PROTOCOL}//${parsed.hostname}`,
+        `${ORION_PROTOCOL}//${parsed.hostname}/`
+      ]);
+      return canonicalAliasUrls.has(withoutSuffix) && allowedFiles.has(alias) ? alias : null;
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  function normalizeFilePath(value) {
+    if (!value || typeof value !== "string") return "";
 
     let normalized = value
       .replace(/\\/g, "/")
       .replace(/\/+/g, "/")
       .replace(/\/$/, "");
-    
+
     // Handle Windows file URL paths that start with /C:/
     if (/^\/[A-Za-z]:/.test(normalized)) {
       normalized = normalized.slice(1);
     }
-    
-    // Create variants: normalized, lowercase, and drive-letter normalized
-    const variants = [normalized];
-    const lower = normalized.toLowerCase();
-    if (lower !== normalized) variants.push(lower);
-    
-    // Add variant with leading slash for comparison
-    if (!normalized.startsWith("/")) {
-      variants.push("/" + normalized);
-      if (!lower.startsWith("/")) variants.push("/" + lower);
-    }
-    
-    return Array.from(new Set(variants.filter(Boolean)));
+
+    return normalized;
   }
 
   function isTrustedBundledFilePage(url, trustedFiles, rootPath) {
@@ -214,31 +259,25 @@
     if (!url || typeof url !== "string") return false;
 
     try {
+      const rawPath = url.split(/[?#]/, 1)[0];
+      if (/%(?:2f|5c)/i.test(rawPath) || /(?:^|[\\/])\.{1,2}(?:[\\/]|$)/.test(rawPath)) {
+        return false;
+      }
+
       const parsed = new URL(url);
       if (parsed.protocol !== "file:") return false;
 
       const file = getAppPageFileName(url);
       if (!file || !trustedFiles.has(file)) return false;
 
-      const rootCandidates = normalizeFilePathCandidates(rootPath);
-      // Get the full pathname from URL, handling Windows format
-      let urlPathname = decodeURIComponent(parsed.pathname || "");
-      // Handle Windows file URL format /C:/path
-      if (/^\/[A-Za-z]:/.test(urlPathname)) {
-        urlPathname = urlPathname.slice(1);
-      }
-      const fileCandidates = normalizeFilePathCandidates(urlPathname);
+      const normalizedRoot = normalizeFilePath(rootPath);
+      const normalizedFile = normalizeFilePath(decodeURIComponent(parsed.pathname || ""));
+      const expectedFile = `${normalizedRoot}/${file}`;
+      const windowsPath = /^[A-Za-z]:\//.test(normalizedRoot);
 
-      return fileCandidates.some((filePath) => {
-        const lowerFilePath = filePath.toLowerCase();
-        return rootCandidates.some((rootCandidate) => {
-          const lowerRoot = rootCandidate.toLowerCase();
-          // Check if file path matches root or is inside root
-          return lowerFilePath === lowerRoot || 
-                 lowerFilePath.startsWith(lowerRoot + "/") ||
-                 lowerFilePath.startsWith(lowerRoot + "\\");
-        });
-      });
+      return windowsPath
+        ? normalizedFile.toLowerCase() === expectedFile.toLowerCase()
+        : normalizedFile === expectedFile;
     } catch (_error) {
       return false;
     }
@@ -257,17 +296,33 @@
   }
 
   function isTrustedAppPage(url, trustedFiles) {
-    if (!trustedFiles || typeof trustedFiles.has !== "function") return false;
-    if (!url || typeof url !== "string") return false;
+    return !!getCanonicalAppResourceFileName(url, trustedFiles);
+  }
 
-    try {
-      const parsed = new URL(url);
-      if (parsed.protocol !== ORION_PROTOCOL) return false;
-      const file = getAppPageFileName(url);
-      return !!file && trustedFiles.has(file);
-    } catch (_error) {
-      return false;
-    }
+  function isMainFrameIpcEvent(event) {
+    if (!event || !event.sender || !event.senderFrame || !event.sender.mainFrame) return false;
+    if (event.senderFrame === event.sender.mainFrame) return true;
+    const senderFrame = event.senderFrame;
+    const mainFrame = event.sender.mainFrame;
+    return senderFrame.parent === null
+      && Number.isInteger(senderFrame.processId)
+      && Number.isInteger(senderFrame.routingId)
+      && senderFrame.processId === mainFrame.processId
+      && senderFrame.routingId === mainFrame.routingId;
+  }
+
+  function resolveTabIncognito(ownerWindow) {
+    return !!(ownerWindow && ownerWindow.incognitoWindow);
+  }
+
+  function getProfilePartitionName(profileIndex, incognito = false) {
+    return incognito
+      ? `orion-incognito-profile-${profileIndex}`
+      : `persist:profile-${profileIndex}`;
+  }
+
+  function shouldPersistTabActivity(tab) {
+    return !(tab && tab.incognito);
   }
 
   function getInternalAlias(url) {
@@ -611,7 +666,9 @@
     createExtensionCard,
     createTabElement,
     getAppPageFileName,
+    getCanonicalAppResourceFileName,
     getAppPageUrl,
+    getProfilePartitionName,
     getElectronPageChannels,
     getActiveTabBookmark,
     getReaderButtonState,
@@ -619,7 +676,10 @@
     resolveRendererBootstrapState,
     resolveLanguageSettingsState,
     resolveBrowserShortcutAction,
+    resolveTabIncognito,
+    shouldPersistTabActivity,
     normalizeInternalUrl,
+    isMainFrameIpcEvent,
     isTrustedAppPage,
     isTrustedBundledFilePage,
     isTrustedLocalPage: isTrustedAppPage,

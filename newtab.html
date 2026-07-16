@@ -62,7 +62,6 @@
       inset: 0;
       pointer-events: none;
       z-index: 0;
-      will-change: transform;
       transition: transform 0.18s ease-out;
     }
 
@@ -134,7 +133,6 @@
       overflow: hidden;
       z-index: 0;
       pointer-events: none;
-      will-change: transform;
       transition: transform 0.18s ease-out;
     }
 
@@ -446,6 +444,28 @@
       .card-orbs {
         transform: none !important;
       }
+    }
+
+    body:not(.effects-ready) .orbs,
+    body:not(.effects-ready) .card-orbs {
+      opacity: 0;
+    }
+
+    body:not(.effects-ready) .search-card {
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+    }
+
+    .orb,
+    .card-orb,
+    body.effects-paused .orb,
+    body.effects-paused .card-orb {
+      animation-play-state: paused;
+    }
+
+    body.effects-ready:not(.effects-paused) .orb,
+    body.effects-ready:not(.effects-paused) .card-orb {
+      animation-play-state: running;
     }
 
     @keyframes rise {

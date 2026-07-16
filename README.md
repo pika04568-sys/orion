@@ -56,6 +56,7 @@ npm run dist:win
 - Search engine selection for address-bar queries, including Google, Bing, DuckDuckGo, Brave, StartPage, Yandex, Baidu, Yahoo, and Naver.
 - Localization for English, French, German, and Japanese, with first-run language onboarding.
 - Theme customization, accent colors, vertical tabs, and optional seconds in time widgets.
+- An optional automatic RAM budget, sized to half of installed memory, that unloads background tabs with the highest observed memory use and restores them on selection while protecting active and audible tabs.
 - Chrome Web Store installation support plus unpacked extension loading through `chrome://extensions`, with extension permission inspection.
 - Built-in adblock lists, cached list refreshes, per-list toggles, and custom filter rules.
 - Privacy controls for HTTPS-Only Mode, anti-fingerprinting hardening, and DNS-over-HTTPS through Cloudflare secure DNS.

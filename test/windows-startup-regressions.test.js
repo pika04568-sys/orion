@@ -58,6 +58,18 @@ test("trusted Orion page recognition requires the custom app origin", () => {
     appUtils.isTrustedAppPage("orion://app/unknown.html", TRUSTED_PAGE_FILES),
     false
   );
+  assert.equal(
+    appUtils.isTrustedAppPage("orion://app/nested/index.html", TRUSTED_PAGE_FILES),
+    false
+  );
+  assert.equal(
+    appUtils.isTrustedAppPage("orion://app/nested%2Findex.html", TRUSTED_PAGE_FILES),
+    false
+  );
+  assert.equal(
+    appUtils.isTrustedAppPage("orion://other/index.html", TRUSTED_PAGE_FILES),
+    false
+  );
   assert.equal(appUtils.isTrustedAppPage("file:///Users/kenokayasu/Documents/MyBrowser/index.html", TRUSTED_PAGE_FILES), false);
   assert.equal(appUtils.isTrustedAppPage("https://example.com/index.html", TRUSTED_PAGE_FILES), false);
 });
@@ -121,6 +133,93 @@ test("bundled file pages are trusted only inside the packaged app root", () => {
     ),
     true
   );
+  assert.equal(
+    appUtils.isTrustedBundledFilePage(
+      "file:///C:/Program%20Files/Orion/resources/app.asar/nested/index.html",
+      TRUSTED_PAGE_FILES,
+      packagedRoot
+    ),
+    false
+  );
+  assert.equal(
+    appUtils.isTrustedBundledFilePage(
+      "file:///C:/Program%20Files/Orion/resources/app.asar-copy/index.html",
+      TRUSTED_PAGE_FILES,
+      packagedRoot
+    ),
+    false
+  );
+  assert.equal(
+    appUtils.isTrustedBundledFilePage(
+      "file:///C:/Program%20Files/Orion/resources/app.asar/nested/../index.html",
+      TRUSTED_PAGE_FILES,
+      packagedRoot
+    ),
+    false
+  );
+});
+
+test("custom protocol assets are limited to exact allowlisted resources", () => {
+  const allowedAssets = new Set(["index.html", "renderer.js"]);
+
+  assert.equal(
+    appUtils.getCanonicalAppResourceFileName("orion://app/index.html?locale=ja", allowedAssets),
+    "index.html"
+  );
+  assert.equal(
+    appUtils.getCanonicalAppResourceFileName("orion://app/renderer.js", allowedAssets),
+    "renderer.js"
+  );
+  assert.equal(
+    appUtils.getCanonicalAppResourceFileName("orion://app/main.js", allowedAssets),
+    null
+  );
+  assert.equal(
+    appUtils.getCanonicalAppResourceFileName("orion://app/nested/renderer.js", allowedAssets),
+    null
+  );
+  assert.equal(
+    appUtils.getCanonicalAppResourceFileName("orion://app/%72enderer.js", allowedAssets),
+    null
+  );
+});
+
+test("tab privacy is derived from the owning window", () => {
+  const incognito = appUtils.resolveTabIncognito({ incognitoWindow: true });
+
+  assert.equal(incognito, true);
+  assert.equal(appUtils.resolveTabIncognito({ incognitoWindow: false }), false);
+  assert.equal(appUtils.resolveTabIncognito(null), false);
+  assert.equal(
+    appUtils.getProfilePartitionName(10000, incognito),
+    "orion-incognito-profile-10000"
+  );
+  assert.equal(
+    appUtils.getProfilePartitionName(0, false),
+    "persist:profile-0"
+  );
+  assert.equal(appUtils.shouldPersistTabActivity({ incognito }), false);
+  assert.equal(appUtils.shouldPersistTabActivity({ incognito: false }), true);
+});
+
+test("IPC authorization only accepts the sender's main frame", () => {
+  const mainFrame = { url: "orion://app/index.html" };
+  const sender = { mainFrame };
+
+  assert.equal(appUtils.isMainFrameIpcEvent({ sender, senderFrame: mainFrame }), true);
+  assert.equal(
+    appUtils.isMainFrameIpcEvent({ sender, senderFrame: { url: "orion://app/index.html" } }),
+    false
+  );
+  assert.equal(appUtils.isMainFrameIpcEvent({ sender, senderFrame: null }), false);
+  assert.equal(appUtils.isMainFrameIpcEvent({
+    sender: { mainFrame: { processId: 10, routingId: 20 } },
+    senderFrame: { parent: null, processId: 10, routingId: 20 }
+  }), true);
+  assert.equal(appUtils.isMainFrameIpcEvent({
+    sender: { mainFrame: { processId: 10, routingId: 20 } },
+    senderFrame: { parent: {}, processId: 10, routingId: 21 }
+  }), false);
 });
 
 test("internal Orion URLs normalize to chrome aliases across protocol and legacy file paths", () => {
@@ -156,13 +255,16 @@ test("internal Orion URLs normalize to chrome aliases across protocol and legacy
 });
 
 test("index shell channels allow renderer IPC and events", () => {
-  assert.equal(appUtils.canUseElectronChannel("index.html", "send", "renderer-ready"), true);
+  assert.equal(appUtils.canUseElectronChannel("index.html", "send", "renderer-ready"), false);
   assert.equal(appUtils.canUseElectronChannel("index.html", "invoke", "create-tab"), true);
   assert.equal(appUtils.canUseElectronChannel("index.html", "invoke", "create-tab-group"), true);
   assert.equal(appUtils.canUseElectronChannel("index.html", "invoke", "assign-tab-to-group"), true);
   assert.equal(appUtils.canUseElectronChannel("index.html", "invoke", "toggle-tab-group-collapsed"), true);
-  assert.equal(appUtils.canUseElectronChannel("index.html", "invoke", "get-window-bootstrap-state"), true);
+  assert.equal(appUtils.canUseElectronChannel("index.html", "invoke", "bootstrap-window"), true);
+  assert.equal(appUtils.canUseElectronChannel("index.html", "invoke", "get-window-bootstrap-state"), false);
+  assert.equal(appUtils.canUseElectronChannel("index.html", "invoke", "preconnect-origin"), true);
   assert.equal(appUtils.canUseElectronChannel("index.html", "invoke", "get-browser-settings"), true);
+  assert.equal(appUtils.canUseElectronChannel("index.html", "invoke", "get-memory-status"), true);
   assert.equal(appUtils.canUseElectronChannel("index.html", "invoke", "set-browser-settings"), true);
   assert.equal(appUtils.canUseElectronChannel("index.html", "invoke", "navigate-to"), true);
   assert.equal(appUtils.canUseElectronChannel("index.html", "invoke", "load-extension"), false);
@@ -171,16 +273,20 @@ test("index shell channels allow renderer IPC and events", () => {
   assert.equal(appUtils.canUseElectronChannel("index.html", "on", "tab-created"), true);
   assert.equal(appUtils.canUseElectronChannel("index.html", "on", "tab-groups-changed"), true);
   assert.equal(appUtils.canUseElectronChannel("index.html", "on", "browser-settings-changed"), true);
+  assert.equal(appUtils.canUseElectronChannel("index.html", "on", "memory-status-changed"), true);
 });
 
 test("internal pages keep restricted invoke access", () => {
   assert.equal(appUtils.canUseElectronChannel("newtab.html", "invoke", "navigate-to"), true);
   assert.equal(appUtils.canUseElectronChannel("newtab.html", "invoke", "get-language-settings"), true);
   assert.equal(appUtils.canUseElectronChannel("newtab.html", "invoke", "get-browser-settings"), true);
+  assert.equal(appUtils.canUseElectronChannel("newtab.html", "invoke", "preconnect-origin"), true);
+  assert.equal(appUtils.canUseElectronChannel("newtab.html", "invoke", "get-memory-status"), false);
   assert.equal(appUtils.canUseElectronChannel("newtab.html", "invoke", "load-extension"), false);
   assert.equal(appUtils.canUseElectronChannel("newtab.html", "invoke", "get-window-bootstrap-state"), false);
   assert.equal(appUtils.canUseElectronChannel("newtab.html", "send", "renderer-ready"), false);
   assert.equal(appUtils.canUseElectronChannel("newtab.html", "on", "browser-settings-changed"), true);
+  assert.equal(appUtils.canUseElectronChannel("newtab.html", "on", "memory-status-changed"), false);
   assert.equal(appUtils.canUseElectronChannel("offline.html", "invoke", "navigate-to"), true);
   assert.equal(appUtils.canUseElectronChannel("offline.html", "invoke", "get-language-settings"), false);
   assert.equal(appUtils.canUseElectronChannel("offline.html", "invoke", "get-window-bootstrap-state"), false);
