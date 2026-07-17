@@ -9,9 +9,9 @@ final class BrowserState: ObservableObject {
 
     private let library: BrowserLibraryStore
 
-    init(library: BrowserLibraryStore) {
+    init(library: BrowserLibraryStore, initialURL: String? = BrowserPreferences.homepageURL) {
         self.library = library
-        newTab(initial: BrowserPreferences.homepageURL, activate: true)
+        createTab(initial: initialURL, activate: true)
     }
 
     var activeTab: BrowserTab? {
@@ -19,21 +19,30 @@ final class BrowserState: ObservableObject {
     }
 
     func newTab(initial: String? = nil, activate: Bool = true) {
+        let target = initial ?? (BrowserPreferences.openNewTabsWithHomepage ? BrowserPreferences.homepageURL : nil)
+        createTab(initial: target, activate: activate)
+    }
+
+    private func createTab(initial: String?, activate: Bool) {
         let tab = BrowserTab()
+        tab.onNavigationFinished = { [weak self] finishedTab in
+            self?.recordNavigation(for: finishedTab)
+        }
         tabs.append(tab)
 
-        if activate {
-            activeTabID = tab.id
+        if let initial, !initial.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            load(initial, in: tab)
         }
 
-        let target = initial ?? (BrowserPreferences.openNewTabsWithHomepage ? BrowserPreferences.homepageURL : nil)
-        if let target, !target.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            load(target, in: tab)
+        if activate {
+            activateTab(tab.id)
         }
     }
 
     func activateTab(_ id: BrowserTab.ID) {
+        guard let tab = tabs.first(where: { $0.id == id }) else { return }
         activeTabID = id
+        tab.activate()
     }
 
     func closeTab(_ id: BrowserTab.ID) {
@@ -48,7 +57,7 @@ final class BrowserState: ObservableObject {
 
         if closingActiveTab {
             let nextIndex = min(index, tabs.count - 1)
-            activeTabID = tabs[nextIndex].id
+            activateTab(tabs[nextIndex].id)
         }
     }
 
@@ -68,9 +77,8 @@ final class BrowserState: ObservableObject {
             return
         }
 
-        tab.errorMessage = nil
         tab.addressText = request.url?.absoluteString ?? input
-        tab.webView.load(request)
+        tab.load(request)
     }
 
     func load(entry: NavigationEntry) {
@@ -78,21 +86,26 @@ final class BrowserState: ObservableObject {
     }
 
     func goBack() {
-        guard let tab = activeTab, tab.webView.canGoBack else { return }
-        tab.webView.goBack()
+        guard let webView = activeTab?.webView, webView.canGoBack else { return }
+        webView.goBack()
     }
 
     func goForward() {
-        guard let tab = activeTab, tab.webView.canGoForward else { return }
-        tab.webView.goForward()
+        guard let webView = activeTab?.webView, webView.canGoForward else { return }
+        webView.goForward()
     }
 
     func reload() {
         guard let tab = activeTab else { return }
-        if tab.webView.url == nil {
+        guard let webView = tab.webView else {
+            submitAddress(for: tab)
+            return
+        }
+
+        if webView.url == nil {
             submitAddress(for: tab)
         } else {
-            tab.webView.reload()
+            webView.reload()
         }
     }
 
@@ -101,7 +114,7 @@ final class BrowserState: ObservableObject {
     }
 
     func stopLoading() {
-        activeTab?.webView.stopLoading()
+        activeTab?.webView?.stopLoading()
     }
 
     func toggleBookmarkForActiveTab() {
@@ -117,6 +130,27 @@ final class BrowserState: ObservableObject {
     func recordNavigation(for tab: BrowserTab) {
         guard let entry = tab.navigationEntry else { return }
         library.addHistory(title: entry.displayTitle, urlString: entry.urlString)
+    }
+
+    func measurePerformanceInteractions() async -> (newTabMs: Double, tabSwitchMs: Double) {
+        guard let originalTabID = activeTabID else { return (0, 0) }
+
+        let newTabStartedAt = OrionPerformance.now
+        createTab(initial: nil, activate: true)
+        let probeTabID = activeTabID
+        await Task.yield()
+        let newTabMs = OrionPerformance.milliseconds(since: newTabStartedAt)
+
+        let switchStartedAt = OrionPerformance.now
+        activateTab(originalTabID)
+        await Task.yield()
+        let tabSwitchMs = OrionPerformance.milliseconds(since: switchStartedAt)
+
+        if let probeTabID, probeTabID != originalTabID {
+            tabs.removeAll { $0.id == probeTabID }
+        }
+
+        return (newTabMs, tabSwitchMs)
     }
 
     func handle(_ command: BrowserCommand) {

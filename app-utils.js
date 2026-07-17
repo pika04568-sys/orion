@@ -25,14 +25,13 @@
     "clear-other-tabs",
     "close-tab",
     "close-reader",
+    "create-ai-tab-groups",
     "create-tab-group",
     "create-tab",
     "delete-tab-group",
-    "get-language-settings",
     "get-reader-content",
     "bootstrap-window",
     "open-incognito-window",
-    "preconnect-origin",
     "find-in-page",
     "get-browser-settings",
     "get-memory-status",
@@ -49,6 +48,7 @@
     "set-adblock-list-enabled",
     "set-browser-settings",
     "stop-find-in-page",
+    "summarize-active-page",
     "switch-profile",
     "switch-tab",
     "toggle-tab-group-collapsed",
@@ -71,8 +71,6 @@
     "extensions-ready",
     "find-result",
     "history-data-received",
-    "history-loaded",
-    "history-updated",
     "keyboard-shortcut",
     "browser-settings-changed",
     "memory-status-changed",
@@ -87,9 +85,7 @@
     "view-event"
   ]);
   const NEWTAB_INVOKE_CHANNELS = Object.freeze([
-    "get-language-settings",
-    "get-browser-settings",
-    "preconnect-origin",
+    "bootstrap-newtab",
     "navigate-to"
   ]);
   const OFFLINE_INVOKE_CHANNELS = Object.freeze([

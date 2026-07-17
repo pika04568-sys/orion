@@ -3,6 +3,25 @@ const assert = require("node:assert/strict");
 
 const browserPrivacy = require("../browser-privacy");
 
+test("reduced user agent tracks Chromium's current major version", () => {
+  assert.equal(
+    browserPrivacy.buildReducedUserAgent({ chromiumVersion: "140.0.7339.0", platform: "darwin" }),
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+  );
+  assert.doesNotMatch(browserPrivacy.buildReducedUserAgent({ chromiumVersion: "140.0.0.0" }), /Electron/);
+});
+
+test("reduced user agent and navigator spoof use one normalized platform identity", () => {
+  for (const platform of ["darwin", "win32", "linux"]) {
+    const userAgent = browserPrivacy.buildReducedUserAgent({ chromiumVersion: "140", platform });
+    const script = browserPrivacy.createFingerprintingProtectionScript({ platform });
+    assert.match(userAgent, /Windows NT 10\.0; Win64; x64/);
+    assert.match(script, /"Win32"/);
+    assert.match(script, /"Windows"/);
+    assert.doesNotMatch(userAgent, /Electron|Macintosh|Linux/);
+  }
+});
+
 test("privacy settings default to strict HTTPS-only, anti-fingerprinting, and Cloudflare DoH", () => {
   assert.deepEqual(browserPrivacy.sanitizePrivacySettings({}), {
     httpsOnlyMode: true,

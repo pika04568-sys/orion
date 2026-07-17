@@ -105,3 +105,43 @@ test("reader snapshots accept BBC-style editorial pages with strong article sign
   assert.equal(snapshot.siteName, "BBC News");
   assert.equal(snapshot.byline, "BBC News");
 });
+
+test("reader snapshot sanitization bounds hostile block and image collections", () => {
+  const blocks = Array.from({ length: 400 }, (_, index) => ({
+    type: "paragraph",
+    text: `Paragraph ${index} ${"x".repeat(2000)}`
+  }));
+  const images = Array.from({ length: 180 }, (_, index) => ({
+    src: `https://example.com/image-${index}.jpg`,
+    alt: `Image ${index} ${"y".repeat(1000)}`
+  }));
+
+  const snapshot = readerUtils.buildReaderSnapshot({
+    sourceUrl: "https://example.com/large-story",
+    title: "z".repeat(10000),
+    blocks,
+    images,
+    textLength: 1_000_000,
+    paragraphCount: blocks.length,
+    semanticRoot: "article"
+  });
+
+  assert.ok(snapshot.blocks.length <= 80);
+  assert.ok(snapshot.blocks.reduce((total, block) => total + block.text.length, 0) <= 64000);
+  assert.equal(snapshot.images.length, 24);
+  assert.ok(snapshot.images.every((image) => image.alt.length <= 240));
+  assert.equal(snapshot.title.length, 180);
+});
+
+test("reader snapshot sanitization stops inspecting collections at fixed caps", () => {
+  const blocks = Array.from({ length: 500 }, (_, index) => ({
+    type: "paragraph",
+    text: index < 240 ? "tiny" : `Late valid paragraph ${index} with enough readable content.`
+  }));
+  const images = Array.from({ length: 150 }, (_, index) => ({
+    src: index < 96 ? "javascript:blocked" : `https://example.com/late-${index}.jpg`
+  }));
+
+  assert.deepEqual(readerUtils.sanitizeBlocks(blocks), []);
+  assert.deepEqual(readerUtils.sanitizeImages(images, "https://example.com/"), []);
+});

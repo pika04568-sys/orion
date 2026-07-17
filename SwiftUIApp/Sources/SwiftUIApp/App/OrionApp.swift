@@ -2,6 +2,10 @@ import SwiftUI
 
 @main
 struct OrionApp: App {
+    init() {
+        OrionPerformance.appDidInitialize()
+    }
+
     var body: some Scene {
         WindowGroup("Orion", id: "browser") {
             BrowserRootView()

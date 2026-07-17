@@ -1,6 +1,6 @@
 import Foundation
 
-struct NavigationEntry: Identifiable, Codable, Equatable {
+struct NavigationEntry: Identifiable, Codable, Equatable, Sendable {
     let id: UUID
     var title: String
     var urlString: String

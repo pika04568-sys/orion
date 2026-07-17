@@ -149,6 +149,13 @@
     return localization.t(currentLocale, key, getUiTextVars(vars));
   }
 
+  async function ensureLocaleLoaded(locale) {
+    if (!localization || typeof localization.loadLocale !== 'function') return;
+    try {
+      await localization.loadLocale(locale);
+    } catch (_error) { }
+  }
+
   function getBrowserUiPlatform() {
     if (typeof navigator === 'undefined') return localization.normalizeUiPlatform('');
 
@@ -330,11 +337,6 @@
     link.setAttribute('aria-label', displayTitle);
     link.title = displayTitle;
     link.append(label, title);
-    link.addEventListener('pointerenter', () => {
-      if (pageBridge && typeof pageBridge.preconnectOrigin === 'function') {
-        void pageBridge.preconnectOrigin(shortcut.url);
-      }
-    }, { once: true });
     link.addEventListener('click', (event) => {
       event.preventDefault();
       navigateShortcut(shortcut.url);
@@ -375,25 +377,27 @@
     grid.replaceChildren(fragment);
   }
 
-  async function syncLocale() {
+  async function syncBootstrapState() {
     try {
-      if (pageBridge && typeof pageBridge.getLanguageSettings === 'function') {
-        const response = await pageBridge.getLanguageSettings();
+      if (pageBridge && typeof pageBridge.getBootstrapState === 'function') {
+        const response = await pageBridge.getBootstrapState();
         const locale = localization.sanitizeLocale(response && response.locale);
         currentPlatform = localization.normalizeUiPlatform(response && response.platform ? response.platform : currentPlatform);
         if (locale) {
           currentLocale = locale;
           safeLocalStorageSet(LOCALE_KEY, locale);
         }
+        const settings = response && response.browserSettings;
+        if (settings && typeof settings.showSeconds === 'boolean') {
+          applyShowSecondsSetting(settings.showSeconds);
+          return;
+        }
       }
     } catch (_error) {
-      // Ignore and keep the locally resolved locale.
+      // Ignore and keep locally resolved settings.
     }
 
-    applyTranslations();
-    updateTime();
-    renderShortcuts();
-    scheduleClockTick();
+    applyShowSecondsSetting(safeLocalStorageGet(SHOW_SECONDS_KEY) === 'true');
   }
 
   function handleStorageEvent(event) {
@@ -409,36 +413,18 @@
     if (event.key === LOCALE_KEY) {
       const nextLocale = localization.sanitizeLocale(event.newValue);
       if (!nextLocale) return;
-      currentLocale = nextLocale;
-      applyTranslations();
-      updateTime();
-      renderShortcuts();
+      void ensureLocaleLoaded(nextLocale).then(() => {
+        currentLocale = nextLocale;
+        applyTranslations();
+        updateTime();
+        renderShortcuts();
+      });
       return;
     }
 
     if (event.key === BOOKMARKS_KEY || event.key === HIDDEN_DEFAULT_SHORTCUTS_KEY) {
       renderShortcuts();
     }
-  }
-
-  async function syncShowSecondsSetting() {
-    try {
-      if (pageBridge && typeof pageBridge.getBrowserSettings === 'function') {
-        const response = await pageBridge.getBrowserSettings();
-        if (response && typeof response.showSeconds === 'boolean') {
-          applyShowSecondsSetting(response.showSeconds);
-          updateTime();
-          scheduleClockTick();
-          return;
-        }
-      }
-    } catch (_error) {
-      // Keep the locally resolved value when the shared settings store is unavailable.
-    }
-
-    applyShowSecondsSetting(safeLocalStorageGet(SHOW_SECONDS_KEY) === 'true');
-    updateTime();
-    scheduleClockTick();
   }
 
   function handleGridContextMenu(event) {
@@ -500,13 +486,6 @@
     });
   }
 
-  applyTranslations();
-  updateTime();
-  scheduleClockTick();
-  renderShortcuts();
-  void syncLocale();
-  void syncShowSecondsSetting();
-
   document.addEventListener('click', handleDocumentClick);
   if (grid) {
     grid.addEventListener('contextmenu', handleGridContextMenu);
@@ -522,33 +501,30 @@
       scheduleClockTick();
     });
   }
-  const recordNewTabInteractive = () => {
-    try {
-    const intentEpochMs = Number(localStorage.getItem('orion-newtab-intent-at'));
-    const interactiveEpochMs = performance.timeOrigin + performance.now();
-    if (Number.isFinite(intentEpochMs) && intentEpochMs > 0 && interactiveEpochMs >= intentEpochMs) {
-      window.__orionNewtabInteractiveMs = interactiveEpochMs - intentEpochMs;
-      localStorage.removeItem('orion-newtab-intent-at');
+  window.addEventListener('storage', handleStorageEvent);
+
+  async function bootstrapNewTab() {
+    await syncBootstrapState();
+    await ensureLocaleLoaded(currentLocale);
+    applyTranslations();
+    updateTime();
+    scheduleClockTick();
+    renderShortcuts();
+    document.documentElement.dataset.orionNewtabReady = 'true';
+    if (typeof performance !== 'undefined' && typeof performance.mark === 'function') {
+      performance.mark('orion-newtab-interactive');
     }
-    } catch (_error) { }
-  };
-  window.addEventListener('storage', (event) => {
-    handleStorageEvent(event);
-    if (event.key === 'orion-newtab-intent-at') recordNewTabInteractive();
-  });
-  document.documentElement.dataset.orionNewtabReady = 'true';
-  recordNewTabInteractive();
-  if (typeof performance !== 'undefined' && typeof performance.mark === 'function') {
-    performance.mark('orion-newtab-interactive');
-  }
-  document.body.classList.toggle('effects-paused', document.hidden);
-  document.addEventListener('visibilitychange', () => {
     document.body.classList.toggle('effects-paused', document.hidden);
-  });
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      document.body.classList.add('effects-ready');
-      startReducedMotionParallax();
+    document.addEventListener('visibilitychange', () => {
+      document.body.classList.toggle('effects-paused', document.hidden);
     });
-  });
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        document.body.classList.add('effects-ready');
+        startReducedMotionParallax();
+      });
+    });
+  }
+
+  void bootstrapNewTab();
 })();

@@ -2,12 +2,11 @@ import SwiftUI
 
 struct BrowserContentView: View {
     @ObservedObject var browser: BrowserState
-    @ObservedObject var library: BrowserLibraryStore
 
     var body: some View {
         Group {
             if let activeTab = browser.activeTab {
-                ActiveWebView(tab: activeTab, browser: browser)
+                ActiveWebView(tab: activeTab)
             } else {
                 VStack(spacing: 12) {
                     Image(systemName: "globe")
@@ -29,17 +28,17 @@ struct BrowserContentView: View {
 
 private struct ActiveWebView: View {
     @ObservedObject var tab: BrowserTab
-    @ObservedObject var browser: BrowserState
 
     var body: some View {
         ZStack(alignment: .top) {
-            BrowserWebView(tab: tab) { finishedTab in
-                browser.recordNavigation(for: finishedTab)
+            if let webView = tab.webView {
+                BrowserWebView(tabID: tab.id, webView: webView)
+                    .id(tab.id)
             }
 
-            if let message = tab.errorMessage {
+            if let message = tab.navigationState.errorMessage {
                 ErrorBanner(message: message) {
-                    tab.errorMessage = nil
+                    tab.dismissError()
                 }
                 .padding(.top, 12)
             }

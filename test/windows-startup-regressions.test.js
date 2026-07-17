@@ -258,11 +258,13 @@ test("index shell channels allow renderer IPC and events", () => {
   assert.equal(appUtils.canUseElectronChannel("index.html", "send", "renderer-ready"), false);
   assert.equal(appUtils.canUseElectronChannel("index.html", "invoke", "create-tab"), true);
   assert.equal(appUtils.canUseElectronChannel("index.html", "invoke", "create-tab-group"), true);
+  assert.equal(appUtils.canUseElectronChannel("index.html", "invoke", "create-ai-tab-groups"), true);
+  assert.equal(appUtils.canUseElectronChannel("index.html", "invoke", "summarize-active-page"), true);
   assert.equal(appUtils.canUseElectronChannel("index.html", "invoke", "assign-tab-to-group"), true);
   assert.equal(appUtils.canUseElectronChannel("index.html", "invoke", "toggle-tab-group-collapsed"), true);
   assert.equal(appUtils.canUseElectronChannel("index.html", "invoke", "bootstrap-window"), true);
   assert.equal(appUtils.canUseElectronChannel("index.html", "invoke", "get-window-bootstrap-state"), false);
-  assert.equal(appUtils.canUseElectronChannel("index.html", "invoke", "preconnect-origin"), true);
+  assert.equal(appUtils.canUseElectronChannel("index.html", "invoke", "preconnect-origin"), false);
   assert.equal(appUtils.canUseElectronChannel("index.html", "invoke", "get-browser-settings"), true);
   assert.equal(appUtils.canUseElectronChannel("index.html", "invoke", "get-memory-status"), true);
   assert.equal(appUtils.canUseElectronChannel("index.html", "invoke", "set-browser-settings"), true);
@@ -278,9 +280,10 @@ test("index shell channels allow renderer IPC and events", () => {
 
 test("internal pages keep restricted invoke access", () => {
   assert.equal(appUtils.canUseElectronChannel("newtab.html", "invoke", "navigate-to"), true);
-  assert.equal(appUtils.canUseElectronChannel("newtab.html", "invoke", "get-language-settings"), true);
-  assert.equal(appUtils.canUseElectronChannel("newtab.html", "invoke", "get-browser-settings"), true);
-  assert.equal(appUtils.canUseElectronChannel("newtab.html", "invoke", "preconnect-origin"), true);
+  assert.equal(appUtils.canUseElectronChannel("newtab.html", "invoke", "bootstrap-newtab"), true);
+  assert.equal(appUtils.canUseElectronChannel("newtab.html", "invoke", "get-language-settings"), false);
+  assert.equal(appUtils.canUseElectronChannel("newtab.html", "invoke", "get-browser-settings"), false);
+  assert.equal(appUtils.canUseElectronChannel("newtab.html", "invoke", "preconnect-origin"), false);
   assert.equal(appUtils.canUseElectronChannel("newtab.html", "invoke", "get-memory-status"), false);
   assert.equal(appUtils.canUseElectronChannel("newtab.html", "invoke", "load-extension"), false);
   assert.equal(appUtils.canUseElectronChannel("newtab.html", "invoke", "get-window-bootstrap-state"), false);

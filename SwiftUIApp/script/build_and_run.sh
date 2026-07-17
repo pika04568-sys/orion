@@ -18,8 +18,24 @@ pkill -x "$APP_NAME" >/dev/null 2>&1 || true
 pkill -x "SwiftUIApp" >/dev/null 2>&1 || true
 
 cd "$ROOT_DIR"
-swift build --build-system native -debug-info-format none
-BUILD_BINARY="$(swift build --build-system native -debug-info-format none --show-bin-path)/$APP_NAME"
+BUILD_BACKEND=()
+BUILD_LOG="$(mktemp "${TMPDIR:-/tmp}/orion-swift-build.XXXXXX")"
+cleanup_build_log() {
+  rm -f "$BUILD_LOG"
+}
+trap cleanup_build_log EXIT
+
+if ! swift build -debug-info-format none >"$BUILD_LOG" 2>&1; then
+  if grep -Fq "Unknown error parsing property list" "$BUILD_LOG"; then
+    echo "SwiftPM default backend hit the known property-list initialization error; retrying with native backend." >&2
+    BUILD_BACKEND=(--build-system native)
+    swift build "${BUILD_BACKEND[@]}" -debug-info-format none
+  else
+    cat "$BUILD_LOG" >&2
+    exit 1
+  fi
+fi
+BUILD_BINARY="$(swift build "${BUILD_BACKEND[@]}" -debug-info-format none --show-bin-path)/$APP_NAME"
 
 rm -rf "$APP_BUNDLE" "$DIST_DIR/SwiftUIApp.app"
 mkdir -p "$APP_MACOS"

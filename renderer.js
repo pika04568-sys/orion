@@ -6,11 +6,12 @@ let tabBar, newTabBtn, groupTabsBtn, groupTabsMenu, clearTabsBtn, addressBar, ba
 let updaterState = { state: 'idle', message: localization.t(localization.DEFAULT_LOCALE, 'updates.ready') };
 let memoryStatus = { supported: true, enabled: false, usedMb: 0, limitMb: 0, overLimit: false, unloadedTabCount: 0 };
 let ramLimitSettings = { mode: 'off', automaticLimitMb: 0 };
+let cachedBrowserSettings = {};
+let applyMountedBrowserSettings = null;
+let settingsStateListenersInitialized = false;
 let currentLocale = localization.DEFAULT_LOCALE;
 let currentPlatform = getBrowserUiPlatform();
 let bootstrapSnapshot = null;
-let settingsInitialized = false;
-let adblockInitialized = false;
 let extensionToolbarInitialized = false;
 let discoInterval = null;
 let discoModeBtn = null;
@@ -21,6 +22,12 @@ let metricsFrame = null;
 let lastChromeMetrics = { top: null, left: null };
 let closePanels = () => {};
 let closeExtensionActionsMenu = () => {};
+const initializedPanels = new WeakSet();
+const panelPaintTokens = new WeakMap();
+const downloadItems = new Map();
+let bookmarksStorageSnapshot = null;
+let parsedBookmarks = [];
+let aiSummaryRequestGeneration = 0;
 
 const SEARCH_ENGINES = [
   { id: 'google', label: 'Google', searchUrl: 'https://www.google.com/search?q=', homeUrl: 'https://www.google.com/' },
@@ -391,25 +398,115 @@ function setLocale(locale) {
   document.documentElement.lang = currentLocale;
 }
 
+async function ensureLocaleLoaded(locale) {
+  if (!localization || typeof localization.loadLocale !== 'function') return;
+  try {
+    await localization.loadLocale(locale);
+  } catch (_error) { }
+}
+
 function applyStaticTranslations(root = document) {
-  root.querySelectorAll('[data-i18n]').forEach((element) => {
+  const translatedElements = (selector) => Array.from(root.querySelectorAll(selector));
+  translatedElements('[data-i18n]').forEach((element) => {
     element.textContent = t(element.dataset.i18n);
   });
-  root.querySelectorAll('[data-i18n-placeholder]').forEach((element) => {
+  translatedElements('[data-i18n-placeholder]').forEach((element) => {
     element.setAttribute('placeholder', t(element.dataset.i18nPlaceholder));
   });
-  root.querySelectorAll('[data-i18n-title]').forEach((element) => {
+  translatedElements('[data-i18n-title]').forEach((element) => {
     element.setAttribute('title', t(element.dataset.i18nTitle));
   });
-  root.querySelectorAll('[data-i18n-aria-label]').forEach((element) => {
+  translatedElements('[data-i18n-aria-label]').forEach((element) => {
     element.setAttribute('aria-label', t(element.dataset.i18nAriaLabel));
   });
-  document.title = t('app.name');
+  if (root === document) document.title = t('app.name');
   if (extensionActionsMenuBtn) {
     const label = t('toolbar.extensionsMenuButton');
     extensionActionsMenuBtn.title = label;
     extensionActionsMenuBtn.setAttribute('aria-label', label);
   }
+}
+
+function isPanelInitialized(panel) {
+  return !!panel && initializedPanels.has(panel);
+}
+
+function refreshDeferredPanelReferences(panel) {
+  if (!panel) return;
+  switch (panel.id) {
+    case 'history-sidebar':
+      historyList = panel.querySelector('#history-list');
+      break;
+    case 'bookmarks-sidebar':
+      bookmarksList = panel.querySelector('#bookmarks-list');
+      break;
+    case 'downloads-sidebar':
+      downloadsList = panel.querySelector('#downloads-list');
+      break;
+    case 'ai-summary-sidebar':
+      aiSummaryContent = panel.querySelector('#ai-summary-content');
+      break;
+    case 'settings-sidebar':
+      profileColorPicker = panel.querySelector('#profile-color-picker');
+      settingsLanguagePicker = panel.querySelector('#settings-language-picker');
+      checkUpdatesBtn = panel.querySelector('#check-updates-btn');
+      versionEl = panel.querySelector('#app-version');
+      updateStatusEl = panel.querySelector('#update-status');
+      openExtensionsBtn = panel.querySelector('#open-extensions-btn');
+      break;
+    default:
+      break;
+  }
+}
+
+function mountDeferredPanel(panel) {
+  if (!panel || panel.dataset.mounted === 'true') return false;
+  const template = Array.from(panel.children).find((child) => (
+    child.tagName === 'TEMPLATE' && child.hasAttribute('data-panel-template')
+  ));
+  if (template) {
+    panel.appendChild(template.content.cloneNode(true));
+    template.remove();
+  }
+  refreshDeferredPanelReferences(panel);
+  panel.dataset.mounted = 'true';
+  return true;
+}
+
+function ensurePanelInitialized(panel, initializer) {
+  if (!panel || initializedPanels.has(panel)) return false;
+  mountDeferredPanel(panel);
+  if (typeof initializer === 'function') initializer();
+  applyStaticTranslations(panel);
+  initializedPanels.add(panel);
+  panel.dataset.initialized = 'true';
+  return true;
+}
+
+function cancelPanelPaintSignal(panel) {
+  if (!panel) return;
+  panelPaintTokens.set(panel, (panelPaintTokens.get(panel) || 0) + 1);
+  delete panel.dataset.orionPanelReady;
+  if (document.documentElement.dataset.orionPanelReady === panel.id) {
+    delete document.documentElement.dataset.orionPanelReady;
+  }
+}
+
+function signalPanelPaintReady(panel) {
+  if (!panel || !isPanelInitialized(panel)) return;
+  const token = (panelPaintTokens.get(panel) || 0) + 1;
+  panelPaintTokens.set(panel, token);
+  panel.dataset.orionPanelReady = 'pending';
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      if (panelPaintTokens.get(panel) !== token || !panel.classList.contains('open')) return;
+      panel.dataset.orionPanelReady = 'true';
+      document.documentElement.dataset.orionPanelReady = panel.id;
+      if (typeof performance !== 'undefined' && typeof performance.mark === 'function') {
+        performance.mark(`orion-panel-ready:${panel.id}`);
+      }
+    });
+  });
 }
 
 function getDisplayProfileName(profile) {
@@ -421,6 +518,7 @@ function getDisplayProfileName(profile) {
 }
 
 function updateDynamicTranslationContent() {
+  if (settingsSidebar && !isPanelInitialized(settingsSidebar)) return;
   const colorLabel = document.getElementById('custom-color-label');
   const colorInput = document.getElementById('custom-color-input');
   const applyBtn = document.getElementById('apply-custom-color');
@@ -456,6 +554,7 @@ function renderRamLimitControl() {
 }
 
 function renderMemoryStatus() {
+  if (settingsSidebar && !isPanelInitialized(settingsSidebar)) return;
   const usageEl = document.getElementById('memory-usage-status');
   const unloadedEl = document.getElementById('memory-unloaded-status');
   if (!usageEl || !unloadedEl) return;
@@ -485,6 +584,21 @@ function applyMemoryStatus(status) {
   if (!status || typeof status !== 'object') return;
   memoryStatus = { ...memoryStatus, ...status };
   renderMemoryStatus();
+}
+
+function initializeSettingsStateListeners() {
+  if (settingsStateListenersInitialized) return;
+  settingsStateListenersInitialized = true;
+  ipcRenderer.on('browser-settings-changed', (_event, settings) => {
+    if (!settings || typeof settings !== 'object') return;
+    cachedBrowserSettings = { ...cachedBrowserSettings, ...settings };
+    if (typeof applyMountedBrowserSettings === 'function') {
+      applyMountedBrowserSettings(cachedBrowserSettings);
+    }
+  });
+  ipcRenderer.on('memory-status-changed', (_event, status) => {
+    applyMemoryStatus(status);
+  });
 }
 
 function formatAdblockTimestamp(value) {
@@ -571,6 +685,59 @@ async function loadAdblockState() {
   renderAdblockState();
 }
 
+function initializeAdblockPanel(panel) {
+  if (!panel) return;
+  const customRules = panel.querySelector('#adblock-rules');
+  const saveButton = panel.querySelector('#save-adblock-rules');
+  const refreshButton = panel.querySelector('#refresh-adblock-lists');
+  const resetButton = panel.querySelector('#reset-adblock-defaults');
+  adblockElements = {
+    panel,
+    listStatus: panel.querySelector('#adblock-list-status'),
+    customStatus: panel.querySelector('#adblock-custom-status'),
+    syncStatus: panel.querySelector('#adblock-sync-status'),
+    customRules,
+    saveButton,
+    refreshButton,
+    resetButton
+  };
+
+  if (customRules) customRules.value = safeGetStorage('adblock-rules', '');
+  if (saveButton && customRules) {
+    saveButton.onclick = () => {
+      safeSetStorage('adblock-rules', customRules.value);
+      ipcRenderer.invoke('update-adblock-rules', customRules.value).then((nextState) => {
+        if (nextState) {
+          adblockState = nextState;
+          renderAdblockState();
+        }
+        saveButton.textContent = t('adblock.saved');
+        setTimeout(() => {
+          saveButton.textContent = t('adblock.save');
+        }, 2000);
+      });
+    };
+  }
+  if (refreshButton) {
+    refreshButton.onclick = async () => {
+      const nextState = await ipcRenderer.invoke('refresh-adblock-lists');
+      if (nextState) {
+        adblockState = nextState;
+        renderAdblockState();
+      }
+    };
+  }
+  if (resetButton) {
+    resetButton.onclick = async () => {
+      const nextState = await ipcRenderer.invoke('reset-adblock-defaults');
+      if (nextState) {
+        adblockState = nextState;
+        renderAdblockState();
+      }
+    };
+  }
+}
+
 function isReaderActiveTab() {
   const tab = tabs.find((entry) => entry && entry.id === activeTabId);
   return !!(tab && tab.readerMode);
@@ -644,14 +811,37 @@ function renderAiSummary(summary) {
   aiSummaryContent.appendChild(card);
 }
 
+function invalidateAiSummaryRequest(options = {}) {
+  aiSummaryRequestGeneration += 1;
+  if (options.closePanel && aiSummarySidebar && aiSummarySidebar.classList.contains('open')) {
+    closePanels();
+  }
+}
+
 async function openAiSummaryPanel(togglePanel) {
   if (!aiSummarySidebar) return;
+  const requestGeneration = ++aiSummaryRequestGeneration;
+  const requestedTabId = activeTabId;
+  const requestedProfile = activeProfile;
+  ensurePanelInitialized(aiSummarySidebar);
   togglePanel(aiSummarySidebar, true);
   renderAiSummaryLoading();
   try {
     const summary = await ipcRenderer.invoke('summarize-active-page');
+    if (
+      requestGeneration !== aiSummaryRequestGeneration ||
+      requestedTabId !== activeTabId ||
+      requestedProfile !== activeProfile ||
+      !aiSummarySidebar.classList.contains('open')
+    ) return;
     renderAiSummary(summary);
   } catch (error) {
+    if (
+      requestGeneration !== aiSummaryRequestGeneration ||
+      requestedTabId !== activeTabId ||
+      requestedProfile !== activeProfile ||
+      !aiSummarySidebar.classList.contains('open')
+    ) return;
     renderAiSummary({
       ok: false,
       reason: error && error.message ? error.message : t('aiSummary.unavailable')
@@ -674,18 +864,18 @@ function renderLanguageButtons(container, finishOnboarding) {
 
 function refreshLanguageButtons() {
   renderLanguageButtons(startupLanguagePicker, true);
-  renderLanguageButtons(settingsLanguagePicker, false);
+  if (isPanelInitialized(settingsSidebar)) renderLanguageButtons(settingsLanguagePicker, false);
 }
 
 function applyTranslations() {
   applyStaticTranslations();
   updateDynamicTranslationContent();
   refreshLanguageButtons();
-  renderUpdaterState();
+  if (isPanelInitialized(settingsSidebar)) renderUpdaterState();
   renderProfileList();
-  renderBookmarks();
+  if (isPanelInitialized(bookmarksSidebar)) renderBookmarks();
   renderBookmarksBar();
-  renderAdblockState();
+  if (isPanelInitialized(adblockElements && adblockElements.panel)) renderAdblockState();
   updateReaderButtonState();
   if (findResults && findResults.textContent === '0/0') findResults.textContent = t('find.empty');
 }
@@ -714,12 +904,13 @@ async function changeLanguage(locale, options = {}) {
   const nextLocale = localization.sanitizeLocale(locale);
   if (!nextLocale) return;
 
+  let appliedLocale = nextLocale;
   try {
     const response = await ipcRenderer.invoke('set-language', nextLocale);
-    setLocale(response && response.locale ? response.locale : nextLocale);
-  } catch (_error) {
-    setLocale(nextLocale);
-  }
+    appliedLocale = response && response.locale ? response.locale : nextLocale;
+  } catch (_error) { }
+  await ensureLocaleLoaded(appliedLocale);
+  setLocale(appliedLocale);
 
   try {
     safeSetStorage('orion-locale', currentLocale);
@@ -792,7 +983,6 @@ function hydrateFromBootstrapState(snapshot) {
         name: profile && profile.name ? profile.name : ''
       }))
       .filter((profile) => Number.isFinite(profile.id));
-    renderProfileList();
   }
 
   const bootstrapTabs = Array.isArray(snapshot.tabs)
@@ -811,12 +1001,10 @@ function hydrateFromBootstrapState(snapshot) {
         groupId: tabLike.groupId
       });
     });
-    renderTabStrip();
-
     const fallbackActiveId = bootstrapTabs[0].id;
     let nextActiveId = typeof snapshot.activeTabId === 'string' ? snapshot.activeTabId : fallbackActiveId;
     if (!tabs.find((tab) => tab.id === nextActiveId)) nextActiveId = fallbackActiveId;
-    setActiveTab(nextActiveId);
+    activeTabId = nextActiveId;
   } else if (addressBar) {
     addressBar.value = '';
   }
@@ -871,7 +1059,31 @@ function renderUpdaterState() {
   if (updateStatusEl) updateStatusEl.textContent = getUpdateStatusText(updaterState);
 }
 
-function applyColor(c) {
+function initializeSettingsPanelActions() {
+  if (versionEl && bootstrapSnapshot.version) versionEl.textContent = `v${bootstrapSnapshot.version}`;
+  if (checkUpdatesBtn) {
+    checkUpdatesBtn.onclick = async () => {
+      try {
+        const nextState = await ipcRenderer.invoke('check-for-updates');
+        if (nextState) updaterState = { ...updaterState, ...nextState };
+      } catch (error) {
+        updaterState = {
+          state: 'error',
+          message: error && error.message ? error.message : 'Unable to check for updates.'
+        };
+      }
+      renderUpdaterState();
+    };
+  }
+  if (openExtensionsBtn) {
+    openExtensionsBtn.onclick = () => {
+      closePanels();
+      ipcRenderer.invoke('navigate-to', 'chrome://extensions');
+    };
+  }
+}
+
+function applyColor(c, options = {}) {
   const custom = { 'emerald green': '#50c878', 'emerald': '#50c878', 'turquoise': '#40E0D0' };
   const color = custom[c.toLowerCase()] || c;
   const temp = document.createElement('div');
@@ -882,8 +1094,8 @@ function applyColor(c) {
   const match = rgb.match(/\d+/g);
   if (!match) return;
   const [r, g, b] = match;
-  ipcRenderer.send('apply-browser-color', color);
-  safeSetStorage('browser-theme-color', color);
+  if (options.notifyMain !== false) ipcRenderer.send('apply-browser-color', color);
+  if (options.persistLocal !== false) safeSetStorage('browser-theme-color', color);
   const bright = (r * 299 + g * 587 + b * 114) / 1000;
   const dark = bright < 128;
   const primary = dark ? '#f4f8ff' : '#10213a';
@@ -899,6 +1111,8 @@ function applyColor(c) {
 
 function init(snapshot = {}) {
   bootstrapSnapshot = snapshot || {};
+  cachedBrowserSettings = { ...(bootstrapSnapshot.browserSettings || {}) };
+  initializeSettingsStateListeners();
   window.__orionBootstrapSnapshot = bootstrapSnapshot;
   window.__orionStartupPerformance = bootstrapSnapshot.startupPerformance || null;
   tabBar = document.getElementById('tab-bar');
@@ -967,23 +1181,7 @@ function init(snapshot = {}) {
   const adblockBtn = document.getElementById('adblock-btn');
   const adblockSidebar = document.getElementById('adblock-sidebar');
   const closeAdblockBtn = document.getElementById('close-adblock');
-  const adblockText = document.getElementById('adblock-rules');
-  const saveAdblockBtn = document.getElementById('save-adblock-rules');
-  const refreshAdblockBtn = document.getElementById('refresh-adblock-lists');
-  const resetAdblockBtn = document.getElementById('reset-adblock-defaults');
-  const adblockListStatus = document.getElementById('adblock-list-status');
-  const adblockCustomStatus = document.getElementById('adblock-custom-status');
-  const adblockSyncStatus = document.getElementById('adblock-sync-status');
-
-  adblockElements = {
-    listStatus: adblockListStatus,
-    customStatus: adblockCustomStatus,
-    syncStatus: adblockSyncStatus,
-    customRules: adblockText,
-    saveButton: saveAdblockBtn,
-    refreshButton: refreshAdblockBtn,
-    resetButton: resetAdblockBtn
-  };
+  adblockElements = null;
 
   if (bootstrapSnapshot.updaterState) {
     updaterState = { ...updaterState, ...bootstrapSnapshot.updaterState };
@@ -992,10 +1190,22 @@ function init(snapshot = {}) {
 
   const sidebars = [historySidebar, settingsSidebar, bookmarksSidebar, downloadsSidebar, adblockSidebar, aiSummarySidebar].filter(Boolean);
   const toggle = (s, v) => {
+    if (
+      aiSummarySidebar &&
+      aiSummarySidebar.classList.contains('open') &&
+      (s !== aiSummarySidebar || v === false)
+    ) invalidateAiSummaryRequest();
     sidebars.forEach((p) => {
-      if (p !== s) p.classList.remove('open');
+      if (p !== s) {
+        p.classList.remove('open');
+        cancelPanelPaintSignal(p);
+      }
     });
-    if (s) s.classList.toggle('open', v);
+    if (s) {
+      s.classList.toggle('open', v);
+      if (s.classList.contains('open')) signalPanelPaintReady(s);
+      else cancelPanelPaintSignal(s);
+    }
     const hasOpen = sidebars.some((p) => p.classList.contains('open'));
     closeExtensionActionsMenu();
     ipcRenderer.send('toggle-browser-view', !hasOpen);
@@ -1007,60 +1217,11 @@ function init(snapshot = {}) {
   closePanels = () => toggle(null, false);
 
   if (adblockBtn) adblockBtn.onclick = () => {
-    adblockText.value = safeGetStorage('adblock-rules', '');
+    const firstOpen = ensurePanelInitialized(adblockSidebar, () => initializeAdblockPanel(adblockSidebar));
     toggle(adblockSidebar, true);
-    if (!adblockInitialized) {
-      adblockInitialized = true;
-      void loadAdblockState();
-    }
+    if (firstOpen) void loadAdblockState();
   };
   if (closeAdblockBtn) closeAdblockBtn.onclick = () => toggle(adblockSidebar, false);
-  if (saveAdblockBtn) saveAdblockBtn.onclick = () => {
-    safeSetStorage('adblock-rules', adblockText.value);
-    ipcRenderer.invoke('update-adblock-rules', adblockText.value).then((nextState) => {
-      if (nextState) {
-        adblockState = nextState;
-        renderAdblockState();
-      }
-      saveAdblockBtn.textContent = t('adblock.saved');
-      setTimeout(() => {
-        saveAdblockBtn.textContent = t('adblock.save');
-      }, 2000);
-    });
-  };
-  if (refreshAdblockBtn) refreshAdblockBtn.onclick = async () => {
-    const nextState = await ipcRenderer.invoke('refresh-adblock-lists');
-    if (nextState) {
-      adblockState = nextState;
-      renderAdblockState();
-    }
-  };
-  if (resetAdblockBtn) resetAdblockBtn.onclick = async () => {
-    const nextState = await ipcRenderer.invoke('reset-adblock-defaults');
-    if (nextState) {
-      adblockState = nextState;
-      renderAdblockState();
-    }
-  };
-
-  if (checkUpdatesBtn) {
-    checkUpdatesBtn.onclick = async () => {
-      try {
-        const nextState = await ipcRenderer.invoke('check-for-updates');
-        if (nextState) updaterState = { ...updaterState, ...nextState };
-      } catch (error) {
-        updaterState = {
-          state: 'error',
-          message: error && error.message ? error.message : 'Unable to check for updates.'
-        };
-      }
-      renderUpdaterState();
-    };
-  }
-
-  renderUpdaterState();
-
-  if (versionEl && bootstrapSnapshot.version) versionEl.textContent = `v${bootstrapSnapshot.version}`;
 
   const updateChromeMetrics = () => {
     metricsFrame = null;
@@ -1087,17 +1248,17 @@ function init(snapshot = {}) {
   }
   metrics();
 
+  const bootstrapColor = bootstrapSnapshot.browserSettings && bootstrapSnapshot.browserSettings.themeColor;
   const savedColor = safeGetStorage('browser-theme-color');
-  if (savedColor) applyColor(savedColor);
-  const storedLocale = localization.sanitizeLocale(safeGetStorage('orion-locale'));
-  if (storedLocale) setLocale(storedLocale);
-  renderProfileList();
-  renderBookmarksBar();
+  const initialColor = savedColor || bootstrapColor;
+  if (initialColor) {
+    applyColor(initialColor, {
+      notifyMain: !!savedColor && savedColor !== bootstrapColor,
+      persistLocal: false
+    });
+  }
 
   if (addressBar) {
-    addressBar.oninput = () => {
-      void ipcRenderer.invoke('preconnect-origin', addressBar.value.trim());
-    };
     addressBar.onkeydown = (e) => {
       if (e.key === 'Enter') {
         let url = addressBar.value.trim();
@@ -1105,7 +1266,10 @@ function init(snapshot = {}) {
           url = (S_ENG[safeGetStorage('default-search-engine', 'google')] || S_ENG.google) + encodeURIComponent(url);
         }
         const navigationIntentAt = performance.now();
-        window.__orionLastNavigationDispatchPromise = ipcRenderer.invoke('navigate-to', url).then(() => {
+        window.__orionLastNavigationDispatchPromise = ipcRenderer.invoke('navigate-to', {
+          url,
+          performanceIntentEpochMs: performance.timeOrigin + navigationIntentAt
+        }).then(() => {
           const dispatchMs = performance.now() - navigationIntentAt;
           window.__orionLastNavigationDispatchMs = dispatchMs;
           return dispatchMs;
@@ -1139,14 +1303,12 @@ function init(snapshot = {}) {
   if (aiSummaryBtn) aiSummaryBtn.onclick = () => openAiSummaryPanel(toggle);
   if (closeAiSummaryBtn) closeAiSummaryBtn.onclick = () => toggle(aiSummarySidebar, false);
   if (newTabBtn) newTabBtn.onclick = () => {
-    const intentEpochMs = performance.timeOrigin + performance.now();
-    try {
-      localStorage.setItem('orion-newtab-intent-at', String(intentEpochMs));
-    } catch (_error) { }
+    const performanceIntentEpochMs = performance.timeOrigin + performance.now();
     ipcRenderer.invoke('create-tab', {
       tabId: `p-${activeProfile}-t-${Date.now()}`,
       url: 'chrome://newtab',
-      inc: isIncognitoWindow
+      inc: isIncognitoWindow,
+      performanceIntentEpochMs
     });
   };
   const incognitoTabBtn = document.getElementById('incognito-tab-btn');
@@ -1166,6 +1328,7 @@ function init(snapshot = {}) {
   if (addToBothBtn) addToBothBtn.onclick = () => saveBm('both');
   if (cancelBookmarkBtn) cancelBookmarkBtn.onclick = () => bookmarkDestModal.classList.remove('show');
   if (historyBtn) historyBtn.onclick = () => {
+    ensurePanelInitialized(historySidebar);
     toggle(historySidebar, true);
     ipcRenderer.send('fetch-and-show-history');
   };
@@ -1215,14 +1378,19 @@ function init(snapshot = {}) {
   if (renameCancelBtn) renameCancelBtn.onclick = () => renameModal.classList.remove('show');
   if (bookmarkBtn) bookmarkBtn.onclick = () => {
     const show = !bookmarksSidebar.classList.contains('open');
+    if (show && ensurePanelInitialized(bookmarksSidebar)) renderBookmarks();
     toggle(bookmarksSidebar, show);
-    if (show) renderBookmarks();
   };
   if (closeBookmarksBtn) closeBookmarksBtn.onclick = () => toggle(bookmarksSidebar, false);
   if (settingsBtn) settingsBtn.onclick = () => {
-    if (!settingsInitialized) {
-      settingsInitialized = true;
-      initSettings(bootstrapSnapshot.browserSettings || {}, bootstrapSnapshot.memoryStatus || null);
+    const firstOpen = ensurePanelInitialized(settingsSidebar, () => {
+      initSettings(cachedBrowserSettings, memoryStatus);
+      initializeSettingsPanelActions();
+    });
+    if (firstOpen) {
+      renderLanguageButtons(settingsLanguagePicker, false);
+      renderUpdaterState();
+      updateDynamicTranslationContent();
     }
     toggle(settingsSidebar, true);
     const hero = document.getElementById('settings-hero');
@@ -1233,13 +1401,10 @@ function init(snapshot = {}) {
     }
   };
   if (closeSettingsBtn) closeSettingsBtn.onclick = () => toggle(settingsSidebar, false);
-  if (openExtensionsBtn) openExtensionsBtn.onclick = () => {
-    closePanels();
-    ipcRenderer.invoke('navigate-to', 'chrome://extensions');
-  };
   if (downloadsBtn) downloadsBtn.onclick = () => {
-    if (downloadsSidebar && !downloadsSidebar.dataset.initialized) downloadsSidebar.dataset.initialized = 'true';
-    toggle(downloadsSidebar, !downloadsSidebar.classList.contains('open'));
+    const show = !downloadsSidebar.classList.contains('open');
+    if (show && ensurePanelInitialized(downloadsSidebar)) renderDownloads();
+    toggle(downloadsSidebar, show);
   };
   if (closeDownloadsBtn) closeDownloadsBtn.onclick = () => toggle(downloadsSidebar, false);
   if (findInput) {
@@ -1271,7 +1436,6 @@ function init(snapshot = {}) {
     document.documentElement.dataset.extensionsReady = 'true';
     initExtensionActionToolbar();
   });
-  applyTranslations();
 }
 
 function initSettings(initialSettings = {}, initialMemoryStatus = null) {
@@ -1328,6 +1492,7 @@ function initSettings(initialSettings = {}, initialMemoryStatus = null) {
   const ramLimitSelect = document.getElementById('ram-limit-select');
   const se = document.getElementById('search-engine-select');
   const applySharedSettings = (settings = {}) => {
+    cachedBrowserSettings = { ...cachedBrowserSettings, ...settings };
     if (ss && typeof settings.showSeconds === 'boolean') {
       ss.checked = settings.showSeconds;
       safeSetStorage('show-seconds', settings.showSeconds ? 'true' : 'false');
@@ -1429,15 +1594,8 @@ function initSettings(initialSettings = {}, initialMemoryStatus = null) {
   }
 
   applySharedSettings(initialSettings);
+  applyMountedBrowserSettings = applySharedSettings;
   if (initialMemoryStatus) applyMemoryStatus(initialMemoryStatus);
-
-  ipcRenderer.on('browser-settings-changed', (_event, settings) => {
-    if (!settings) return;
-    applySharedSettings(settings);
-  });
-  ipcRenderer.on('memory-status-changed', (_event, status) => {
-    applyMemoryStatus(status);
-  });
 
   updateDynamicTranslationContent();
 }
@@ -1454,6 +1612,7 @@ ipcRenderer.on('tab-created', (e, t) => {
   if (t.active !== false) setActiveTab(t.id);
 });
 ipcRenderer.on('tab-switched', (e, { tabId, url, title, incognito, readerMode }) => {
+  invalidateAiSummaryRequest({ closePanel: true });
   if (!tabs.find((t) => t.id === tabId)) {
     addTabToUI({
       id: tabId,
@@ -1478,16 +1637,24 @@ ipcRenderer.on('tab-groups-changed', (e, payload) => {
   if (activeTabId) setActiveTab(activeTabId);
   renderGroupTabsMenu();
 });
-ipcRenderer.on('active-tab-changed', (e, id) => setActiveTab(id));
+ipcRenderer.on('active-tab-changed', (e, id) => {
+  invalidateAiSummaryRequest({ closePanel: true });
+  setActiveTab(id);
+});
 ipcRenderer.on('view-event', (e, d) => {
-  if (d.type === 'did-navigate') {
+  if (d.type === 'did-start-navigation' && d.tabId === activeTabId) {
+    invalidateAiSummaryRequest({ closePanel: true });
+  } else if (d.type === 'did-navigate') {
     syncTabState({ id: d.tabId, url: d.url });
     if (d.tabId === activeTabId) addressBar.value = formatUrl(d.url);
   } else if (d.type === 'title') {
     syncTabState({ id: d.tabId, title: d.title });
     updateTabTitle(d.tabId, d.title);
   }
-  else if (['did-start-loading', 'did-stop-loading'].includes(d.type) && d.tabId === activeTabId) progressBarContainer.classList.toggle('loading', d.type === 'did-start-loading');
+  else if (['did-start-loading', 'did-stop-loading'].includes(d.type) && d.tabId === activeTabId) {
+    if (d.type === 'did-start-loading') invalidateAiSummaryRequest({ closePanel: true });
+    progressBarContainer.classList.toggle('loading', d.type === 'did-start-loading');
+  }
 });
 ipcRenderer.on('history-data-received', (e, h) => renderHistory(h));
 ipcRenderer.on('keyboard-shortcut', (e, t) => {
@@ -1525,6 +1692,7 @@ ipcRenderer.on('tab-closed', (e, id) => {
   renderGroupTabsMenu();
 });
 ipcRenderer.on('profile-changed', (e, { profileIndex, tabs: pTabs, groups: pGroups, incognitoWindow }) => {
+  invalidateAiSummaryRequest({ closePanel: true });
   activeProfile = profileIndex;
   isIncognitoWindow = !!incognitoWindow;
   document.body.classList.toggle('incognito-window', isIncognitoWindow);
@@ -1876,11 +2044,16 @@ function updateTabTitle(id, title) {
 }
 
 function getBms() {
+  const raw = safeGetStorage('browser-bookmarks', '[]');
+  if (raw === bookmarksStorageSnapshot) return parsedBookmarks;
+  bookmarksStorageSnapshot = raw;
   try {
-    return JSON.parse(safeGetStorage('browser-bookmarks', '[]'));
+    const parsed = JSON.parse(raw);
+    parsedBookmarks = Array.isArray(parsed) ? parsed : [];
   } catch (_error) {
-    return [];
+    parsedBookmarks = [];
   }
+  return parsedBookmarks;
 }
 
 function saveBookmark(u, t, target = 'both') {
@@ -1908,15 +2081,14 @@ function getFaviconHost(url) {
   }
 }
 function buildFavicon(host, size = 20) {
-  const img = document.createElement('img');
-  img.className = 'favicon';
-  img.width = size;
-  img.height = size;
-  const safeHost = host || 'google.com';
-  img.src = `https://www.google.com/s2/favicons?domain=${encodeURIComponent(safeHost)}&sz=32`;
-  img.alt = '';
-  img.loading = 'lazy';
-  return img;
+  const icon = document.createElement('span');
+  const safeHost = typeof host === 'string' && host.trim() ? host.trim() : '?';
+  icon.className = 'favicon favicon-fallback';
+  icon.style.width = `${size}px`;
+  icon.style.height = `${size}px`;
+  icon.textContent = safeHost.charAt(0).toUpperCase();
+  icon.setAttribute('aria-hidden', 'true');
+  return icon;
 }
 function buildHistoryEntry(entry) {
   const host = getFaviconHost(entry.url);
@@ -1996,7 +2168,6 @@ function renderBookmarksBar() {
   const fragment = document.createDocumentFragment();
   bms.forEach((b) => {
     const el = buildBookmarkBarItem(b);
-    el.addEventListener('pointerenter', () => void ipcRenderer.invoke('preconnect-origin', b.url), { once: true });
     el.onclick = () => ipcRenderer.invoke('navigate-to', b.url);
     fragment.appendChild(el);
   });
@@ -2004,7 +2175,7 @@ function renderBookmarksBar() {
   if (typeof metrics === 'function') metrics();
 }
 function renderBookmarks() {
-  if (!bookmarksList) return;
+  if (!bookmarksList || !isPanelInitialized(bookmarksSidebar)) return;
   const bms = getBms();
   if (!bms.length) {
     const empty = document.createElement('div');
@@ -2016,7 +2187,6 @@ function renderBookmarks() {
   const fragment = document.createDocumentFragment();
   bms.forEach((b) => {
     const el = buildBookmarkItem(b);
-    el.addEventListener('pointerenter', () => void ipcRenderer.invoke('preconnect-origin', b.url), { once: true });
     const removeBtn = el.querySelector('.remove-bm');
     el.onclick = (e) => {
       if (e.target === removeBtn) return;
@@ -2054,6 +2224,9 @@ function refreshDownloadElement(el, info) {
   else el.style.removeProperty('border-color');
 }
 function updateDlUI(i) {
+  if (!i || i.id == null) return;
+  downloadItems.set(i.id, i);
+  if (!isPanelInitialized(downloadsSidebar) || !downloadsList) return;
   let el = document.getElementById(`dl-${i.id}`);
   if (!el) {
     el = document.createElement('div');
@@ -2062,6 +2235,11 @@ function updateDlUI(i) {
     downloadsList.appendChild(el);
   }
   refreshDownloadElement(el, i);
+}
+function renderDownloads() {
+  if (!downloadsList || !isPanelInitialized(downloadsSidebar)) return;
+  downloadsList.replaceChildren();
+  downloadItems.forEach((info) => updateDlUI(info));
 }
 ipcRenderer.on('find-result', (e, r) => findResults.textContent = r ? `${r.activeMatchOrdinal}/${r.matches}` : t('find.empty'));
 ipcRenderer.on('download-started', (e, i) => updateDlUI(i));
@@ -2082,8 +2260,10 @@ window.addEventListener('storage', (event) => {
   if (event.key === 'orion-locale') {
     const nextLocale = localization.sanitizeLocale(event.newValue);
     if (!nextLocale) return;
-    setLocale(nextLocale);
-    applyTranslations();
+    void ensureLocaleLoaded(nextLocale).then(() => {
+      setLocale(nextLocale);
+      applyTranslations();
+    });
   }
 });
 
@@ -2122,6 +2302,7 @@ async function bootstrap() {
     sanitizeLocale: localization.sanitizeLocale
   });
 
+  await ensureLocaleLoaded(bootstrapState.locale);
   setLocale(bootstrapState.locale);
   init(snapshot || {});
   hydrateFromBootstrapState(snapshot);
@@ -2130,6 +2311,8 @@ async function bootstrap() {
       localStorage.setItem('orion-locale', bootstrapState.locale);
     } catch (_error) { }
   }
+  renderTabStrip();
+  if (activeTabId) setActiveTab(activeTabId);
   applyTranslations();
   if (bootstrapState.showOnboarding) showStartupOverlay();
   else hideStartupOverlay();

@@ -4,7 +4,7 @@ function createProtocolAssetHandler(options = {}) {
   const resolveAssetPath = options.resolveAssetPath;
   const getContentType = options.getContentType;
   const readFile = options.readFile || fs.promises.readFile.bind(fs.promises);
-  const responseCache = new Map();
+  const responseCache = options.responseCache instanceof Map ? options.responseCache : new Map();
 
   if (typeof resolveAssetPath !== "function" || typeof getContentType !== "function") {
     throw new Error("createProtocolAssetHandler requires asset resolver functions");

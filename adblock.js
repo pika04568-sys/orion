@@ -1,9 +1,13 @@
 const fs = require("fs");
 const path = require("path");
+const crypto = require("node:crypto");
 const { Worker } = require("node:worker_threads");
 const { createCoalescedAtomicWriter } = require("./async-store");
 
 const DEFAULT_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
+const DEFAULT_WORKER_TIMEOUT_MS = 15000;
+const MAX_WORKER_TIMEOUT_MS = 30000;
+const COMPILED_CACHE_VERSION = 1;
 
 const BUILTIN_LISTS = Object.freeze([
   {
@@ -51,6 +55,59 @@ const FILTER_RESOURCE_TYPES = new Set([
   "websocket",
   "other"
 ]);
+
+function createBoundedCache(maxEntries = 4096) {
+  const limit = Number.isFinite(maxEntries) ? Math.max(0, Math.floor(maxEntries)) : 4096;
+  const entries = new Map();
+  return {
+    clear: () => entries.clear(),
+    get(key) {
+      if (!entries.has(key)) return undefined;
+      const value = entries.get(key);
+      entries.delete(key);
+      entries.set(key, value);
+      return value;
+    },
+    set(key, value) {
+      if (limit === 0) return;
+      if (entries.has(key)) entries.delete(key);
+      entries.set(key, value);
+      while (entries.size > limit) entries.delete(entries.keys().next().value);
+    },
+    get size() {
+      return entries.size;
+    }
+  };
+}
+
+function sha256(value) {
+  return crypto.createHash("sha256").update(String(value || ""), "utf8").digest("hex");
+}
+
+function isSha256(value) {
+  return typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
+}
+
+function getSnapshotDigest(snapshot) {
+  return sha256(JSON.stringify(snapshot));
+}
+
+function getContentHashSignature(lists, customRulesHash) {
+  return sha256(JSON.stringify({
+    version: COMPILED_CACHE_VERSION,
+    lists,
+    customRulesHash
+  }));
+}
+
+function getInputSignature(input) {
+  const lists = Array.isArray(input && input.listEntries) ? input.listEntries : [];
+  return getContentHashSignature(lists.map((entry) => ({
+    id: entry && entry.id,
+    enabled: !!(entry && entry.enabled),
+    contentHash: sha256(entry && entry.text ? entry.text : "")
+  })), sha256(input && input.customRules ? input.customRules : ""));
+}
 
 function escapeRegexChar(ch) {
   return ch.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&");
@@ -402,6 +459,18 @@ function compileFilterSnapshot(listEntries = [], customRulesText = "") {
   };
 }
 
+function isCompiledFilterSnapshot(snapshot) {
+  const validParsedRules = (parsed) => parsed
+    && Array.isArray(parsed.allowRules)
+    && Array.isArray(parsed.blockRules)
+    && parsed.counts && Number.isFinite(parsed.counts.allow)
+    && Number.isFinite(parsed.counts.block);
+  return !!snapshot
+    && Array.isArray(snapshot.lists)
+    && snapshot.lists.every((list) => list && typeof list.id === "string" && validParsedRules(list.parsed))
+    && validParsedRules(snapshot.custom);
+}
+
 class FilterEngine {
   constructor() {
     this.allowBuckets = new Map();
@@ -522,12 +591,18 @@ function createAdblockManager(options = {}) {
     ? options.refreshIntervalMs
     : DEFAULT_REFRESH_INTERVAL_MS;
   const logger = options.logger || console;
-  const listDefinitions = Array.isArray(options.lists) && options.lists.length
-    ? options.lists
-    : BUILTIN_LISTS;
+  const workerPath = typeof options.workerPath === "string" && options.workerPath
+    ? options.workerPath
+    : null;
+  const decisionCache = createBoundedCache(options.decisionCacheMaxEntries);
+  const listDefinitions = Array.isArray(options.lists) ? options.lists : BUILTIN_LISTS;
   const statePath = path.join(userDataDir, "adblock-state.json");
   const cacheDir = path.join(userDataDir, "adblock-cache");
+  const compiledCachePath = path.join(cacheDir, `compiled-v${COMPILED_CACHE_VERSION}.json`);
   const cacheVersion = 1;
+  const workerTimeoutMs = Number.isFinite(options.workerTimeoutMs)
+    ? Math.min(MAX_WORKER_TIMEOUT_MS, Math.max(100, Math.floor(options.workerTimeoutMs)))
+    : DEFAULT_WORKER_TIMEOUT_MS;
 
   const baseState = {
     version: cacheVersion,
@@ -541,6 +616,7 @@ function createAdblockManager(options = {}) {
       lastUpdatedAt: null,
       lastError: null,
       ruleCount: 0,
+      contentHash: null,
       sourceUrl: def.url,
       name: def.name
     };
@@ -560,6 +636,7 @@ function createAdblockManager(options = {}) {
       lastUpdatedAt: Number.isFinite(current.lastUpdatedAt) ? current.lastUpdatedAt : null,
       lastError: typeof current.lastError === "string" ? current.lastError : null,
       ruleCount: Number.isFinite(current.ruleCount) ? current.ruleCount : 0,
+      contentHash: isSha256(current.contentHash) ? current.contentHash : null,
       sourceUrl: def.url,
       name: def.name
     };
@@ -571,10 +648,22 @@ function createAdblockManager(options = {}) {
     delayMs: 100,
     serialize: (value) => JSON.stringify(value, null, 2)
   });
+  const compiledCacheWriter = createCoalescedAtomicWriter({
+    filePath: compiledCachePath,
+    delayMs: 0,
+    serialize: (value) => JSON.stringify(value)
+  });
   const cacheWriters = new Map();
   let engine = new FilterEngine();
   let cacheHydrated = false;
   let blockingReady = false;
+  let blockingProvisional = false;
+  let initializationError = null;
+  let blockingReadyPromise = null;
+  let compilePromise = null;
+  let configRevision = 0;
+  let requestedRevision = -1;
+  let appliedRevision = -1;
   let syncState = {
     status: "idle",
     message: "Adblock lists loaded from cache.",
@@ -605,30 +694,73 @@ function createAdblockManager(options = {}) {
   async function flushPersistence() {
     await Promise.all([
       stateWriter.flush(),
+      compiledCacheWriter.flush(),
       ...Array.from(cacheWriters.values(), (writer) => writer.flush())
     ]);
   }
 
-  function getCompiledListEntries(options = {}) {
+  function getCompiledListEntries() {
     return listDefinitions.map((def) => {
       const meta = state.lists[def.id] || {};
       const cached = compiledLists.get(def.id) || {};
       return {
         id: def.id,
         enabled: meta.enabled !== false,
-        filePath: options.fileBacked ? getListCachePath(def.id) : undefined,
-        text: options.fileBacked ? undefined : (cached.text || "")
+        text: cached.text || ""
       };
     });
   }
 
-  function ensureCompiledLists() {
-    const listEntries = getCompiledListEntries();
-    engine.rebuild(listEntries, state.customRules);
-    blockingReady = true;
+  function markConfigurationChanged() {
+    configRevision += 1;
+    requestedRevision = Math.max(requestedRevision, configRevision);
+    decisionCache.clear();
   }
 
-  function applyCompiledSnapshot(snapshot) {
+  function captureCompileInput(revision = configRevision) {
+    const listEntries = getCompiledListEntries().map((entry) => Object.freeze({
+      id: entry.id,
+      enabled: entry.enabled,
+      text: entry.text
+    }));
+    for (const entry of listEntries) {
+      if (state.lists[entry.id]) state.lists[entry.id].contentHash = sha256(entry.text);
+    }
+    return Object.freeze({
+      revision,
+      listEntries: Object.freeze(listEntries),
+      customRules: state.customRules
+    });
+  }
+
+  function getPersistedInputSignature() {
+    const lists = [];
+    for (const def of listDefinitions) {
+      const meta = state.lists[def.id] || {};
+      if (!isSha256(meta.contentHash)) return null;
+      lists.push({
+        id: def.id,
+        enabled: meta.enabled !== false,
+        contentHash: meta.contentHash
+      });
+    }
+    return getContentHashSignature(lists, sha256(state.customRules));
+  }
+
+  function isValidCompiledEnvelope(envelope) {
+    if (!envelope || envelope.version !== COMPILED_CACHE_VERSION || !isCompiledFilterSnapshot(envelope.snapshot)) {
+      return false;
+    }
+    const expectedInputSignature = getPersistedInputSignature();
+    if (!expectedInputSignature || envelope.inputSignature !== expectedInputSignature) return false;
+    return isSha256(envelope.snapshotSignature)
+      && envelope.snapshotSignature === getSnapshotDigest(envelope.snapshot);
+  }
+
+  function applyCompiledSnapshot(snapshot, revision = configRevision) {
+    if (!isCompiledFilterSnapshot(snapshot)) {
+      throw new Error("Adblock compiler returned an invalid snapshot");
+    }
     const nextEngine = new FilterEngine();
     nextEngine.rebuildFromSnapshot(snapshot);
     for (const list of snapshot && Array.isArray(snapshot.lists) ? snapshot.lists : []) {
@@ -636,46 +768,166 @@ function createAdblockManager(options = {}) {
       state.lists[list.id].ruleCount = list.parsed.counts.block + list.parsed.counts.allow;
     }
     engine = nextEngine;
+    decisionCache.clear();
     blockingReady = true;
+    blockingProvisional = false;
+    initializationError = null;
+    appliedRevision = revision;
     persistState();
     return getState();
   }
 
-  function compileSnapshotInWorker() {
-    if (!options.workerPath) {
-      return Promise.resolve(compileFilterSnapshot(getCompiledListEntries(), state.customRules));
+  function hydrateCompiledEnvelope(envelope) {
+    if (!isValidCompiledEnvelope(envelope)) return false;
+    applyCompiledSnapshot(envelope.snapshot, configRevision);
+    return true;
+  }
+
+  function tryHydrateCompiledSnapshot() {
+    try {
+      if (!fs.existsSync(compiledCachePath)) return false;
+      return hydrateCompiledEnvelope(JSON.parse(fs.readFileSync(compiledCachePath, "utf8")));
+    } catch (_error) {
+      return false;
+    }
+  }
+
+  async function tryHydrateCompiledSnapshotAsync() {
+    try {
+      const text = await fs.promises.readFile(compiledCachePath, "utf8");
+      return hydrateCompiledEnvelope(JSON.parse(text));
+    } catch (error) {
+      if (error && error.code !== "ENOENT" && !(error instanceof SyntaxError)) throw error;
+      return false;
+    }
+  }
+
+  function createCompiledEnvelope(snapshot, input) {
+    return Object.freeze({
+      version: COMPILED_CACHE_VERSION,
+      inputSignature: getInputSignature(input),
+      snapshotSignature: getSnapshotDigest(snapshot),
+      snapshot
+    });
+  }
+
+  async function persistCompiledSnapshot(snapshot, input) {
+    persistState();
+    await stateWriter.flush();
+    compiledCacheWriter.schedule(createCompiledEnvelope(snapshot, input));
+    await compiledCacheWriter.flush();
+  }
+
+  function compileSnapshotInWorker(input) {
+    if (typeof options.compileSnapshotAsync === "function") {
+      return Promise.resolve().then(() => options.compileSnapshotAsync(input));
+    }
+    if (!workerPath) {
+      return Promise.resolve(compileFilterSnapshot(input.listEntries, input.customRules));
     }
     return new Promise((resolve, reject) => {
-      const worker = new Worker(options.workerPath);
+      const worker = new Worker(workerPath);
       const requestId = `${Date.now()}-${Math.random()}`;
-      const cleanup = () => void worker.terminate().catch(() => {});
-      worker.once("error", (error) => {
+      let settled = false;
+      const timeout = setTimeout(() => finish(new Error("Timed out compiling adblock filters")), workerTimeoutMs);
+      if (typeof timeout.unref === "function") timeout.unref();
+      const cleanup = () => {
+        clearTimeout(timeout);
+        void worker.terminate().catch(() => {});
+      };
+      const finish = (error, snapshot) => {
+        if (settled) return;
+        settled = true;
         cleanup();
-        reject(error);
+        if (error) reject(error);
+        else resolve(snapshot);
+      };
+      worker.once("error", (error) => {
+        finish(error);
+      });
+      worker.once("exit", (code) => {
+        if (!settled && code !== 0) finish(new Error(`Adblock worker exited with code ${code}`));
       });
       worker.on("message", (message) => {
         if (!message || message.id !== requestId) return;
-        cleanup();
-        if (message.ok) resolve(message.snapshot);
-        else reject(new Error(message.error || "Unable to compile adblock filters"));
+        if (message.ok) finish(null, message.snapshot);
+        else finish(new Error(message.error || "Unable to compile adblock filters"));
       });
       worker.postMessage({
         type: "compile",
         id: requestId,
-        listEntries: getCompiledListEntries({ fileBacked: true }),
-        customRules: state.customRules
+        listEntries: input.listEntries,
+        customRules: input.customRules
       });
     });
+  }
+
+  function hasRuleSources(input) {
+    return !!input.customRules.trim()
+      || input.listEntries.some((entry) => entry.enabled && !!entry.text.trim());
+  }
+
+  function installProvisionalEmptyEngine() {
+    engine = new FilterEngine();
+    decisionCache.clear();
+    blockingReady = true;
+    blockingProvisional = true;
+  }
+
+  function scheduleCurrentCompilation() {
+    void requestCurrentCompilation().catch((error) => {
+      blockingReady = false;
+      blockingProvisional = false;
+      initializationError = error instanceof Error ? error : new Error(String(error));
+      if (logger.error) {
+        logger.error(`Failed to initialize adblock filters: ${initializationError.message}`);
+      }
+    });
+  }
+
+  async function requestCurrentCompilation() {
+    requestedRevision = Math.max(requestedRevision, configRevision);
+    if (compilePromise) return compilePromise;
+    compilePromise = (async () => {
+      while (!blockingReady || appliedRevision < requestedRevision) {
+        const targetRevision = configRevision;
+        requestedRevision = Math.max(requestedRevision, targetRevision);
+        const input = captureCompileInput(targetRevision);
+        const snapshot = hasRuleSources(input)
+          ? await compileSnapshotInWorker(input)
+          : compileFilterSnapshot(input.listEntries, input.customRules);
+        if (targetRevision !== configRevision || targetRevision < requestedRevision) continue;
+        applyCompiledSnapshot(snapshot, targetRevision);
+        await persistCompiledSnapshot(snapshot, input);
+      }
+      return getState();
+    })().finally(() => {
+      compilePromise = null;
+    });
+    return compilePromise;
   }
 
   function loadCachedList(listId) {
     const cachePath = getListCachePath(listId);
     try {
-      if (!fs.existsSync(cachePath)) return "";
-      return fs.readFileSync(cachePath, "utf8");
-    } catch (_error) {
-      return "";
+      if (!fs.existsSync(cachePath)) return { exists: false, text: "" };
+      return { exists: true, text: fs.readFileSync(cachePath, "utf8") };
+    } catch (error) {
+      throw new Error(`Unable to read cached adblock list ${listId}: ${error.message}`);
     }
+  }
+
+  function validateCachedList(def, cached) {
+    const meta = state.lists[def.id];
+    if ((!cached.exists || !cached.text) && meta.ruleCount > 0) {
+      throw new Error(`Cached adblock list ${def.id} is missing or empty`);
+    }
+    const contentHash = sha256(cached.text);
+    if (meta.contentHash && meta.contentHash !== contentHash) {
+      throw new Error(`Cached adblock list ${def.id} failed its integrity check`);
+    }
+    meta.contentHash = contentHash;
+    return cached.text;
   }
 
   function hydrateFromCache() {
@@ -683,7 +935,7 @@ function createAdblockManager(options = {}) {
     fs.mkdirSync(cacheDir, { recursive: true });
     for (const def of listDefinitions) {
       if (compiledLists.has(def.id)) continue;
-      const text = loadCachedList(def.id);
+      const text = validateCachedList(def, loadCachedList(def.id));
       compiledLists.set(def.id, {
         text,
         lastUpdatedAt: state.lists[def.id].lastUpdatedAt,
@@ -700,49 +952,72 @@ function createAdblockManager(options = {}) {
   async function hydrateFromCacheAsync() {
     if (cacheHydrated) return;
     await fs.promises.mkdir(cacheDir, { recursive: true });
-    if (!options.workerPath) {
-      await Promise.all(listDefinitions.map(async (def) => {
-        if (compiledLists.has(def.id)) return;
-        let text = "";
-        try {
-          text = await fs.promises.readFile(getListCachePath(def.id), "utf8");
-        } catch (error) {
-          if (!error || error.code !== "ENOENT") throw error;
-        }
-        compiledLists.set(def.id, {
-          text,
-          lastUpdatedAt: state.lists[def.id].lastUpdatedAt,
-          ruleCount: state.lists[def.id].ruleCount
-        });
-      }));
-    }
+    await Promise.all(listDefinitions.map(async (def) => {
+      if (compiledLists.has(def.id)) return;
+      let cached = { exists: true, text: "" };
+      try {
+        cached.text = await fs.promises.readFile(getListCachePath(def.id), "utf8");
+      } catch (error) {
+        if (!error || error.code !== "ENOENT") throw error;
+        cached = { exists: false, text: "" };
+      }
+      const text = validateCachedList(def, cached);
+      compiledLists.set(def.id, {
+        text,
+        lastUpdatedAt: state.lists[def.id].lastUpdatedAt,
+        ruleCount: state.lists[def.id].ruleCount
+      });
+    }));
     cacheHydrated = true;
   }
 
   function ensureBlockingReady() {
     if (blockingReady) return getState();
+    if (tryHydrateCompiledSnapshot()) return getState();
     hydrateFromCache();
-    ensureCompiledLists();
+    const input = captureCompileInput(configRevision);
+    const snapshot = compileFilterSnapshot(input.listEntries, input.customRules);
+    applyCompiledSnapshot(snapshot, configRevision);
+    compiledCacheWriter.schedule(createCompiledEnvelope(snapshot, input));
     return getState();
   }
 
   async function ensureBlockingReadyAsync() {
+    if (initializationError) throw initializationError;
     if (blockingReady) return getState();
-    await hydrateFromCacheAsync();
-    const snapshot = await compileSnapshotInWorker();
-    return applyCompiledSnapshot(snapshot);
+    if (!blockingReadyPromise) {
+      blockingReadyPromise = (async () => {
+        if (await tryHydrateCompiledSnapshotAsync()) return getState();
+        await hydrateFromCacheAsync();
+        const input = captureCompileInput(configRevision);
+        if (!hasRuleSources(input)) {
+          const snapshot = compileFilterSnapshot(input.listEntries, input.customRules);
+          applyCompiledSnapshot(snapshot, configRevision);
+          compiledCacheWriter.schedule(createCompiledEnvelope(snapshot, input));
+          return getState();
+        }
+        installProvisionalEmptyEngine();
+        scheduleCurrentCompilation();
+        return getState();
+      })().finally(() => {
+        blockingReadyPromise = null;
+      });
+    }
+    return blockingReadyPromise;
   }
 
   function rebuildBlockingEngine() {
     hydrateFromCache();
-    ensureCompiledLists();
+    const input = captureCompileInput(configRevision);
+    const snapshot = compileFilterSnapshot(input.listEntries, input.customRules);
+    applyCompiledSnapshot(snapshot, configRevision);
+    compiledCacheWriter.schedule(createCompiledEnvelope(snapshot, input));
     return getState();
   }
 
   async function rebuildBlockingEngineAsync() {
     await hydrateFromCacheAsync();
-    const snapshot = await compileSnapshotInWorker();
-    return applyCompiledSnapshot(snapshot);
+    return requestCurrentCompilation();
   }
 
   async function fetchText(url) {
@@ -768,18 +1043,22 @@ function createAdblockManager(options = {}) {
   }
 
   async function updateCompiledList(def, text) {
-    const parsed = options.workerPath ? null : parseFilterList(text);
+    const previousText = (compiledLists.get(def.id) || {}).text || "";
+    const parsed = workerPath ? null : parseFilterList(text);
     const ruleCount = parsed
       ? parsed.counts.block + parsed.counts.allow
       : (state.lists[def.id].ruleCount || 0);
+    const updatedAt = Date.now();
     compiledLists.set(def.id, {
       text,
-      lastUpdatedAt: Date.now(),
+      lastUpdatedAt: updatedAt,
       ruleCount
     });
-    state.lists[def.id].lastUpdatedAt = Date.now();
+    state.lists[def.id].lastUpdatedAt = updatedAt;
     state.lists[def.id].lastError = null;
     state.lists[def.id].ruleCount = ruleCount;
+    state.lists[def.id].contentHash = sha256(text);
+    if (previousText !== text) markConfigurationChanged();
     const writer = getCacheWriter(def.id);
     writer.schedule(text);
     await writer.flush();
@@ -795,13 +1074,13 @@ function createAdblockManager(options = {}) {
     await updateCompiledList(def, text);
   }
 
-  async function refreshBuiltInLists(options = {}) {
-    if (!options.force && refreshPromise) return refreshPromise;
+  async function refreshBuiltInLists(refreshOptions = {}) {
+    if (refreshPromise) return refreshPromise;
     const now = Date.now();
     const staleLists = listDefinitions.filter((def) => {
       const meta = state.lists[def.id] || {};
       if (!meta.enabled) return false;
-      if (options.force) return true;
+      if (refreshOptions.force) return true;
       if (!meta.lastUpdatedAt) return true;
       return now - meta.lastUpdatedAt >= refreshIntervalMs;
     });
@@ -835,8 +1114,11 @@ function createAdblockManager(options = {}) {
         }
       }));
       persistState();
-      if (options.workerPath) await rebuildBlockingEngineAsync();
-      else ensureCompiledLists();
+      if (workerPath || typeof options.compileSnapshotAsync === "function") {
+        await rebuildBlockingEngineAsync();
+      } else {
+        rebuildBlockingEngine();
+      }
       const summary = {
         status: failures.length ? "degraded" : "ready",
         message: failures.length
@@ -873,6 +1155,7 @@ function createAdblockManager(options = {}) {
 
     return {
       blockingReady,
+      blockingProvisional,
       cacheHydrated,
       customRules: state.customRules,
       hasCustomRules: !!state.customRules.trim(),
@@ -894,57 +1177,91 @@ function createAdblockManager(options = {}) {
   }
 
   async function recompileAsync() {
-    if (blockingReady) await rebuildBlockingEngineAsync();
+    await rebuildBlockingEngineAsync();
     persistState();
     await flushPersistence();
     return getState();
   }
 
   function updateCustomRules(text) {
-    state.customRules = String(text || "");
+    const nextRules = String(text || "");
+    if (state.customRules === nextRules) return getState();
+    state.customRules = nextRules;
+    markConfigurationChanged();
     return recompile();
   }
 
   async function updateCustomRulesAsync(text) {
-    state.customRules = String(text || "");
+    const nextRules = String(text || "");
+    if (state.customRules === nextRules) return getState();
+    state.customRules = nextRules;
+    markConfigurationChanged();
     return recompileAsync();
   }
 
   function setListEnabled(listId, enabled) {
     if (!state.lists[listId]) return getState();
-    state.lists[listId].enabled = !!enabled;
+    const nextEnabled = !!enabled;
+    if (state.lists[listId].enabled === nextEnabled) return getState();
+    state.lists[listId].enabled = nextEnabled;
+    markConfigurationChanged();
     return recompile();
   }
 
   async function setListEnabledAsync(listId, enabled) {
     if (!state.lists[listId]) return getState();
-    state.lists[listId].enabled = !!enabled;
+    const nextEnabled = !!enabled;
+    if (state.lists[listId].enabled === nextEnabled) return getState();
+    state.lists[listId].enabled = nextEnabled;
+    markConfigurationChanged();
     return recompileAsync();
   }
 
   function resetToDefaults() {
+    let changed = false;
     for (const def of listDefinitions) {
       if (!state.lists[def.id]) continue;
+      changed = changed || state.lists[def.id].enabled !== true;
       state.lists[def.id].enabled = true;
     }
+    if (!changed) return getState();
+    markConfigurationChanged();
     return recompile();
   }
 
   async function resetToDefaultsAsync() {
+    let changed = false;
     for (const def of listDefinitions) {
-      if (state.lists[def.id]) state.lists[def.id].enabled = true;
+      if (state.lists[def.id]) {
+        changed = changed || state.lists[def.id].enabled !== true;
+        state.lists[def.id].enabled = true;
+      }
     }
+    if (!changed) return getState();
+    markConfigurationChanged();
     return recompileAsync();
   }
 
   function shouldBlockRequest(details) {
     if (!blockingReady) return false;
-    return engine.shouldBlockRequest(details);
+    const cacheKey = [
+      details && details.resourceType,
+      details && details.url,
+      details && (details.documentUrl || details.documentURL || details.initiator || details.referrer)
+    ].join("\n");
+    const cachedDecision = decisionCache.get(cacheKey);
+    if (cachedDecision !== undefined) return cachedDecision;
+    const decision = engine.shouldBlockRequest(details);
+    decisionCache.set(cacheKey, decision);
+    return decision;
   }
 
   function initialize(initOptions = {}) {
     cacheHydrated = false;
     blockingReady = false;
+    blockingProvisional = false;
+    initializationError = null;
+    blockingReadyPromise = null;
     if (!initOptions || initOptions.lazy !== true) {
       ensureBlockingReady();
     }
@@ -955,6 +1272,9 @@ function createAdblockManager(options = {}) {
   async function initializeAsync(initOptions = {}) {
     cacheHydrated = false;
     blockingReady = false;
+    blockingProvisional = false;
+    initializationError = null;
+    blockingReadyPromise = null;
     persistState();
     if (!initOptions || initOptions.lazy !== true) await ensureBlockingReadyAsync();
     return getState();
@@ -964,6 +1284,7 @@ function createAdblockManager(options = {}) {
     initialize,
     initializeAsync,
     getState,
+    isBlockingReady: () => blockingReady,
     ensureBlockingReady,
     ensureBlockingReadyAsync,
     flushPersistence,
@@ -981,6 +1302,7 @@ function createAdblockManager(options = {}) {
 module.exports = {
   BUILTIN_LISTS,
   compileFilterSnapshot,
+  createBoundedCache,
   createAdblockManager,
   parseFilterList,
   parseFilterListDescriptors

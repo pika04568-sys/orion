@@ -1,19 +1,16 @@
 import Foundation
 
-struct JSONFileStore<Value: Codable> {
-    private let fileURL: URL
+actor JSONFileStore<Value: Codable & Sendable> {
+    private let filename: String
+    private let storageDirectory: URL?
 
-    init(filename: String) {
-        let fileManager = FileManager.default
-        let baseURL = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? fileManager.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support", isDirectory: true)
-        let appDirectory = baseURL.appendingPathComponent("Orion", isDirectory: true)
-
-        try? fileManager.createDirectory(at: appDirectory, withIntermediateDirectories: true)
-        fileURL = appDirectory.appendingPathComponent(filename)
+    init(filename: String, storageDirectory: URL? = nil) {
+        self.filename = filename
+        self.storageDirectory = storageDirectory
     }
 
     func load(defaultValue: Value) -> Value {
+        let fileURL = resolvedFileURL(createDirectory: false)
         guard let data = try? Data(contentsOf: fileURL) else {
             return defaultValue
         }
@@ -24,12 +21,31 @@ struct JSONFileStore<Value: Codable> {
         return (try? decoder.decode(Value.self, from: data)) ?? defaultValue
     }
 
-    func save(_ value: Value) {
+    func save(_ value: Value) throws {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(value)
+        let fileURL = resolvedFileURL(createDirectory: true)
+        try data.write(to: fileURL, options: .atomic)
+    }
 
-        guard let data = try? encoder.encode(value) else { return }
-        try? data.write(to: fileURL, options: .atomic)
+    private func resolvedFileURL(createDirectory: Bool) -> URL {
+        let fileManager = FileManager.default
+        let directory: URL
+
+        if let storageDirectory {
+            directory = storageDirectory
+        } else {
+            let baseURL = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+                ?? fileManager.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support", isDirectory: true)
+            directory = baseURL.appendingPathComponent("Orion", isDirectory: true)
+        }
+
+        if createDirectory {
+            try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+
+        return directory.appendingPathComponent(filename)
     }
 }

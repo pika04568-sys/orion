@@ -27,8 +27,9 @@ function createCoalescedAtomicWriter(options = {}) {
 
   async function drain() {
     while (pending !== EMPTY) {
-      const value = pending;
+      const resolveValue = pending;
       pending = EMPTY;
+      const value = resolveValue();
       await writeAtomically(value);
     }
   }
@@ -46,14 +47,21 @@ function createCoalescedAtomicWriter(options = {}) {
     return flushing;
   }
 
-  function schedule(value) {
-    pending = value;
+  function scheduleFactory(factory) {
+    if (typeof factory !== "function") {
+      throw new TypeError("scheduleFactory requires a function");
+    }
+    pending = factory;
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => {
       timer = null;
       void flush();
     }, delayMs);
     if (typeof timer.unref === "function") timer.unref();
+  }
+
+  function schedule(value) {
+    scheduleFactory(() => value);
   }
 
   async function read(fallback = null) {
@@ -83,7 +91,8 @@ function createCoalescedAtomicWriter(options = {}) {
     hasPending: () => pending !== EMPTY || !!timer || !!flushing,
     read,
     remove,
-    schedule
+    schedule,
+    scheduleFactory
   };
 }
 

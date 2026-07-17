@@ -5,13 +5,31 @@ const http = require("node:http");
 const os = require("node:os");
 const path = require("node:path");
 const { _electron: electron } = require("playwright-core");
-const { resolveElectronExecutable } = require("../../scripts/electron-executable");
+const { stageElectronExecutable } = require("../../scripts/electron-executable");
 
 const projectRoot = path.resolve(__dirname, "..", "..");
-const electronPath = resolveElectronExecutable(projectRoot);
+const electronPath = stageElectronExecutable(projectRoot);
 const profiles = [];
 let fixtureServer;
 let fixtureOrigin;
+
+function withTimeout(promise, timeoutMs) {
+  let timer;
+  return Promise.race([
+    Promise.resolve(promise),
+    new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`Timed out after ${timeoutMs}ms`)), timeoutMs);
+    })
+  ]).finally(() => clearTimeout(timer));
+}
+
+async function waitForExit(processHandle, timeoutMs) {
+  if (!processHandle || processHandle.exitCode != null) return true;
+  return Promise.race([
+    new Promise((resolve) => processHandle.once("exit", () => resolve(true))),
+    new Promise((resolve) => setTimeout(() => resolve(false), timeoutMs))
+  ]);
+}
 
 function createProfile(tabs = null) {
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), "orion-electron-test-"));
@@ -46,6 +64,7 @@ async function launchOrion(profile) {
     executablePath: electronPath,
     args: [projectRoot],
     cwd: projectRoot,
+    timeout: 15000,
     env: {
       ...process.env,
       ORION_DISABLE_BACKGROUND_NETWORK: "1",
@@ -53,19 +72,28 @@ async function launchOrion(profile) {
       ORION_USER_DATA_DIR: profile
     }
   });
-  if (app.process().stdout) app.process().stdout.on("data", (chunk) => processLogs.push(String(chunk)));
-  if (app.process().stderr) app.process().stderr.on("data", (chunk) => processLogs.push(String(chunk)));
-  const attachPage = (page) => {
-    page.on("console", (message) => {
-      if (message.type() === "error") errors.push(message.text());
-    });
-    page.on("pageerror", (error) => errors.push(error.message));
-  };
-  app.context().pages().forEach(attachPage);
-  app.context().on("page", attachPage);
-  const shell = await app.firstWindow();
-  await shell.waitForFunction(() => document.documentElement.dataset.orionReady === "true");
-  return { app, errors, processLogs, shell };
+  try {
+    if (app.process().stdout) app.process().stdout.on("data", (chunk) => processLogs.push(String(chunk)));
+    if (app.process().stderr) app.process().stderr.on("data", (chunk) => processLogs.push(String(chunk)));
+    const attachPage = (page) => {
+      page.on("console", (message) => {
+        if (message.type() === "error") errors.push(message.text());
+      });
+      page.on("pageerror", (error) => errors.push(error.message));
+    };
+    app.context().pages().forEach(attachPage);
+    app.context().on("page", attachPage);
+    const shell = await app.firstWindow({ timeout: 10000 });
+    await shell.waitForFunction(
+      () => document.documentElement.dataset.orionReady === "true",
+      null,
+      { timeout: 10000 }
+    );
+    return { app, errors, processLogs, shell };
+  } catch (error) {
+    await quitOrion(app);
+    throw error;
+  }
 }
 
 async function findPage(app, predicate, timeoutMs = 5000) {
@@ -79,22 +107,23 @@ async function findPage(app, predicate, timeoutMs = 5000) {
 }
 
 async function quitOrion(app) {
+  if (!app) return;
   const processHandle = app.process();
-  await Promise.race([
+  await withTimeout(
     app.evaluate(({ app: electronApp }) => {
       setImmediate(() => electronApp.quit());
       return true;
     }).catch(() => {}),
-    new Promise((resolve) => setTimeout(resolve, 500))
-  ]);
-  if (processHandle.exitCode == null) {
-    await Promise.race([
-      new Promise((resolve) => processHandle.once("exit", resolve)),
-      new Promise((resolve) => setTimeout(resolve, 5000))
-    ]);
+    500
+  ).catch(() => {});
+  if (!await waitForExit(processHandle, 3000)) {
+    try { processHandle.kill("SIGTERM"); } catch (_error) {}
   }
-  if (processHandle.exitCode == null) processHandle.kill("SIGTERM");
-  await app.close().catch(() => {});
+  if (!await waitForExit(processHandle, 1000)) {
+    try { processHandle.kill("SIGKILL"); } catch (_error) {}
+    await waitForExit(processHandle, 1000);
+  }
+  await withTimeout(app.close().catch(() => {}), 1000).catch(() => {});
 }
 
 test.before(async () => {
@@ -107,7 +136,10 @@ test.before(async () => {
 });
 
 test.after(async () => {
-  if (fixtureServer) await new Promise((resolve) => fixtureServer.close(resolve));
+  if (fixtureServer) {
+    if (typeof fixtureServer.closeAllConnections === "function") fixtureServer.closeAllConnections();
+    await withTimeout(new Promise((resolve) => fixtureServer.close(resolve)), 2000).catch(() => {});
+  }
   profiles.forEach((profile) => fs.rmSync(profile, { recursive: true, force: true }));
 });
 
@@ -134,9 +166,32 @@ test("shell paints, core controls work, and hidden panels initialize on demand",
     const fixturePage = await findPage(app, (page) => page.url().startsWith(fixtureOrigin));
     await fixturePage.locator("#fixture-ready").waitFor();
 
+    assert.equal(await shell.locator("#profile-color-picker").count(), 0);
+    assert.equal(await shell.getAttribute("#settings-sidebar", "data-mounted"), null);
     await shell.click("#settings-btn");
     await shell.locator("#settings-sidebar.open").waitFor();
+    assert.equal(await shell.getAttribute("#settings-sidebar", "data-mounted"), "true");
     assert.ok(await shell.locator("#profile-color-picker .color-option").count() > 0);
+    assert.deepEqual(
+      await shell.evaluate(() => Object.keys(window.OrionLocalization.TRANSLATIONS).sort()),
+      ["en"]
+    );
+    await shell.locator('#settings-language-picker button', { hasText: "Français" }).click();
+    await shell.waitForFunction(() => (
+      document.documentElement.lang === "fr"
+      && document.querySelector('#settings-sidebar [data-i18n="settings.title"]')?.textContent === "Paramètres"
+    ));
+    assert.deepEqual(
+      await shell.evaluate(() => Object.keys(window.OrionLocalization.TRANSLATIONS).sort()),
+      ["en", "fr"]
+    );
+    await shell.click("#close-settings");
+    await shell.click("#settings-btn");
+    assert.equal(await shell.locator("#profile-color-picker").count(), 1);
+    assert.equal(
+      await shell.locator('#settings-sidebar [data-i18n="settings.title"]').textContent(),
+      "Paramètres"
+    );
     await shell.click("#close-settings");
 
     await shell.click("#adblock-btn");

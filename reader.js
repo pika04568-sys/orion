@@ -272,7 +272,16 @@
     }
   });
 
-  applyStaticTranslations();
-  applySavedPreferences();
-  void loadSnapshot();
+  async function initializeReader() {
+    if (localization && typeof localization.loadLocale === "function") {
+      try {
+        await localization.loadLocale(currentLocale);
+      } catch (_error) { }
+    }
+    applyStaticTranslations();
+    applySavedPreferences();
+    await loadSnapshot();
+  }
+
+  void initializeReader();
 })();

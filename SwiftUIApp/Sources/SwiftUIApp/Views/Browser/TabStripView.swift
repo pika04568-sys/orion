@@ -7,7 +7,7 @@ struct TabStripView: View {
     var body: some View {
         HStack(spacing: 6) {
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
+                LazyHStack(spacing: 6) {
                     ForEach(browser.tabs) { tab in
                         TabStripItem(
                             tab: tab,
@@ -46,7 +46,7 @@ private struct TabStripItem: View {
         HStack(spacing: 6) {
             Button(action: activate) {
                 HStack(spacing: 6) {
-                    if tab.isLoading {
+                    if tab.navigationState.isLoading {
                         ProgressView()
                             .controlSize(.small)
                             .frame(width: 14, height: 14)

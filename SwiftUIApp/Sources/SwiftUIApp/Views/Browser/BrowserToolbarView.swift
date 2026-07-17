@@ -9,16 +9,19 @@ struct BrowserToolbarView: View {
     var body: some View {
         HStack(spacing: 12) {
             HStack(spacing: 7) {
-                toolbarButton("Back", systemImage: "chevron.left", disabled: !tab.canGoBack) {
+                toolbarButton("Back", systemImage: "chevron.left", disabled: !tab.navigationState.canGoBack) {
                     browser.goBack()
                 }
 
-                toolbarButton("Forward", systemImage: "chevron.right", disabled: !tab.canGoForward) {
+                toolbarButton("Forward", systemImage: "chevron.right", disabled: !tab.navigationState.canGoForward) {
                     browser.goForward()
                 }
 
-                toolbarButton(tab.isLoading ? "Stop" : "Reload", systemImage: tab.isLoading ? "xmark" : "arrow.clockwise") {
-                    tab.isLoading ? browser.stopLoading() : browser.reload()
+                toolbarButton(
+                    tab.navigationState.isLoading ? "Stop" : "Reload",
+                    systemImage: tab.navigationState.isLoading ? "xmark" : "arrow.clockwise"
+                ) {
+                    tab.navigationState.isLoading ? browser.stopLoading() : browser.reload()
                 }
 
                 toolbarButton("Home", systemImage: "house") {

@@ -1,14 +1,17 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 
 const { createCoalescedAtomicWriter } = require("../async-store");
 const { createProtocolAssetHandler } = require("../protocol-assets");
 const {
-  createIntentPreconnector,
-  getInitialMaterializedTabId,
-  normalizePreconnectOrigin
+  getElectronExecutableRelativePath,
+  stageElectronExecutable
+} = require("../scripts/electron-executable");
+const {
+  getInitialMaterializedTabId
 } = require("../startup-performance");
 
 test("coalesced atomic writes persist only the latest pending value", async () => {
@@ -41,19 +44,50 @@ test("coalesced atomic writes persist only the latest pending value", async () =
   assert.deepEqual(JSON.parse(files.get("/virtual/settings.json")), { value: 3 });
 });
 
-test("protocol assets are read asynchronously once and memoized", async () => {
+test("coalesced atomic writers defer snapshot construction until flush", async () => {
+  const files = new Map();
+  let snapshots = 0;
+  const writer = createCoalescedAtomicWriter({
+    filePath: "/virtual/recovery.json",
+    delayMs: 1000,
+    fsPromises: {
+      mkdir: async () => {},
+      writeFile: async (file, value) => files.set(file, value),
+      rename: async (from, to) => {
+        files.set(to, files.get(from));
+        files.delete(from);
+      },
+      readFile: async (file) => files.get(file),
+      unlink: async (file) => files.delete(file)
+    }
+  });
+
+  writer.scheduleFactory(() => ({ snapshot: ++snapshots }));
+  writer.scheduleFactory(() => ({ snapshot: ++snapshots }));
+  assert.equal(snapshots, 0);
+  await writer.flush();
+
+  assert.equal(snapshots, 1);
+  assert.deepEqual(JSON.parse(files.get("/virtual/recovery.json")), { snapshot: 1 });
+});
+
+test("protocol assets share immutable buffers across session handlers", async () => {
   let reads = 0;
-  const handler = createProtocolAssetHandler({
+  const responseCache = new Map();
+  const options = {
     resolveAssetPath: (url) => url === "orion://app/renderer.js" ? "/app/renderer.js" : null,
     getContentType: () => "application/javascript",
+    responseCache,
     readFile: async () => {
       reads += 1;
       return Buffer.from("window.ready=true;");
     }
-  });
+  };
+  const handler = createProtocolAssetHandler(options);
+  const secondSessionHandler = createProtocolAssetHandler(options);
 
   const first = await handler({ url: "orion://app/renderer.js" });
-  const second = await handler({ url: "orion://app/renderer.js" });
+  const second = await secondSessionHandler({ url: "orion://app/renderer.js" });
   const missing = await handler({ url: "orion://app/main.js" });
 
   assert.equal(first.status, 200);
@@ -62,32 +96,39 @@ test("protocol assets are read asynchronously once and memoized", async () => {
   assert.equal(reads, 1);
 });
 
-test("preconnect validation reduces input to an HTTP(S) origin", () => {
-  assert.equal(normalizePreconnectOrigin("https://example.com/path?q=1"), "https://example.com");
-  assert.equal(normalizePreconnectOrigin("http://example.com:8080/a"), "http://example.com:8080");
-  assert.equal(normalizePreconnectOrigin("https://user:pass@example.com"), null);
-  assert.equal(normalizePreconnectOrigin("file:///tmp/test"), null);
-  assert.equal(normalizePreconnectOrigin("javascript:alert(1)"), null);
-});
-
-test("intent preconnect debounces by sender and opens one socket", async () => {
-  const calls = [];
-  const controller = createIntentPreconnector({ delayMs: 10 });
-  const session = { preconnect: (options) => calls.push(options) };
-
-  assert.equal(controller.schedule(7, session, "https://first.example/path"), true);
-  assert.equal(controller.schedule(7, session, "https://second.example/next"), true);
-  await new Promise((resolve) => setTimeout(resolve, 25));
-
-  assert.deepEqual(calls, [{ url: "https://second.example", numSockets: 1 }]);
-  controller.clear();
-});
-
 test("restored tabs materialize only the requested active record", () => {
   const tabs = Array.from({ length: 50 }, (_, index) => ({ id: `tab-${index + 1}` }));
   assert.equal(getInitialMaterializedTabId(tabs, "tab-37"), "tab-37");
   assert.equal(getInitialMaterializedTabId(tabs, "missing"), "tab-1");
   assert.equal(getInitialMaterializedTabId([], "missing"), null);
+});
+
+test("Electron runtime staging is versioned and reused outside the project", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "orion-runtime-stage-test-"));
+  const projectRoot = path.join(root, "project");
+  const cacheRoot = path.join(root, "cache");
+  const relativeExecutable = getElectronExecutableRelativePath();
+  const sourceExecutable = path.join(projectRoot, "node_modules", "electron", "dist", relativeExecutable);
+  fs.mkdirSync(path.dirname(sourceExecutable), { recursive: true });
+  fs.writeFileSync(sourceExecutable, "electron-runtime");
+  fs.writeFileSync(
+    path.join(projectRoot, "node_modules", "electron", "package.json"),
+    JSON.stringify({ version: "99.1.2" })
+  );
+  const previousElectronPath = process.env.ELECTRON_PATH;
+  delete process.env.ELECTRON_PATH;
+  try {
+    const first = stageElectronExecutable(projectRoot, { cacheRoot });
+    const second = stageElectronExecutable(projectRoot, { cacheRoot });
+    assert.equal(first, second);
+    assert.equal(fs.readFileSync(first, "utf8"), "electron-runtime");
+    assert.ok(first.startsWith(cacheRoot));
+    assert.match(first, new RegExp(`electron-99\\.1\\.2-${process.platform}-${process.arch}`));
+  } finally {
+    if (previousElectronPath === undefined) delete process.env.ELECTRON_PATH;
+    else process.env.ELECTRON_PATH = previousElectronPath;
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("main startup creates the shell before deferred services and navigation is not adblock-gated", () => {
@@ -102,4 +143,17 @@ test("main startup creates the shell before deferred services and navigation is 
   assert.doesNotMatch(source, /prepareAdblockForNavigation/);
   assert.match(source, /return view\.webContents\.loadURL\(normalizedUrl\)/);
   assert.match(source, /if \(!w\) return;/);
+  assert.doesNotMatch(source, /preconnect-origin|prewarmedNewTabViews|scheduleNewTabPrewarm/);
+  assert.doesNotMatch(source, /settingsWriter\.read/);
+  assert.match(source, /recoveryWriter\.scheduleFactory\(buildCurrentRecoveryState\)/);
+  assert.match(source, /createT\(pIdx, win, \{ quiet: true \}\)/);
+  assert.match(source, /ensureAdblockRuntime\(\{ blockingReady: true \}\)\.then/);
+
+  const buildSource = fs.readFileSync(path.join(__dirname, "..", "scripts", "build-runtime.js"), "utf8");
+  assert.match(buildSource, /main-app\.cjs/);
+  assert.match(buildSource, /__orionEarlyStartupPerformance/);
+  assert.match(buildSource, /scriptDigests\.get\(fileName\)/);
+  assert.match(buildSource, /emitBrowserLocalization/);
+  assert.match(buildSource, /localeVersions/);
+  assert.match(buildSource, /browserEntries\.filter\(\(file\) => file !== "localization\.js"\)/);
 });

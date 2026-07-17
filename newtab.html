@@ -7,6 +7,8 @@
     content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>New Tab</title>
+  <script defer src="localization.js?v=1.1.0"></script>
+  <script defer src="newtab.js?v=1.1.0"></script>
   <style>
     :root {
       --ink: #1d1a2f;
@@ -457,14 +459,14 @@
     }
 
     .orb,
-    .card-orb,
+    .card-orbs span,
     body.effects-paused .orb,
-    body.effects-paused .card-orb {
+    body.effects-paused .card-orbs span {
       animation-play-state: paused;
     }
 
     body.effects-ready:not(.effects-paused) .orb,
-    body.effects-ready:not(.effects-paused) .card-orb {
+    body.effects-ready:not(.effects-paused) .card-orbs span {
       animation-play-state: running;
     }
 
@@ -538,8 +540,6 @@
     </div>
   </div>
 
-  <script src="localization.js"></script>
-  <script src="newtab.js"></script>
 </body>
 
 </html>

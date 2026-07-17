@@ -7,6 +7,9 @@
     <meta http-equiv="Content-Security-Policy"
         content="default-src 'self';script-src 'self';style-src 'self' 'unsafe-inline'">
     <title>Orion</title>
+    <script defer src="localization.js?v=1.1.0"></script>
+    <script defer src="app-utils.js?v=1.1.0"></script>
+    <script defer src="renderer.js?v=1.1.0"></script>
     <style>
         :root {
             --bg-color: #eff4fb;
@@ -1991,6 +1994,17 @@
             flex: 0 0 auto
         }
 
+        .favicon-fallback {
+            display: inline-grid;
+            place-items: center;
+            background: linear-gradient(135deg, var(--accent-color), #58a6ff);
+            color: #fff;
+            font-size: 11px;
+            font-weight: 700;
+            line-height: 1;
+            user-select: none
+        }
+
         .history-item>div:first-of-type,
         .bookmark-item>div:first-of-type {
             min-width: 0;
@@ -3165,16 +3179,14 @@
                 max-width: none
             }
         }
-        #settings-sidebar:not(.open),
-        #adblock-sidebar:not(.open),
-        #downloads-sidebar:not(.open) {
+        [data-deferred-panel]:not(.open) {
             content-visibility: hidden;
             contain: layout paint style;
+            contain-intrinsic-size: 0 100vh;
         }
 
-        #settings-sidebar.open,
-        #adblock-sidebar.open,
-        #downloads-sidebar.open {
+        [data-deferred-panel].open {
+            content-visibility: visible;
             contain: layout paint style;
         }
     </style>
@@ -3302,7 +3314,7 @@
                 id="find-close" class="nav-btn">×</button>
         </div>
     </div>
-    <div id="history-sidebar">
+    <div id="history-sidebar" data-deferred-panel>
         <div class="history-header panel-header">
             <div class="panel-title-wrap">
                 <h2 data-i18n="history.title">History</h2>
@@ -3314,34 +3326,34 @@
                     class="clear-history-btn danger" data-i18n="history.range.all">Clear All</button></div><button id="close-history"
                 class="nav-btn panel-close-btn" aria-label="Close history panel" data-i18n-aria-label="history.close">×</button>
         </div>
-        <div id="history-list"></div>
+        <template data-panel-template><div id="history-list"></div></template>
     </div>
-    <div id="bookmarks-sidebar">
+    <div id="bookmarks-sidebar" data-deferred-panel>
         <div class="history-header panel-header">
             <div class="panel-title-wrap">
                 <h2 data-i18n="bookmarks.title">Bookmarks</h2>
             </div><button id="close-bookmarks" class="nav-btn panel-close-btn"
                 aria-label="Close bookmarks panel" data-i18n-aria-label="bookmarks.close">×</button>
         </div>
-        <div id="bookmarks-list"></div>
+        <template data-panel-template><div id="bookmarks-list"></div></template>
     </div>
-    <div id="downloads-sidebar">
+    <div id="downloads-sidebar" data-deferred-panel>
         <div class="history-header panel-header">
             <div class="panel-title-wrap">
                 <h2 data-i18n="downloads.title">Downloads</h2>
             </div><button id="close-downloads" class="nav-btn panel-close-btn"
                 aria-label="Close downloads panel" data-i18n-aria-label="downloads.close">×</button>
         </div>
-        <div id="downloads-list"></div>
+        <template data-panel-template><div id="downloads-list"></div></template>
     </div>
-    <div id="adblock-sidebar">
+    <div id="adblock-sidebar" data-deferred-panel>
         <div class="history-header panel-header">
             <div class="panel-title-wrap">
                 <div class="panel-kicker" data-i18n="adblock.kicker">Privacy</div>
                 <h2 data-i18n="adblock.title">Adblock</h2>
             </div><button id="close-adblock" class="nav-btn panel-close-btn" aria-label="Close adblock panel" data-i18n-aria-label="adblock.close">×</button>
         </div>
-        <div class="adblock-layout">
+        <template data-panel-template><div class="adblock-layout">
             <div class="adblock-card">
                 <div class="adblock-intro">
                     <p data-i18n="adblock.description">Create custom block rules to remove ads, popups, and known trackers. Add one rule per line and
@@ -3364,9 +3376,9 @@
                     placeholder="||ads.example.com^\n@@||trusted-site.com^\n||tracker.example.net^\n! comment lines start with !" data-i18n-placeholder="adblock.placeholder"></textarea>
                 <div class="adblock-actions"><button id="save-adblock-rules" data-i18n="adblock.save">Save &amp; Apply Rules</button></div>
             </div>
-        </div>
+        </div></template>
     </div>
-    <div id="ai-summary-sidebar">
+    <div id="ai-summary-sidebar" data-deferred-panel>
         <div class="history-header panel-header">
             <div class="panel-title-wrap">
                 <div class="panel-kicker" data-i18n="aiSummary.kicker">On-device AI</div>
@@ -3374,9 +3386,9 @@
             </div><button id="close-ai-summary" class="nav-btn panel-close-btn"
                 aria-label="Close AI summary panel" data-i18n-aria-label="aiSummary.close">×</button>
         </div>
-        <div id="ai-summary-content"></div>
+        <template data-panel-template><div id="ai-summary-content"></div></template>
     </div>
-    <div id="settings-sidebar">
+    <div id="settings-sidebar" data-deferred-panel>
         <div class="history-header panel-header">
             <div class="panel-title-wrap">
                 <div class="panel-kicker" data-i18n="settings.kicker">Browser Controls</div>
@@ -3384,7 +3396,7 @@
             </div><button id="close-settings" class="nav-btn panel-close-btn"
                 aria-label="Close settings panel" data-i18n-aria-label="settings.close">×</button>
         </div>
-        <div class="settings-content">
+        <template data-panel-template><div class="settings-content">
             <div class="settings-hero" id="settings-hero">
                 <div class="settings-kicker" data-i18n="settings.heroKicker">Personalization</div>
                 <h3 data-i18n="settings.heroTitle">Make Orion yours</h3>
@@ -3487,7 +3499,7 @@
                     </div>
                 </div>
             </div>
-        </div>
+        </div></template>
     </div>
     <div id="rename-modal" class="modal">
         <div class="modal-content">
@@ -3502,9 +3514,6 @@
                 Tab</button><button id="add-to-both-btn" data-i18n="bookmark.both">Both</button><button id="cancel-bookmark-btn" data-i18n="modal.cancel">Cancel</button>
         </div>
     </div>
-    <script src="localization.js"></script>
-    <script src="app-utils.js"></script>
-    <script src="renderer.js"></script>
 </body>
 
 </html>

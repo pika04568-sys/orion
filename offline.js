@@ -934,8 +934,13 @@
 
   function startLoop() {
     stopLoop();
+    if (document.hidden) return;
     lastTimestamp = 0;
     const tick = (timestamp) => {
+      if (document.hidden) {
+        animationFrame = null;
+        return;
+      }
       const delta = lastTimestamp ? timestamp - lastTimestamp : 0;
       lastTimestamp = timestamp;
       if (controller && !paused) controller.update(delta);
@@ -979,6 +984,10 @@
   retryBtn.addEventListener("click", retryTarget);
   restartBtn.addEventListener("click", restartGame);
   pauseBtn.addEventListener("click", togglePause);
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) stopLoop();
+    else startLoop();
+  });
   window.addEventListener("beforeunload", stopLoop);
 
   restartGame();

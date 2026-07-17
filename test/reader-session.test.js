@@ -28,3 +28,19 @@ test("reader sessions switch between source and reader views without losing rest
   readerSession.deactivateReaderSession(session);
   assert.equal(readerSession.getVisibleView(session), sourceView);
 });
+
+test("reader sessions only expose snapshots for the matching committed URL", () => {
+  const session = readerSession.createReaderSession({
+    tabId: "tab-2",
+    sourceUrl: "https://example.com/old"
+  });
+  const snapshot = { readable: true, sourceUrl: "https://example.com/old", title: "Old" };
+
+  readerSession.setReaderSnapshot(session, snapshot, "https://example.com/old");
+  assert.equal(readerSession.getReaderSnapshot(session, "https://example.com/old"), snapshot);
+  assert.equal(readerSession.getReaderSnapshot(session, "https://example.com/new"), null);
+
+  readerSession.setReaderSnapshot(session, null);
+  assert.equal(readerSession.getReaderSnapshot(session, "https://example.com/old"), null);
+  assert.equal(session.snapshotUrl, "");
+});

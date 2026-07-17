@@ -17,6 +17,10 @@ let package = Package(
         .executableTarget(
             name: "Orion",
             path: "Sources/SwiftUIApp"
+        ),
+        .testTarget(
+            name: "OrionTests",
+            dependencies: ["Orion"]
         )
     ]
 )

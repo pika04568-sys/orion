@@ -3,9 +3,11 @@ const assert = require("node:assert/strict");
 const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
+const appUtils = require("../app-utils");
 
 const preloadPath = path.join(__dirname, "..", "preload.js");
 const preloadSource = fs.readFileSync(preloadPath, "utf8");
+const rendererSource = fs.readFileSync(path.join(__dirname, "..", "renderer.js"), "utf8");
 
 function runPreload(href, preloadDir = "C:\\Program Files\\Orion\\resources\\app.asar") {
   const requireCalls = [];
@@ -50,6 +52,7 @@ function runPreload(href, preloadDir = "C:\\Program Files\\Orion\\resources\\app
     window: { location: { href } },
     require: (moduleName) => {
       requireCalls.push(moduleName);
+      if (moduleName === "./app-utils") return appUtils;
       if (moduleName === "electron") return { contextBridge, ipcRenderer };
       if (moduleName === "electron-chrome-extensions/browser-action") {
         return {
@@ -80,10 +83,48 @@ test("preload defers extension action controls until extensions are ready", () =
   const runtime = runPreload("orion://app/index.html");
   assert.ok(runtime.apis.electron);
   assert.equal(runtime.browserActionInjected, false);
-  assert.deepEqual(runtime.requireCalls, ["electron"]);
+  assert.deepEqual(runtime.requireCalls, ["./app-utils", "electron"]);
   assert.equal(runtime.onceCalls[0][0], "extensions-ready");
   runtime.onceCalls[0][1]();
-  assert.deepEqual(runtime.requireCalls, ["electron", "electron-chrome-extensions/browser-action"]);
+  assert.deepEqual(runtime.requireCalls, ["./app-utils", "electron", "electron-chrome-extensions/browser-action"]);
+});
+
+test("preload authorization is sourced from the shared page-channel contract", () => {
+  assert.match(preloadSource, /require\(["']\.\/app-utils["']\)/);
+  assert.match(preloadSource, /appUtils\.canUseElectronChannel/);
+  assert.doesNotMatch(preloadSource, /const APP_(?:INVOKE|SEND|ON)_CHANNELS/);
+
+  const runtime = runPreload("orion://app/index.html");
+  const contract = appUtils.getElectronPageChannels("index.html");
+  contract.invoke.forEach((channel) => runtime.apis.electron.invoke(channel));
+  contract.send.forEach((channel) => runtime.apis.electron.send(channel));
+  const unsubscribers = contract.on.map((channel) => runtime.apis.electron.on(channel, () => {}));
+  unsubscribers.forEach((unsubscribe) => unsubscribe());
+
+  assert.deepEqual(runtime.invokeCalls.map(([channel]) => channel), contract.invoke);
+  assert.deepEqual(runtime.sendCalls.map(([channel]) => channel), contract.send);
+  assert.deepEqual(runtime.onCalls.map(([channel]) => channel), contract.on);
+  assert.equal(runtime.apis.electron.invoke("not-authorized"), undefined);
+  runtime.apis.electron.send("not-authorized");
+  runtime.apis.electron.on("not-authorized", () => {});
+  assert.equal(runtime.invokeCalls.length, contract.invoke.length);
+  assert.equal(runtime.sendCalls.length, contract.send.length);
+  assert.equal(runtime.onCalls.length, contract.on.length);
+});
+
+test("every shell IPC channel used by the renderer is declared in the shared contract", () => {
+  for (const method of ["invoke", "send", "on"]) {
+    const used = new Set(Array.from(
+      rendererSource.matchAll(new RegExp(`ipcRenderer\\.${method}\\(\\s*['\"]([^'\"]+)`, "g")),
+      (match) => match[1]
+    ));
+    const allowed = new Set(appUtils.getElectronPageChannels("index.html")[method]);
+    assert.deepEqual(
+      Array.from(used).filter((channel) => !allowed.has(channel)),
+      [],
+      `undeclared renderer ${method} channels`
+    );
+  }
 });
 
 test("index page allows one bootstrap and navigation invokes", () => {
@@ -148,24 +189,21 @@ test("newtab page exposes only the scoped newtab helpers", async () => {
   assert.ok(orionPage);
 
   const navigateResult = await orionPage.navigateTo("example query");
-  const localeResult = await orionPage.getLanguageSettings();
-  const settingsResult = await orionPage.getBrowserSettings();
-  const preconnectResult = await orionPage.preconnectOrigin("https://example.com/path");
+  const bootstrapResult = await orionPage.getBootstrapState();
   const unsubscribe = orionPage.on("browser-settings-changed", () => {});
   unsubscribe();
 
   assert.equal(navigateResult, "invoke-result");
-  assert.equal(localeResult, "invoke-result");
-  assert.equal(settingsResult, "invoke-result");
-  assert.equal(preconnectResult, "invoke-result");
+  assert.equal(bootstrapResult, "invoke-result");
+  assert.equal(typeof orionPage.getLanguageSettings, "undefined");
+  assert.equal(typeof orionPage.getBrowserSettings, "undefined");
+  assert.equal(typeof orionPage.preconnectOrigin, "undefined");
   assert.equal(typeof orionPage.loadExtension, "undefined");
   assert.equal(typeof orionPage.openChromeWebStore, "undefined");
   assert.equal(typeof orionPage.updateExtensions, "undefined");
   assert.deepEqual(runtime.invokeCalls, [
     ["navigate-to", "example query"],
-    ["get-language-settings"],
-    ["get-browser-settings"],
-    ["preconnect-origin", "https://example.com/path"]
+    ["bootstrap-newtab"]
   ]);
   assert.equal(runtime.sendCalls.length, 0);
   assert.equal(runtime.onCalls.length, 1);
@@ -193,12 +231,10 @@ test("packaged file newtab page keeps the scoped newtab bridge", async () => {
 
   assert.equal(electron, undefined);
   assert.ok(orionPage);
-  assert.equal(await orionPage.getLanguageSettings(), "invoke-result");
-  assert.equal(await orionPage.getBrowserSettings(), "invoke-result");
+  assert.equal(await orionPage.getBootstrapState(), "invoke-result");
   assert.equal(await orionPage.navigateTo("example query"), "invoke-result");
   assert.deepEqual(runtime.invokeCalls, [
-    ["get-language-settings"],
-    ["get-browser-settings"],
+    ["bootstrap-newtab"],
     ["navigate-to", "example query"]
   ]);
 });
@@ -301,6 +337,7 @@ test("packaged file extensions page keeps extension management scoped to its own
 test("non-app pages block all privileged channels", () => {
   const runtime = runPreload("https://example.com/index.html");
   assert.deepEqual(runtime.apis, {});
+  assert.deepEqual(runtime.requireCalls, []);
   assert.equal(runtime.invokeCalls.length, 0);
   assert.equal(runtime.sendCalls.length, 0);
   assert.equal(runtime.onCalls.length, 0);

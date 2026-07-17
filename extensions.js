@@ -19,8 +19,16 @@
   const list = document.getElementById("ext-list");
   let currentLocale = localization.resolveLocale(localStorage.getItem("orion-locale"));
   let currentPlatform = getBrowserUiPlatform();
+  let refreshPromise = null;
 
   const t = (key, vars = {}) => localization.t(currentLocale, key, getUiTextVars(vars));
+
+  async function ensureLocaleLoaded(locale) {
+    if (!localization || typeof localization.loadLocale !== "function") return;
+    try {
+      await localization.loadLocale(locale);
+    } catch (_error) {}
+  }
 
   function getBrowserUiPlatform() {
     if (typeof navigator === "undefined") return localization.normalizeUiPlatform("");
@@ -81,8 +89,6 @@
         } catch (_error) {}
       }
     } catch (_error) {}
-    applyTranslations();
-    void refreshList();
   }
 
   async function removeExtension(id) {
@@ -99,34 +105,40 @@
     }
   }
 
-  async function refreshList() {
-    try {
-      const extensions = await pageBridge.getExtensions();
-      list.replaceChildren();
+  function refreshList() {
+    if (refreshPromise) return refreshPromise;
+    refreshPromise = (async () => {
+      try {
+        const extensions = await pageBridge.getExtensions();
+        list.replaceChildren();
 
-      if (!extensions || extensions.length === 0) {
-        renderEmptyState(t("extension.empty"));
-        return;
+        if (!extensions || extensions.length === 0) {
+          renderEmptyState(t("extension.empty"));
+          return;
+        }
+
+        extensions.forEach((extensionInfo) => {
+          const { card, removeBtn } = appUtils.createExtensionCard(document, extensionInfo, {
+            noDescription: t("extension.noDescription"),
+            remove: t("extension.remove"),
+            unknown: t("extension.unknown"),
+            unknownManifest: t("extension.unknownManifest"),
+            unpacked: t("extension.sourceUnpacked"),
+            webStore: t("extension.sourceWebStore")
+          });
+          removeBtn.addEventListener("click", () => {
+            void removeExtension(extensionInfo.id);
+          });
+          list.appendChild(card);
+        });
+      } catch (error) {
+        console.error("Failed to refresh extension list:", error);
+        renderEmptyState(t("extension.error"));
       }
-
-      extensions.forEach((extensionInfo) => {
-        const { card, removeBtn } = appUtils.createExtensionCard(document, extensionInfo, {
-          noDescription: t("extension.noDescription"),
-          remove: t("extension.remove"),
-          unknown: t("extension.unknown"),
-          unknownManifest: t("extension.unknownManifest"),
-          unpacked: t("extension.sourceUnpacked"),
-          webStore: t("extension.sourceWebStore")
-        });
-        removeBtn.addEventListener("click", () => {
-          void removeExtension(extensionInfo.id);
-        });
-        list.appendChild(card);
-      });
-    } catch (error) {
-      console.error("Failed to refresh extension list:", error);
-      renderEmptyState(t("extension.error"));
-    }
+    })().finally(() => {
+      refreshPromise = null;
+    });
+    return refreshPromise;
   }
 
   loadBtn.addEventListener("click", async () => {
@@ -184,13 +196,21 @@
 
   window.addEventListener("storage", (event) => {
     if (event.key === "orion-locale" && localization.sanitizeLocale(event.newValue)) {
-      currentLocale = localization.resolveLocale(event.newValue);
-      applyTranslations();
-      void refreshList();
+      const nextLocale = localization.resolveLocale(event.newValue);
+      void ensureLocaleLoaded(nextLocale).then(() => {
+        currentLocale = nextLocale;
+        applyTranslations();
+        void refreshList();
+      });
     }
   });
 
-  applyTranslations();
-  void refreshList();
-  void syncLocale();
+  async function initializePage() {
+    await syncLocale();
+    await ensureLocaleLoaded(currentLocale);
+    applyTranslations();
+    await refreshList();
+  }
+
+  void initializePage();
 })();

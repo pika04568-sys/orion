@@ -1,4 +1,3 @@
-const DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36";
 const DEFAULT_ACCEPT_LANGUAGE = "en-US,en;q=0.9";
 const DEFAULT_DOH_TEMPLATE = "https://cloudflare-dns.com/dns-query";
 const INCOGNITO_PROFILE_BASE = 10000;
@@ -9,6 +8,23 @@ const DEFAULT_PRIVACY_SETTINGS = Object.freeze({
   dnsOverHttpsMode: "secure",
   dnsOverHttpsTemplate: DEFAULT_DOH_TEMPLATE
 });
+
+function getChromiumMajorVersion(value) {
+  const match = /(?:Chrome\/)?(\d+)/.exec(String(value || ""));
+  return match ? match[1] : "125";
+}
+
+function getPlatformIdentity() {
+  return { userAgentToken: "Windows NT 10.0; Win64; x64", navigatorPlatform: "Win32", uaDataPlatform: "Windows" };
+}
+
+function buildReducedUserAgent(options = {}) {
+  const chromiumMajor = getChromiumMajorVersion(options.chromiumVersion || process.versions.chrome);
+  const identity = getPlatformIdentity();
+  return `Mozilla/5.0 (${identity.userAgentToken}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${chromiumMajor}.0.0.0 Safari/537.36`;
+}
+
+const DEFAULT_USER_AGENT = buildReducedUserAgent();
 
 function sanitizePrivacySettings(raw = {}) {
   const next = {
@@ -80,7 +96,8 @@ function hardenRequestHeaders(inputHeaders = {}) {
   return headers;
 }
 
-function createFingerprintingProtectionScript() {
+function createFingerprintingProtectionScript(options = {}) {
+  const identity = getPlatformIdentity();
   return `(() => {
     try {
       const defineValue = (target, key, value) => {
@@ -96,9 +113,13 @@ function createFingerprintingProtectionScript() {
       if (navigatorProto) {
         defineValue(navigatorProto, "hardwareConcurrency", 4);
         defineValue(navigatorProto, "deviceMemory", 8);
-        defineValue(navigatorProto, "platform", "Win32");
+        defineValue(navigatorProto, "platform", ${JSON.stringify(identity.navigatorPlatform)});
         defineValue(navigatorProto, "language", "en-US");
         defineValue(navigatorProto, "languages", Object.freeze(["en-US", "en"]));
+      }
+      const userAgentData = window.navigator.userAgentData;
+      if (userAgentData) {
+        defineValue(userAgentData, "platform", ${JSON.stringify(identity.uaDataPlatform)});
       }
       const originalResolvedOptions = Intl.DateTimeFormat.prototype.resolvedOptions;
       if (typeof originalResolvedOptions === "function") {
@@ -234,11 +255,13 @@ module.exports = {
   DEFAULT_DOH_TEMPLATE,
   DEFAULT_PRIVACY_SETTINGS,
   DEFAULT_USER_AGENT,
+  buildReducedUserAgent,
   buildBrowserSettingsPayload,
   buildHttpsOnlyErrorPage,
   clearLegacyPersistentIncognitoPartitions,
   createFingerprintingProtectionScript,
   getLegacyPersistentIncognitoPartitionNames,
+  getPlatformIdentity,
   hardenRequestHeaders,
   sanitizePrivacySettings,
   updatePrivacySettings,

@@ -5,7 +5,8 @@ function createReaderSession({
   sourceView = null,
   sourceUrl = "",
   sourceTitle = "",
-  snapshot = null
+  snapshot = null,
+  snapshotUrl = ""
 } = {}) {
   return {
     active: false,
@@ -13,6 +14,7 @@ function createReaderSession({
     profileIndex,
     readerView: null,
     snapshot,
+    snapshotUrl: snapshot ? (snapshotUrl || snapshot.sourceUrl || "") : "",
     sourceTitle,
     sourceUrl,
     sourceView,
@@ -26,10 +28,17 @@ function attachReaderView(session, readerView) {
   return session;
 }
 
-function setReaderSnapshot(session, snapshot) {
+function setReaderSnapshot(session, snapshot, snapshotUrl = "") {
   if (!session || typeof session !== "object") return session;
   session.snapshot = snapshot || null;
+  session.snapshotUrl = snapshot ? (snapshotUrl || snapshot.sourceUrl || "") : "";
   return session;
+}
+
+function getReaderSnapshot(session, committedUrl = "") {
+  if (!session || typeof session !== "object" || !session.snapshot) return null;
+  if (typeof committedUrl === "string" && committedUrl && session.snapshotUrl !== committedUrl) return null;
+  return session.snapshot;
 }
 
 function setSourceState(session, { sourceUrl, sourceTitle } = {}) {
@@ -69,6 +78,7 @@ module.exports = {
   attachReaderView,
   createReaderSession,
   deactivateReaderSession,
+  getReaderSnapshot,
   getRestoreState,
   getVisibleView,
   setReaderSnapshot,

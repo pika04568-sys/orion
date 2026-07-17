@@ -2,13 +2,15 @@ import SwiftUI
 
 struct BrowserRootView: View {
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var library: BrowserLibraryStore
     @StateObject private var browser: BrowserState
 
     init() {
         let library = BrowserLibraryStore()
+        let initialURL = ProcessInfo.processInfo.environment["ORION_PERF_URL"] ?? BrowserPreferences.homepageURL
         _library = StateObject(wrappedValue: library)
-        _browser = StateObject(wrappedValue: BrowserState(library: library))
+        _browser = StateObject(wrappedValue: BrowserState(library: library, initialURL: initialURL))
     }
 
     var body: some View {
@@ -41,11 +43,33 @@ struct BrowserRootView: View {
                         Divider()
                     }
 
-                    BrowserContentView(browser: browser, library: library)
+                    BrowserContentView(browser: browser)
                 }
             }
         }
         .frame(minWidth: 900, minHeight: 620)
+        .onAppear { [browser] in
+            if OrionPerformance.isPerformanceRun {
+                OrionPerformance.installInteractionProbe { [weak browser] in
+                    guard let browser else { return (0, 0) }
+                    return await browser.measurePerformanceInteractions()
+                }
+            }
+            Task { @MainActor in
+                await Task.yield()
+                await Task.yield()
+                OrionPerformance.shellDidAppear()
+            }
+        }
+        .task {
+            await library.load()
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            guard newPhase != .active else { return }
+            Task {
+                await library.flush()
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: BrowserCommandCenter.notification)) { notification in
             guard let command = BrowserCommandCenter.command(from: notification) else { return }
             browser.handle(command)
@@ -58,8 +82,8 @@ private struct LoadingProgressView: View {
 
     var body: some View {
         Group {
-            if tab.isLoading {
-                ProgressView(value: tab.estimatedProgress)
+            if tab.navigationState.isLoading {
+                ProgressView(value: tab.navigationState.estimatedProgress)
                     .progressViewStyle(.linear)
             } else {
                 Color.clear

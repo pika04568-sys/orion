@@ -4,15 +4,16 @@ function clampNumber(value, min, max) {
   return Math.min(max, Math.max(min, numeric));
 }
 
-function normalizeWhitespace(value) {
+function normalizeWhitespace(value, maxInputLength = 12000) {
   return String(value == null ? "" : value)
+    .slice(0, Math.max(0, maxInputLength))
     .replace(/[\u0000-\u001f\u007f]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
 
 function sanitizeText(value, maxLength = 2000) {
-  const text = normalizeWhitespace(value);
+  const text = normalizeWhitespace(value, Math.max(512, maxLength * 2));
   return text ? text.slice(0, maxLength) : "";
 }
 
@@ -41,16 +42,23 @@ function sanitizeBlocks(blocks = []) {
 
   const seen = new Set();
   const result = [];
+  let inspected = 0;
+  let totalTextLength = 0;
   for (const block of blocks) {
-    if (result.length >= 80) break;
+    inspected += 1;
+    if (inspected > 240 || result.length >= 80 || totalTextLength >= 64000) break;
     const type = block && typeof block.type === "string" ? block.type : "paragraph";
-    const text = sanitizeText(block && (block.text != null ? block.text : block.content), 6000);
+    const text = sanitizeText(
+      block && (block.text != null ? block.text : block.content),
+      Math.min(6000, 64000 - totalTextLength)
+    );
     if (!text || text.length < 20) continue;
 
     const dedupeKey = `${type}:${text.toLowerCase()}`;
     if (seen.has(dedupeKey)) continue;
     seen.add(dedupeKey);
     result.push({ type, text });
+    totalTextLength += text.length;
   }
   return result;
 }
@@ -60,7 +68,10 @@ function sanitizeImages(images = [], baseUrl = "") {
 
   const result = [];
   const seen = new Set();
+  let inspected = 0;
   for (const image of images) {
+    inspected += 1;
+    if (inspected > 96 || result.length >= 24) break;
     const rawSrc = typeof image === "string" ? image : image && (image.src || image.url || image.currentSrc || image.data);
     const src = sanitizeUrl(rawSrc, baseUrl);
     if (!src || seen.has(src)) continue;
