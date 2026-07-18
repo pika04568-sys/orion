@@ -21,6 +21,13 @@ let managedExtensionTitle = null;
 let managedExtensionBody = null;
 let managedExtensionError = null;
 let managedExtensionRetry = null;
+let aiModelStatusEl = null;
+let aiModelProgressContainer = null;
+let aiModelProgressBar = null;
+let aiModelProgressText = null;
+let removeAiModelBtn = null;
+let redownloadAiModelBtn = null;
+let aiModelStatus = { state: 'missing', modelId: '', progress: 0, loadedBytes: 0, totalBytes: 0, error: null };
 let tabStripRenderSignature = '';
 let metricsFrame = null;
 let lastChromeMetrics = { top: null, left: null };
@@ -609,6 +616,9 @@ function initializeSettingsStateListeners() {
   ipcRenderer.on('memory-status-changed', (_event, status) => {
     applyMemoryStatus(status);
   });
+  ipcRenderer.on('ai-model-status-changed', (_event, status) => {
+    applyAiModelStatus(status);
+  });
 }
 
 function initializeExtensionToolbarOnce() {
@@ -616,6 +626,44 @@ function initializeExtensionToolbarOnce() {
   extensionToolbarInitialized = true;
   document.documentElement.dataset.extensionsReady = 'true';
   initExtensionActionToolbar();
+}
+
+function renderAiModelStatus() {
+  if (!aiModelStatusEl) return;
+  const state = aiModelStatus && aiModelStatus.state ? aiModelStatus.state : 'missing';
+  const statusText = state === 'ready'
+    ? t('settings.aiReady')
+    : state === 'downloading'
+      ? t('aiSummary.downloading')
+      : state === 'error'
+        ? (aiModelStatus.error || t('settings.aiError'))
+        : t('settings.aiMissing');
+  aiModelStatusEl.textContent = statusText;
+
+  if (aiModelProgressContainer) {
+    const showProgress = state === 'downloading' && Number.isFinite(aiModelStatus.progress);
+    aiModelProgressContainer.style.display = showProgress ? 'block' : 'none';
+  }
+  if (aiModelProgressBar) {
+    const progressValue = Math.max(0, Math.min(100, Number(aiModelStatus.progress) || 0));
+    aiModelProgressBar.style.width = `${progressValue}%`;
+  }
+  if (aiModelProgressText) {
+    const progressValue = Math.max(0, Math.min(100, Number(aiModelStatus.progress) || 0));
+    aiModelProgressText.textContent = `${Math.round(progressValue)}%`;
+  }
+  if (removeAiModelBtn) {
+    removeAiModelBtn.style.display = state === 'ready' || state === 'error' ? 'inline-flex' : 'none';
+  }
+  if (redownloadAiModelBtn) {
+    redownloadAiModelBtn.style.display = state === 'error' || state === 'missing' ? 'inline-flex' : 'none';
+  }
+}
+
+function applyAiModelStatus(status) {
+  if (!status || typeof status !== 'object') return;
+  aiModelStatus = { ...aiModelStatus, ...status };
+  renderAiModelStatus();
 }
 
 function renderManagedExtensionStatus() {
@@ -706,17 +754,14 @@ function renderAiSummary(summary) {
   meta.className = 'ai-summary-meta';
   const source = summary.siteName || summary.sourceUrl || t('aiSummary.localOnly');
   const minutes = summary.readingTimeMinutes || 1;
-  meta.textContent = `${source} · ${t('aiSummary.localOnly')} · ${t('aiSummary.readingTime', { minutes })}`;
+  const modeLabel = summary.mode === 'fallback' ? t('aiSummary.fallback') : t('aiSummary.localOnly');
+  meta.textContent = `${source} · ${modeLabel} · ${t('aiSummary.readingTime', { minutes })}`;
   card.appendChild(meta);
 
-  const list = document.createElement('ul');
-  list.className = 'ai-summary-list';
-  (summary.bullets || []).forEach((point) => {
-    const item = document.createElement('li');
-    item.textContent = point;
-    list.appendChild(item);
-  });
-  card.appendChild(list);
+  const paragraph = document.createElement('p');
+  paragraph.className = 'ai-summary-paragraph';
+  paragraph.textContent = summary.summary || '';
+  card.appendChild(paragraph);
   aiSummaryContent.appendChild(card);
 }
 
@@ -970,6 +1015,25 @@ function renderUpdaterState() {
 
 function initializeSettingsPanelActions() {
   if (versionEl && bootstrapSnapshot.version) versionEl.textContent = `v${bootstrapSnapshot.version}`;
+  if (removeAiModelBtn) {
+    removeAiModelBtn.onclick = async () => {
+      try {
+        await ipcRenderer.invoke('remove-ai-model');
+      } catch (error) {
+        console.error(error);
+      }
+    };
+  }
+  if (redownloadAiModelBtn) {
+    redownloadAiModelBtn.onclick = async () => {
+      try {
+        await ipcRenderer.invoke('cancel-ai-model-download');
+        await ipcRenderer.invoke('get-ai-model-status');
+      } catch (error) {
+        console.error(error);
+      }
+    };
+  }
   if (checkUpdatesBtn) {
     checkUpdatesBtn.onclick = async () => {
       try {
@@ -1091,12 +1155,19 @@ function init(snapshot = {}) {
   managedExtensionBody = document.getElementById('managed-extension-body');
   managedExtensionError = document.getElementById('managed-extension-error');
   managedExtensionRetry = document.getElementById('managed-extension-retry');
+  aiModelStatusEl = document.getElementById('ai-model-status');
+  aiModelProgressContainer = document.getElementById('ai-model-progress-container');
+  aiModelProgressBar = document.getElementById('ai-model-progress-bar');
+  aiModelProgressText = document.getElementById('ai-model-progress-text');
+  removeAiModelBtn = document.getElementById('remove-ai-model-btn');
+  redownloadAiModelBtn = document.getElementById('redownload-ai-model-btn');
   managedExtensionStatus = bootstrapSnapshot.managedExtensionStatus || null;
 
   if (bootstrapSnapshot.updaterState) {
     updaterState = { ...updaterState, ...bootstrapSnapshot.updaterState };
   }
   if (bootstrapSnapshot.memoryStatus) applyMemoryStatus(bootstrapSnapshot.memoryStatus);
+  if (bootstrapSnapshot.aiModelStatus) applyAiModelStatus(bootstrapSnapshot.aiModelStatus);
 
   const sidebars = [historySidebar, settingsSidebar, bookmarksSidebar, downloadsSidebar, aiSummarySidebar].filter(Boolean);
   const toggle = (s, v) => {

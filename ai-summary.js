@@ -2,9 +2,12 @@
  * AI Summary Main Process Service
  * Manages the Electron utility process for model download and inference.
  */
-const { app } = require("electron");
 const fs = require("node:fs/promises");
 const path = require("node:path");
+
+function getElectronApp() {
+  return require("electron").app;
+}
 
 let worker = null;
 let currentResolve = null;
@@ -24,6 +27,22 @@ const modelStatus = {
   totalBytes: 0,
   error: null
 };
+
+function buildSummaryResult(snapshot, summary, mode, reasonText) {
+  return {
+    ok: true,
+    requestId: require("crypto").randomUUID(),
+    title: snapshot.title || "",
+    siteName: snapshot.siteName || "",
+    sourceUrl: snapshot.sourceUrl || "",
+    sourceType: snapshot.sourceType || "page",
+    summary: summary,
+    mode,
+    localOnly: true,
+    readingTimeMinutes: calculateReadingTime(snapshot),
+    ...(reasonText ? { reason: reasonText } : {})
+  };
+}
 
 // Tracks individual files being downloaded to compute total progress
 const fileProgress = new Map();
@@ -203,7 +222,7 @@ async function checkModelDownloaded(cacheDir) {
 
 // Public API
 async function getAiModelStatus() {
-  const cacheDir = path.join(app.getPath("userData"), "ai-models");
+  const cacheDir = path.join(getElectronApp().getPath("userData"), "ai-models");
   const isDownloaded = await checkModelDownloaded(cacheDir);
   if (isDownloaded) {
     modelStatus.state = "ready";
@@ -231,7 +250,7 @@ async function cancelAiModelDownload() {
   fileProgress.clear();
   emitStatusChanged();
 
-  const cacheDir = path.join(app.getPath("userData"), "ai-models");
+  const cacheDir = path.join(getElectronApp().getPath("userData"), "ai-models");
   const modelDir = path.join(cacheDir, "models--onnx-community--Qwen3-0.6B-Instruct-ONNX");
   try {
     await fs.rm(modelDir, { recursive: true, force: true });
@@ -247,7 +266,7 @@ async function removeAiModel() {
 }
 
 async function summarizeSnapshot(snapshot) {
-  const cacheDir = path.join(app.getPath("userData"), "ai-models");
+  const cacheDir = path.join(getElectronApp().getPath("userData"), "ai-models");
   const isDownloaded = await checkModelDownloaded(cacheDir);
 
   if (isDownloaded) {
@@ -290,7 +309,7 @@ async function processNextRequest() {
   processing = true;
 
   const req = requestQueue.shift();
-  const cacheDir = path.join(app.getPath("userData"), "ai-models");
+  const cacheDir = path.join(getElectronApp().getPath("userData"), "ai-models");
 
   try {
     const w = getWorker(cacheDir);
@@ -300,18 +319,7 @@ async function processNextRequest() {
     const isValid = validateSummaryOutput(summary, req.snapshot);
 
     if (isValid) {
-      req.resolve({
-        ok: true,
-        requestId: require("crypto").randomUUID(),
-        title: req.snapshot.title || "",
-        siteName: req.snapshot.siteName || "",
-        sourceUrl: req.snapshot.sourceUrl || "",
-        sourceType: req.snapshot.sourceType || "page",
-        summary: summary,
-        mode: "model",
-        localOnly: true,
-        readingTimeMinutes: calculateReadingTime(req.snapshot)
-      });
+      req.resolve(buildSummaryResult(req.snapshot, summary, "model"));
     } else {
       logMessage("Generated summary failed output validation. Returning fallback.");
       req.resolve(runFallbackSummary(req.snapshot, "Output validation failed."));
@@ -622,5 +630,8 @@ module.exports = {
   cancelAiModelDownload,
   removeAiModel,
   summarizeSnapshot,
-  cancelPageSummary
+  cancelPageSummary,
+  buildSummaryResult,
+  runFallbackSummary,
+  validateSummaryOutput
 };
