@@ -3,6 +3,8 @@ import Foundation
 enum LibrarySidebarMode: String, CaseIterable, Identifiable {
     case history
     case bookmarks
+    case downloads
+    case summary
 
     var id: String { rawValue }
 
@@ -12,6 +14,10 @@ enum LibrarySidebarMode: String, CaseIterable, Identifiable {
             "History"
         case .bookmarks:
             "Bookmarks"
+        case .downloads:
+            "Downloads"
+        case .summary:
+            "Page Summary"
         }
     }
 
@@ -21,6 +27,10 @@ enum LibrarySidebarMode: String, CaseIterable, Identifiable {
             "clock.arrow.circlepath"
         case .bookmarks:
             "star"
+        case .downloads:
+            "arrow.down.circle"
+        case .summary:
+            "sparkles"
         }
     }
 }

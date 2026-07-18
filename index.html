@@ -103,8 +103,7 @@
                     var(--card-bg)
             }
 
-            .settings-section,
-            .adblock-card {
+            .settings-section {
                 box-shadow: 0 20px 46px rgba(0, 0, 0, .35)
             }
 
@@ -136,14 +135,6 @@
 
             .dropdown-menu {
                 background: rgba(11, 20, 38, .92)
-            }
-
-            #adblock-rules {
-                background: rgba(15, 23, 42, .58)
-            }
-
-            .adblock-sample code {
-                background: rgba(15, 23, 42, .56)
             }
 
             .modal-content,
@@ -331,7 +322,6 @@
         body.reader-mode #settings-sidebar,
         body.reader-mode #bookmarks-sidebar,
         body.reader-mode #downloads-sidebar,
-        body.reader-mode #adblock-sidebar,
         body.reader-mode #ai-summary-sidebar {
             display: none !important
         }
@@ -1156,9 +1146,6 @@
         .bookmarks-bar-item:active,
         .panel-close-btn:active,
         .clear-history-btn:active,
-        .adblock-inline-actions button:active,
-        #refresh-adblock-lists:active,
-        #reset-adblock-defaults:active,
         .modal-content button:active,
         .settings-btn:active,
         .language-choice-btn:active {
@@ -1501,7 +1488,6 @@
         #settings-sidebar,
         #bookmarks-sidebar,
         #downloads-sidebar,
-        #adblock-sidebar,
         #ai-summary-sidebar {
             position: fixed;
             left: 0;
@@ -1531,7 +1517,6 @@
         #settings-sidebar.open,
         #bookmarks-sidebar.open,
         #downloads-sidebar.open,
-        #adblock-sidebar.open,
         #ai-summary-sidebar.open {
             opacity: 1;
             pointer-events: auto;
@@ -1594,288 +1579,6 @@
             box-shadow: 0 0 0 3px rgba(15, 107, 255, .2)
         }
 
-        .adblock-help {
-            margin: 0;
-            width: 100%;
-            font-size: 12px;
-            color: var(--text-secondary);
-            display: flex;
-            align-items: flex-start;
-            gap: 8px
-        }
-
-        .adblock-help::before {
-            content: "i";
-            width: 16px;
-            height: 16px;
-            border-radius: 999px;
-            border: 1px solid var(--border-color);
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 10px;
-            font-weight: 700;
-            margin-top: 1px;
-            flex: 0 0 auto
-        }
-
-        .adblock-layout {
-            width: 100%;
-            max-width: 1100px;
-            margin: 0 auto;
-            display: grid;
-            gap: 14px
-        }
-
-        .adblock-card {
-            background: var(--card-bg);
-            border: 1px solid var(--border-color);
-            border-radius: 22px;
-            padding: 22px;
-            box-shadow: 0 14px 40px rgba(2, 6, 23, .08);
-            display: flex;
-            flex-direction: column;
-            gap: 14px
-        }
-
-        .adblock-intro {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            flex-wrap: wrap;
-            gap: 12px
-        }
-
-        .adblock-intro p {
-            max-width: 680px;
-            color: var(--text-secondary);
-            font-size: 14px;
-            line-height: 1.45
-        }
-
-        .adblock-status-grid {
-            display: grid;
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: 12px
-        }
-
-        .adblock-status-panel {
-            border: 1px solid var(--border-color);
-            border-radius: 16px;
-            background: rgba(148, 163, 184, .08);
-            padding: 14px;
-            display: flex;
-            flex-direction: column;
-            gap: 10px
-        }
-
-        .adblock-status-title {
-            font-size: 12px;
-            letter-spacing: .08em;
-            text-transform: uppercase;
-            color: var(--text-secondary);
-            font-weight: 700
-        }
-
-        .adblock-status-list,
-        .adblock-status-text {
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-            font-size: 13px;
-            color: var(--text-primary)
-        }
-
-        .adblock-toggle-row {
-            display: grid;
-            grid-template-columns: auto 1fr;
-            gap: 4px 10px;
-            align-items: start
-        }
-
-        .adblock-toggle-row input {
-            margin-top: 4px
-        }
-
-        .adblock-toggle-title {
-            font-weight: 600;
-            color: var(--text-primary)
-        }
-
-        .adblock-toggle-meta {
-            grid-column: 2;
-            color: var(--text-secondary);
-            line-height: 1.35
-        }
-
-        .adblock-sync-text {
-            color: var(--text-secondary);
-            white-space: pre-line;
-            line-height: 1.45
-        }
-
-        .adblock-inline-actions {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px
-        }
-
-        .adblock-inline-actions button {
-            height: 38px;
-            padding: 0 14px;
-            border-radius: 12px;
-            border: 1px solid var(--vista-btn-border);
-            background: var(--vista-btn-face);
-            color: #23415f;
-            font-size: 13px;
-            font-weight: 600;
-            cursor: pointer;
-            box-shadow: inset 0 1px 0 var(--vista-btn-highlight), inset 0 -1px 0 rgba(95, 145, 203, .18), 0 7px 14px rgba(50, 84, 123, .14);
-            transition: background .2s, transform .2s, box-shadow .2s, border-color .2s
-        }
-
-        .adblock-inline-actions button:hover {
-            background: var(--vista-btn-face-hover);
-            border-color: var(--vista-btn-border-strong);
-            box-shadow: inset 0 1px 0 rgba(255, 255, 255, .98), inset 0 -1px 0 rgba(73, 134, 201, .24), 0 10px 18px rgba(61, 99, 143, .18);
-            transform: translateY(-1px)
-        }
-
-        .adblock-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            padding: 6px 10px;
-            border-radius: 999px;
-            font-size: 12px;
-            font-weight: 600;
-            color: var(--accent-color);
-            background: rgba(15, 107, 255, .12)
-        }
-
-        #adblock-rules {
-            width: 100%;
-            min-height: 52vh;
-            font-size: 14px;
-            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-            line-height: 1.7;
-            letter-spacing: 0;
-            color: #10213a;
-            -webkit-text-fill-color: #10213a;
-            caret-color: #10213a;
-            border: 1px solid var(--border-color);
-            border-radius: 14px;
-            background: rgba(248, 250, 252, .97);
-            padding: 14px 16px;
-            resize: vertical;
-            outline: 0;
-            box-shadow: inset 0 1px 0 rgba(255, 255, 255, .7), 0 1px 0 rgba(2, 6, 23, .03)
-        }
-
-        #adblock-rules:focus {
-            border-color: var(--accent-color);
-            box-shadow: 0 0 0 3px rgba(15, 107, 255, .14), inset 0 1px 0 rgba(255, 255, 255, .8), 0 1px 0 rgba(2, 6, 23, .03)
-        }
-
-        #adblock-rules::placeholder {
-            color: #6c7f99
-        }
-
-        .adblock-sample {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px
-        }
-
-        .adblock-sample code {
-            display: inline-block;
-            border-radius: 10px;
-            border: 1px dashed var(--border-color);
-            padding: 6px 8px;
-            background: rgba(148, 163, 184, .12);
-            font-size: 12px
-        }
-
-        .adblock-actions {
-            display: flex;
-            justify-content: flex-end;
-            flex-wrap: wrap;
-            gap: 10px
-        }
-
-        .adblock-actions {
-            position: sticky;
-            bottom: 0;
-            padding-top: 10px;
-            background: linear-gradient(180deg, rgba(255, 255, 255, 0), var(--bg-color) 34px);
-        }
-
-        .adblock-toggle-row {
-            padding: 10px 12px;
-            border-radius: 12px;
-            background: rgba(148, 163, 184, .08);
-            border: 1px solid rgba(148, 163, 184, .1)
-        }
-
-        .adblock-toggle-row:hover {
-            background: rgba(148, 163, 184, .14)
-        }
-
-        .adblock-status-title {
-            color: var(--accent-color)
-        }
-
-        #refresh-adblock-lists,
-        #reset-adblock-defaults {
-            height: 42px;
-            padding: 0 18px;
-            min-width: 180px;
-            border-radius: 12px;
-            border: 1px solid var(--vista-btn-border);
-            font-size: 14px;
-            font-weight: 600;
-            color: #23415f;
-            background: var(--vista-btn-face);
-            box-shadow: inset 0 1px 0 var(--vista-btn-highlight), inset 0 -1px 0 rgba(95, 145, 203, .2), 0 8px 16px rgba(50, 84, 123, .14);
-            cursor: pointer;
-            transition: transform .2s, background .2s, box-shadow .2s, border-color .2s
-        }
-
-        #refresh-adblock-lists:hover,
-        #reset-adblock-defaults:hover {
-            background: var(--vista-btn-face-hover);
-            border-color: var(--vista-btn-border-strong);
-            box-shadow: inset 0 1px 0 rgba(255, 255, 255, .98), inset 0 -1px 0 rgba(73, 134, 201, .24), 0 12px 20px rgba(61, 99, 143, .18);
-            transform: translateY(-1px)
-        }
-
-        #save-adblock-rules {
-            height: 42px;
-            padding: 0 20px;
-            min-width: 220px;
-            border-radius: 12px;
-            border: 1px solid var(--vista-btn-primary-border);
-            font-size: 14px;
-            font-weight: 600;
-            color: var(--vista-btn-primary-text);
-            background: var(--vista-btn-primary-face);
-            box-shadow: inset 0 1px 0 rgba(255, 255, 255, .34), inset 0 -1px 0 rgba(7, 48, 103, .28), 0 14px 26px rgba(31, 95, 173, .3);
-            cursor: pointer;
-            transition: transform .2s, box-shadow .2s, background .2s, border-color .2s
-        }
-
-        #save-adblock-rules:hover {
-            background: var(--vista-btn-primary-face-hover);
-            border-color: var(--vista-btn-primary-border);
-            transform: translateY(-1px);
-            box-shadow: inset 0 1px 0 rgba(255, 255, 255, .42), inset 0 -1px 0 rgba(7, 48, 103, .3), 0 18px 32px rgba(31, 95, 173, .34)
-        }
-
-        #save-adblock-rules:focus-visible {
-            outline: 0;
-            box-shadow: 0 0 0 3px rgba(15, 107, 255, .28), 0 16px 32px rgba(15, 107, 255, .3)
-        }
-
         #ai-summary-content {
             width: 100%;
             max-width: 920px;
@@ -1919,12 +1622,6 @@
         .ai-summary-muted {
             color: var(--text-secondary);
             line-height: 1.55
-        }
-
-        @media (max-width: 900px) {
-            .adblock-status-grid {
-                grid-template-columns: 1fr
-            }
         }
 
         h2 {
@@ -2628,6 +2325,95 @@
             font-size: 13px
         }
 
+        body.managed-extension-blocked {
+            overflow: hidden
+        }
+
+        #managed-extension-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 4100;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+            background:
+                radial-gradient(circle at 18% 8%, rgba(15, 107, 255, .2), transparent 40%),
+                radial-gradient(circle at 82% 92%, rgba(56, 189, 248, .14), transparent 42%),
+                rgba(239, 244, 251, .96);
+            backdrop-filter: blur(18px)
+        }
+
+        #managed-extension-overlay.show {
+            display: flex
+        }
+
+        .managed-extension-card {
+            width: min(620px, calc(100vw - 32px));
+            border: 1px solid rgba(255, 255, 255, .86);
+            border-radius: 28px;
+            padding: clamp(28px, 5vw, 44px);
+            text-align: center;
+            background: linear-gradient(160deg, rgba(255, 255, 255, .98), rgba(255, 255, 255, .86));
+            box-shadow: 0 28px 90px rgba(9, 26, 52, .2)
+        }
+
+        .managed-extension-spinner {
+            width: 44px;
+            height: 44px;
+            margin: 0 auto 22px;
+            border: 4px solid rgba(15, 107, 255, .16);
+            border-top-color: var(--accent-color);
+            border-radius: 50%;
+            animation: managed-extension-spin .9s linear infinite
+        }
+
+        #managed-extension-overlay[data-state="error"] .managed-extension-spinner {
+            border-color: rgba(220, 38, 38, .18);
+            animation: none
+        }
+
+        .managed-extension-card h1 {
+            margin: 0 0 12px;
+            font-size: clamp(1.8rem, 4vw, 2.65rem)
+        }
+
+        .managed-extension-card p {
+            margin: 0 auto;
+            max-width: 510px;
+            color: var(--text-secondary);
+            line-height: 1.6
+        }
+
+        #managed-extension-error {
+            margin: 18px auto 0;
+            max-width: 510px;
+            color: #9f1239;
+            font-size: 13px;
+            overflow-wrap: anywhere
+        }
+
+        #managed-extension-retry {
+            margin-top: 24px;
+            min-height: 44px;
+            padding: 0 22px;
+            border: 1px solid var(--vista-btn-primary-border);
+            border-radius: 12px;
+            color: var(--vista-btn-primary-text);
+            background: var(--vista-btn-primary-face);
+            font-weight: 700;
+            cursor: pointer
+        }
+
+        #managed-extension-retry:disabled {
+            cursor: wait;
+            opacity: .62
+        }
+
+        @keyframes managed-extension-spin {
+            to { transform: rotate(360deg) }
+        }
+
         .language-choice-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
@@ -2853,9 +2639,6 @@
         .bookmarks-bar-item:active,
         .panel-close-btn:active,
         .clear-history-btn:active,
-        .adblock-inline-actions button:active,
-        #refresh-adblock-lists:active,
-        #reset-adblock-defaults:active,
         .modal-content button:active,
         .settings-btn:active,
         .language-choice-btn:active {
@@ -2961,7 +2744,6 @@
         .modal-content,
         .settings-section,
         .settings-hero,
-        .adblock-card,
         .download-item,
         .history-item,
         .bookmark-item {
@@ -2973,7 +2755,6 @@
         #settings-sidebar,
         #bookmarks-sidebar,
         #downloads-sidebar,
-        #adblock-sidebar,
         #ai-summary-sidebar {
             background: var(--bg-color);
             gap: 18px
@@ -3098,7 +2879,6 @@
             #settings-sidebar,
             #bookmarks-sidebar,
             #downloads-sidebar,
-            #adblock-sidebar,
             #ai-summary-sidebar {
                 padding: max(16px, env(safe-area-inset-top, 0px)) 16px max(18px, env(safe-area-inset-bottom, 0px))
             }
@@ -3121,14 +2901,9 @@
                 height: 36px
             }
 
-            .adblock-card,
             .settings-section,
             .settings-hero {
                 padding: 18px
-            }
-
-            #adblock-rules {
-                min-height: 42vh
             }
 
             .settings-row {
@@ -3200,6 +2975,16 @@
             <p data-i18n="onboarding.subtitle">Pick the language Orion should use. You can change it later in Settings.</p>
             <div id="startup-language-picker" class="language-choice-grid"></div>
             <p class="startup-note" data-i18n="onboarding.persist">Your choice is saved for this device and usually survives reinstalling the app.</p>
+        </div>
+    </div>
+    <div id="managed-extension-overlay" data-state="installing" aria-live="assertive">
+        <div class="managed-extension-card">
+            <div class="managed-extension-spinner" aria-hidden="true"></div>
+            <div class="startup-kicker" data-i18n="managedExtension.kicker">Required protection</div>
+            <h1 id="managed-extension-title">Installing uBlock Origin Lite</h1>
+            <p id="managed-extension-body">Orion is preparing mandatory ad and tracker protection for this browser profile.</p>
+            <div id="managed-extension-error" role="alert" hidden></div>
+            <button id="managed-extension-retry" type="button" hidden>Retry installation</button>
         </div>
     </div>
     <div id="chrome-container">
@@ -3276,11 +3061,6 @@
                         <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"></path>
                         <polyline points="7 10 12 15 17 10"></polyline>
                         <line x1="12" y1="15" x2="12" y2="3"></line>
-                    </svg></button><button id="adblock-btn" class="nav-btn"><svg width="18" height="18"
-                        viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-                        <line x1="9" y1="9" x2="15" y2="15"></line>
-                        <line x1="15" y1="9" x2="9" y2="15"></line>
                     </svg></button><div id="extension-action-shell"><div id="extension-action-list" aria-label="Pinned extensions"></div><button id="extension-actions-menu-btn" class="nav-btn" aria-label="Manage extension pins" title="Manage extension pins"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"
                         stroke="currentColor" stroke-width="2">
                         <path d="M4 8h16M4 12h16M4 16h16"></path>
@@ -3345,38 +3125,6 @@
                 aria-label="Close downloads panel" data-i18n-aria-label="downloads.close">×</button>
         </div>
         <template data-panel-template><div id="downloads-list"></div></template>
-    </div>
-    <div id="adblock-sidebar" data-deferred-panel>
-        <div class="history-header panel-header">
-            <div class="panel-title-wrap">
-                <div class="panel-kicker" data-i18n="adblock.kicker">Privacy</div>
-                <h2 data-i18n="adblock.title">Adblock</h2>
-            </div><button id="close-adblock" class="nav-btn panel-close-btn" aria-label="Close adblock panel" data-i18n-aria-label="adblock.close">×</button>
-        </div>
-        <template data-panel-template><div class="adblock-layout">
-            <div class="adblock-card">
-                <div class="adblock-intro">
-                    <p data-i18n="adblock.description">Create custom block rules to remove ads, popups, and known trackers. Add one rule per line and
-                        apply instantly.</p><span class="adblock-badge" data-i18n="adblock.badge">One rule per line</span>
-                </div>
-                <div class="adblock-status-grid">
-                    <div class="adblock-status-panel">
-                        <div class="adblock-status-title" data-i18n="adblock.builtInTitle">Built-in lists</div>
-                        <div id="adblock-list-status" class="adblock-status-list"></div>
-                        <div class="adblock-inline-actions"><button id="refresh-adblock-lists"
-                                data-i18n="adblock.refresh">Refresh Lists</button><button id="reset-adblock-defaults"
-                                data-i18n="adblock.resetDefaults">Reset Defaults</button></div>
-                    </div>
-                    <div class="adblock-status-panel">
-                        <div class="adblock-status-title" data-i18n="adblock.customTitle">Custom rules</div>
-                        <div id="adblock-custom-status" class="adblock-status-text"></div>
-                        <div id="adblock-sync-status" class="adblock-sync-text"></div>
-                    </div>
-                </div><textarea id="adblock-rules"
-                    placeholder="||ads.example.com^\n@@||trusted-site.com^\n||tracker.example.net^\n! comment lines start with !" data-i18n-placeholder="adblock.placeholder"></textarea>
-                <div class="adblock-actions"><button id="save-adblock-rules" data-i18n="adblock.save">Save &amp; Apply Rules</button></div>
-            </div>
-        </div></template>
     </div>
     <div id="ai-summary-sidebar" data-deferred-panel>
         <div class="history-header panel-header">

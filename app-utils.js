@@ -41,11 +41,8 @@
     "reload-page",
     "reopen-closed-tab",
     "assign-tab-to-group",
+    "retry-managed-extension-install",
     "set-language",
-    "get-adblock-state",
-    "refresh-adblock-lists",
-    "reset-adblock-defaults",
-    "set-adblock-list-enabled",
     "set-browser-settings",
     "stop-find-in-page",
     "summarize-active-page",
@@ -53,8 +50,7 @@
     "switch-tab",
     "toggle-tab-group-collapsed",
     "toggle-reader-mode",
-    "rename-tab-group",
-    "update-adblock-rules"
+    "rename-tab-group"
   ]);
   const APP_SEND_CHANNELS = Object.freeze([
     "apply-browser-color",
@@ -74,6 +70,7 @@
     "keyboard-shortcut",
     "browser-settings-changed",
     "memory-status-changed",
+    "managed-extension-status-changed",
     "profile-changed",
     "profile-list-updated",
     "reader-mode-changed",
@@ -616,17 +613,25 @@
       ? (labels.webStore || "Chrome Web Store")
       : (labels.unpacked || "Unpacked");
     const manifestLabel = extension.manifestVersion ? `Manifest v${extension.manifestVersion}` : labels.unknownManifest || "Manifest unknown";
-    metaEl.textContent = `${sourceLabel} - ${manifestLabel}`;
+    const managedLabel = extension.managed ? ` - ${labels.managed || "Managed by Orion"}` : "";
+    metaEl.textContent = `${sourceLabel} - ${manifestLabel}${managedLabel}`;
 
     const actions = doc.createElement("div");
     actions.className = "extension-actions";
 
-    const removeBtn = doc.createElement("button");
-    removeBtn.type = "button";
-    removeBtn.className = "remove-btn";
-    removeBtn.textContent = labels.remove || "Remove";
-
-    actions.appendChild(removeBtn);
+    let removeBtn = null;
+    if (extension.removable !== false) {
+      removeBtn = doc.createElement("button");
+      removeBtn.type = "button";
+      removeBtn.className = "remove-btn";
+      removeBtn.textContent = labels.remove || "Remove";
+      actions.appendChild(removeBtn);
+    } else {
+      const managedBadge = doc.createElement("span");
+      managedBadge.className = "managed-extension-badge";
+      managedBadge.textContent = labels.managed || "Managed by Orion";
+      actions.appendChild(managedBadge);
+    }
     card.appendChild(header);
     card.appendChild(descriptionEl);
     card.appendChild(metaEl);

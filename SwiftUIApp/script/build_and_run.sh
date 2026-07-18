@@ -3,14 +3,16 @@ set -euo pipefail
 
 MODE="${1:-run}"
 APP_NAME="Orion"
-BUNDLE_ID="com.kenokayasu.Orion"
-MIN_SYSTEM_VERSION="14.0"
+BUNDLE_ID="com.orion.browser"
+APP_VERSION="1.1.0"
+MIN_SYSTEM_VERSION="15.4"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST_DIR="$ROOT_DIR/dist"
 APP_BUNDLE="$DIST_DIR/$APP_NAME.app"
 APP_CONTENTS="$APP_BUNDLE/Contents"
 APP_MACOS="$APP_CONTENTS/MacOS"
+APP_RESOURCES="$APP_CONTENTS/Resources"
 APP_BINARY="$APP_MACOS/$APP_NAME"
 INFO_PLIST="$APP_CONTENTS/Info.plist"
 
@@ -35,12 +37,20 @@ if ! swift build -debug-info-format none >"$BUILD_LOG" 2>&1; then
     exit 1
   fi
 fi
-BUILD_BINARY="$(swift build "${BUILD_BACKEND[@]}" -debug-info-format none --show-bin-path)/$APP_NAME"
+BUILD_BIN_DIR="$(swift build "${BUILD_BACKEND[@]}" -debug-info-format none --show-bin-path)"
+BUILD_BINARY="$BUILD_BIN_DIR/$APP_NAME"
+RESOURCE_BUNDLE="$BUILD_BIN_DIR/Orion_Orion.bundle"
 
 rm -rf "$APP_BUNDLE" "$DIST_DIR/SwiftUIApp.app"
-mkdir -p "$APP_MACOS"
+mkdir -p "$APP_MACOS" "$APP_RESOURCES"
 cp "$BUILD_BINARY" "$APP_BINARY"
 chmod +x "$APP_BINARY"
+if [[ -d "$RESOURCE_BUNDLE" ]]; then
+  cp -R "$RESOURCE_BUNDLE" "$APP_RESOURCES/"
+fi
+if [[ -f "$ROOT_DIR/../assets/orion.icns" ]]; then
+  cp "$ROOT_DIR/../assets/orion.icns" "$APP_RESOURCES/Orion.icns"
+fi
 
 cat >"$INFO_PLIST" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -53,6 +63,14 @@ cat >"$INFO_PLIST" <<PLIST
   <string>$BUNDLE_ID</string>
   <key>CFBundleName</key>
   <string>$APP_NAME</string>
+  <key>CFBundleDisplayName</key>
+  <string>$APP_NAME</string>
+  <key>CFBundleShortVersionString</key>
+  <string>$APP_VERSION</string>
+  <key>CFBundleVersion</key>
+  <string>$APP_VERSION</string>
+  <key>CFBundleIconFile</key>
+  <string>Orion</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>LSMinimumSystemVersion</key>

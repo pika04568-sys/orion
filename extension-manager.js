@@ -2,8 +2,11 @@ const path = require("path");
 
 const CHROME_WEB_STORE_URL = "https://chromewebstore.google.com/";
 const EXTENSION_LICENSE = "GPL-3.0";
+const UBLOCK_ORIGIN_LITE_ID = "ddkjiahejlhfcafbddmgiahcphecmpfh";
 const WEB_STORE_SOURCE = "chrome-web-store";
 const UNPACKED_SOURCE = "unpacked";
+const MANAGED_EXTENSION_ERROR = "uBlock Origin Lite is managed by Orion and cannot be removed.";
+const MANAGED_RECONCILE_DELAY_MS = 500;
 
 function getSessionExtensionApi(sess) {
   if (!sess) return null;
@@ -59,9 +62,10 @@ function getExtensionSource(extensionPath, extensionsPath) {
   return isPathInside(extensionPath, extensionsPath) ? WEB_STORE_SOURCE : UNPACKED_SOURCE;
 }
 
-function createExtensionSummary(ext, extensionsPath) {
+function createExtensionSummary(ext, extensionsPath, managedExtensionId = UBLOCK_ORIGIN_LITE_ID) {
   const manifest = ext && ext.manifest && typeof ext.manifest === "object" ? ext.manifest : {};
   const source = getExtensionSource(ext && ext.path, extensionsPath);
+  const managed = !!(ext && ext.id === managedExtensionId);
   return {
     id: ext && ext.id,
     name: (ext && ext.name) || manifest.name || "Extension",
@@ -69,7 +73,9 @@ function createExtensionSummary(ext, extensionsPath) {
     description: (ext && ext.description) || manifest.description || "",
     source,
     manifestVersion: Number.isInteger(manifest.manifest_version) ? manifest.manifest_version : null,
-    canUpdate: source === WEB_STORE_SOURCE
+    canUpdate: source === WEB_STORE_SOURCE,
+    managed,
+    removable: !managed
   };
 }
 
@@ -84,9 +90,52 @@ function createExtensionManager({
   createWindow,
   removeWindow,
   assignTabDetails,
-  requestPermissions
+  requestPermissions,
+  managedExtensionId = UBLOCK_ORIGIN_LITE_ID,
+  managedReconcileDelayMs = MANAGED_RECONCILE_DELAY_MS,
+  onManagedExtensionStatusChanged = () => {}
 } = {}) {
   const profiles = new Map();
+
+  function createManagedStatus(profileIndex, patch = {}) {
+    return {
+      profileIndex,
+      extensionId: managedExtensionId,
+      state: "idle",
+      version: null,
+      error: null,
+      ...patch
+    };
+  }
+
+  function setManagedStatus(profile, patch) {
+    profile.managedStatus = Object.freeze({
+      ...profile.managedStatus,
+      ...patch,
+      profileIndex: profile.profileIndex,
+      extensionId: managedExtensionId
+    });
+    try {
+      onManagedExtensionStatusChanged(profile.profileIndex, profile.managedStatus);
+    } catch (_error) {}
+    return profile.managedStatus;
+  }
+
+  function scheduleManagedReconciliation(profile) {
+    if (!profile || profile.managedReconcileTimer) return;
+    setManagedStatus(profile, {
+      state: "installing",
+      version: null,
+      error: null
+    });
+    profile.managedReconcileTimer = setTimeout(() => {
+      profile.managedReconcileTimer = null;
+      void ensureManagedExtension(profile.profileIndex, profile.session, { force: true }).catch(() => {});
+    }, managedReconcileDelayMs);
+    if (typeof profile.managedReconcileTimer.unref === "function") {
+      profile.managedReconcileTimer.unref();
+    }
+  }
 
   function getProfileExtensionsPath(profileIndex) {
     return path.join(app.getPath("userData"), "Extensions", `profile-${profileIndex}`);
@@ -144,23 +193,112 @@ function createExtensionManager({
       session: sess,
       extensions,
       extensionsPath,
+      managedInstallPromise: null,
+      managedReconcileTimer: null,
+      managedStatus: createManagedStatus(profileIndex),
       webStoreReady: chromeWebStore.installChromeWebStore({
         session: sess,
         extensionsPath,
         beforeInstall: confirmWebStoreInstall,
         autoUpdate: true,
         loadExtensions: true,
-        allowUnpackedExtensions: false
+        allowUnpackedExtensions: false,
+        denylist: [managedExtensionId]
       }).catch((error) => {
         console.error("Failed to initialize Chrome Web Store support:", error);
+        throw error;
       })
     };
     profiles.set(profileIndex, profile);
+
+    const extensionApi = getSessionExtensionApi(sess);
+    const extensionEvents = sess && typeof sess.on === "function" ? sess : extensionApi;
+    if (extensionEvents && typeof extensionEvents.on === "function") {
+      extensionEvents.on("extension-loaded", (_event, ext) => {
+        if (!ext || ext.id !== managedExtensionId) return;
+        if (profile.managedReconcileTimer) {
+          clearTimeout(profile.managedReconcileTimer);
+          profile.managedReconcileTimer = null;
+        }
+        setManagedStatus(profile, {
+          state: "ready",
+          version: ext.version || (ext.manifest && ext.manifest.version) || null,
+          error: null
+        });
+      });
+      extensionEvents.on("extension-unloaded", (_event, ext) => {
+        if (!ext || ext.id !== managedExtensionId) return;
+        scheduleManagedReconciliation(profile);
+      });
+    }
+
     return profile;
   }
 
   function getProfile(profileIndex) {
     return profiles.get(profileIndex) || null;
+  }
+
+  function getManagedExtensionStatus(profileIndex) {
+    const profile = getProfile(profileIndex);
+    return profile
+      ? { ...profile.managedStatus }
+      : createManagedStatus(profileIndex);
+  }
+
+  async function ensureManagedExtension(profileIndex, sess, options = {}) {
+    const profile = ensureProfile(profileIndex, sess);
+    const extensionApi = getSessionExtensionApi(sess);
+    if (!profile || !extensionApi) {
+      throw new Error("Extensions are unavailable for this browser profile.");
+    }
+
+    const existing = extensionApi.getExtension(managedExtensionId);
+    if (existing && !options.force) {
+      setManagedStatus(profile, {
+        state: "ready",
+        version: existing.version || (existing.manifest && existing.manifest.version) || null,
+        error: null
+      });
+      return existing;
+    }
+    if (profile.managedInstallPromise) return profile.managedInstallPromise;
+
+    setManagedStatus(profile, {
+      state: "installing",
+      version: null,
+      error: null
+    });
+
+    profile.managedInstallPromise = (async () => {
+      await profile.webStoreReady;
+      const loaded = extensionApi.getExtension(managedExtensionId);
+      const extension = loaded || await chromeWebStore.installExtension(managedExtensionId, {
+        session: sess,
+        extensionsPath: profile.extensionsPath
+      });
+      if (!extension || extension.id !== managedExtensionId) {
+        throw new Error("Chrome Web Store returned an unexpected extension.");
+      }
+      setManagedStatus(profile, {
+        state: "ready",
+        version: extension.version || (extension.manifest && extension.manifest.version) || null,
+        error: null
+      });
+      return extension;
+    })().catch((error) => {
+      const message = error && error.message ? error.message : "Unable to install uBlock Origin Lite.";
+      setManagedStatus(profile, {
+        state: "error",
+        version: null,
+        error: message
+      });
+      throw error;
+    }).finally(() => {
+      profile.managedInstallPromise = null;
+    });
+
+    return profile.managedInstallPromise;
   }
 
   function addTab(profileIndex, webContents, ownerWindow) {
@@ -213,13 +351,23 @@ function createExtensionManager({
     const profile = ensureProfile(profileIndex, sess);
     const extensionApi = getSessionExtensionApi(sess);
     if (!profile || !extensionApi) return [];
-    return extensionApi.getAllExtensions().map((ext) => createExtensionSummary(ext, profile.extensionsPath));
+    return extensionApi.getAllExtensions().map((ext) => (
+      createExtensionSummary(ext, profile.extensionsPath, managedExtensionId)
+    ));
   }
 
   async function removeExtension(profileIndex, sess, extensionId) {
     const profile = ensureProfile(profileIndex, sess);
     const extensionApi = getSessionExtensionApi(sess);
     if (!profile || !extensionApi) return { success: false, error: "Extensions are unavailable for this browser profile." };
+    if (extensionId === managedExtensionId) {
+      return {
+        success: false,
+        error: MANAGED_EXTENSION_ERROR,
+        id: extensionId,
+        managed: true
+      };
+    }
 
     const ext = extensionApi.getExtension(extensionId);
     const source = ext ? getExtensionSource(ext.path, profile.extensionsPath) : null;
@@ -250,8 +398,10 @@ function createExtensionManager({
   return {
     addTab,
     ensureProfile,
+    ensureManagedExtension,
     getContextMenuItems,
     getExtensions,
+    getManagedExtensionStatus,
     getProfile,
     getProfileExtensionsPath,
     loadUnpackedExtension,
@@ -265,6 +415,8 @@ function createExtensionManager({
 module.exports = {
   CHROME_WEB_STORE_URL,
   EXTENSION_LICENSE,
+  MANAGED_EXTENSION_ERROR,
+  UBLOCK_ORIGIN_LITE_ID,
   UNPACKED_SOURCE,
   WEB_STORE_SOURCE,
   collectManifestPermissions,

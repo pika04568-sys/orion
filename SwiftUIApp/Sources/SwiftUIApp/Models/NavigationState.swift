@@ -7,5 +7,7 @@ struct NavigationState: Equatable, Sendable {
     var estimatedProgress = 0.0
     var canGoBack = false
     var canGoForward = false
+    var isReaderMode = false
+    var isUnloaded = false
     var errorMessage: String?
 }

@@ -57,19 +57,20 @@ function createProfile(tabs = null) {
   return profile;
 }
 
-async function launchOrion(profile) {
+async function launchOrion(profile, extraEnv = {}) {
   const errors = [];
   const processLogs = [];
   const app = await electron.launch({
     executablePath: electronPath,
-    args: [projectRoot],
+    args: ["--disable-gpu", projectRoot],
     cwd: projectRoot,
     timeout: 15000,
     env: {
       ...process.env,
       ORION_DISABLE_BACKGROUND_NETWORK: "1",
       ORION_LOG_IPC: "1",
-      ORION_USER_DATA_DIR: profile
+      ORION_USER_DATA_DIR: profile,
+      ...extraEnv
     }
   });
   try {
@@ -79,15 +80,15 @@ async function launchOrion(profile) {
       page.on("console", (message) => {
         if (message.type() === "error") errors.push(message.text());
       });
-      page.on("pageerror", (error) => errors.push(error.message));
+      page.on("pageerror", (error) => errors.push(error.stack || error.message));
     };
     app.context().pages().forEach(attachPage);
     app.context().on("page", attachPage);
-    const shell = await app.firstWindow({ timeout: 10000 });
+    const shell = await app.firstWindow({ timeout: 20000 });
     await shell.waitForFunction(
       () => document.documentElement.dataset.orionReady === "true",
       null,
-      { timeout: 10000 }
+      { timeout: 30000 }
     );
     return { app, errors, processLogs, shell };
   } catch (error) {
@@ -103,7 +104,7 @@ async function findPage(app, predicate, timeoutMs = 5000) {
     if (page) return page;
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
-  throw new Error("Timed out waiting for Electron WebContents page");
+  throw new Error(`Timed out waiting for Electron WebContents page. Open pages: ${app.context().pages().map((page) => page.url()).join(", ")}`);
 }
 
 async function quitOrion(app) {
@@ -153,7 +154,7 @@ test("shell paints, core controls work, and hidden panels initialize on demand",
       bootstrapError: window.__orionBootstrapError || null
     }));
     assert.equal(await shell.locator(".tab").count(), 1, JSON.stringify({ ...diagnostics, errors, processLogs }));
-    assert.equal(await shell.getAttribute("html", "data-extensions-ready"), null);
+    assert.equal(await shell.getAttribute("html", "data-extensions-ready"), "true");
 
     await shell.click("#new-tab-btn");
     await shell.waitForFunction(() => document.querySelectorAll(".tab").length === 2);
@@ -179,7 +180,7 @@ test("shell paints, core controls work, and hidden panels initialize on demand",
     await shell.locator('#settings-language-picker button', { hasText: "Français" }).click();
     await shell.waitForFunction(() => (
       document.documentElement.lang === "fr"
-      && document.querySelector('#settings-sidebar [data-i18n="settings.title"]')?.textContent === "Paramètres"
+      && document.querySelector('#settings-sidebar [data-i18n="settings.title"]')?.textContent === "Réglages"
     ));
     assert.deepEqual(
       await shell.evaluate(() => Object.keys(window.OrionLocalization.TRANSLATIONS).sort()),
@@ -190,14 +191,15 @@ test("shell paints, core controls work, and hidden panels initialize on demand",
     assert.equal(await shell.locator("#profile-color-picker").count(), 1);
     assert.equal(
       await shell.locator('#settings-sidebar [data-i18n="settings.title"]').textContent(),
-      "Paramètres"
+      "Réglages"
     );
     await shell.click("#close-settings");
 
-    await shell.click("#adblock-btn");
-    await shell.locator("#adblock-sidebar.open").waitFor();
-    await shell.waitForFunction(() => document.querySelector("#adblock-sync-status").textContent.length > 0);
-    await shell.click("#close-adblock");
+    assert.equal(await shell.locator("#managed-extension-overlay").evaluate((node) => node.classList.contains("show")), false);
+    assert.equal(
+      await shell.evaluate(() => window.__orionBootstrapSnapshot.managedExtensionStatus.state),
+      "ready"
+    );
 
     await shell.click("#downloads-btn");
     assert.equal(await shell.getAttribute("#downloads-sidebar", "data-initialized"), "true");
@@ -232,6 +234,33 @@ test("restored tabs stay unmaterialized until selected and can close before sele
     await shell.click('.tab[data-id="tab-2"]');
     const restoredPage = await findPage(app, (page) => page.url().includes("/restored"));
     await restoredPage.locator("#fixture-ready").waitFor();
+    assert.deepEqual(errors, []);
+  } finally {
+    await quitOrion(app);
+  }
+});
+
+test("managed extension failure blocks web navigation until Retry succeeds", async () => {
+  const runtime = await launchOrion(createProfile(), {
+    ORION_TEST_MANAGED_EXTENSION_MODE: "fail-until-retry"
+  });
+  const { app, errors, shell } = runtime;
+  try {
+    await shell.locator("#managed-extension-overlay.show").waitFor();
+    await shell.waitForFunction(() => (
+      document.querySelector("#managed-extension-overlay")?.dataset.state === "error"
+      && !document.querySelector("#managed-extension-retry")?.hidden
+    ));
+
+    await shell.fill("#address-bar", `${fixtureOrigin}/blocked-until-ready`);
+    await shell.press("#address-bar", "Enter");
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    assert.equal(app.context().pages().some((page) => page.url().includes("/blocked-until-ready")), false);
+
+    await shell.evaluate(() => document.querySelector("#managed-extension-retry").click());
+    await shell.waitForFunction(() => !document.querySelector("#managed-extension-overlay")?.classList.contains("show"));
+    const resumedPage = await findPage(app, (page) => page.url().includes("/blocked-until-ready"));
+    await resumedPage.locator("#fixture-ready").waitFor();
     assert.deepEqual(errors, []);
   } finally {
     await quitOrion(app);

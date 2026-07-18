@@ -1,11 +1,12 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.4
 
 import PackageDescription
 
 let package = Package(
     name: "Orion",
+    defaultLocalization: "en",
     platforms: [
-        .macOS(.v14)
+        .macOS("15.4")
     ],
     products: [
         .executable(
@@ -16,7 +17,10 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "Orion",
-            path: "Sources/SwiftUIApp"
+            path: "Sources/SwiftUIApp",
+            resources: [
+                .process("Resources")
+            ]
         ),
         .testTarget(
             name: "OrionTests",

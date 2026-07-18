@@ -41,8 +41,28 @@ struct BrowserLibraryStoreTests {
 
         let store = BrowserLibraryStore(storageDirectory: directory)
         await store.load()
-        #expect(store.bookmarks == [expected])
+        #expect(store.bookmarks.map(\.navigationEntry) == [expected])
+        #expect(store.bookmarks.first?.destinations == [.bar])
         #expect(store.isBookmarked(urlString: expected.urlString))
+    }
+
+    @Test
+    func bookmarkDestinationsSurviveQueuedLoadAndPersistence() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let store = BrowserLibraryStore(storageDirectory: directory, writeDebounce: .zero)
+        store.addBookmark(
+            title: "Start page",
+            urlString: "https://example.com",
+            destinations: [.newTab]
+        )
+        await store.load()
+        await store.flush()
+
+        let reloaded = BrowserLibraryStore(storageDirectory: directory)
+        await reloaded.load()
+        #expect(reloaded.bookmarks.first?.destinations == [.newTab])
     }
 
     private func temporaryDirectory() -> URL {

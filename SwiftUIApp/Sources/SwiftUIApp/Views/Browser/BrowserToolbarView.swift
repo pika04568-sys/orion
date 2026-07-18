@@ -27,6 +27,14 @@ struct BrowserToolbarView: View {
                 toolbarButton("Home", systemImage: "house") {
                     browser.loadHomepage()
                 }
+
+                toolbarButton(
+                    tab.navigationState.isReaderMode ? "Exit Reader" : "Reader Mode",
+                    systemImage: "book.pages",
+                    active: tab.navigationState.isReaderMode
+                ) {
+                    browser.toggleReaderMode()
+                }
             }
 
             AddressBarView(browser: browser, tab: tab)
@@ -39,6 +47,31 @@ struct BrowserToolbarView: View {
                 toolbarButton("Bookmarks", systemImage: "book", active: browser.sidebarMode == .bookmarks) {
                     browser.sidebarMode = browser.sidebarMode == .bookmarks ? nil : .bookmarks
                 }
+
+                toolbarButton("Downloads", systemImage: "arrow.down.circle", active: browser.sidebarMode == .downloads) {
+                    browser.sidebarMode = browser.sidebarMode == .downloads ? nil : .downloads
+                }
+
+                toolbarButton("Summarize", systemImage: "sparkles", active: browser.sidebarMode == .summary) {
+                    browser.summarizeActivePage()
+                }
+
+                Menu {
+                    Button("New Private Tab", systemImage: "hand.raised") {
+                        browser.newPrivateTab()
+                    }
+                    Button("Reopen Closed Tab", systemImage: "arrow.uturn.backward") {
+                        browser.reopenClosedTab()
+                    }
+                    Button("Find in Page…", systemImage: "text.magnifyingglass") {
+                        browser.showFind()
+                    }
+                } label: {
+                    Label("More", systemImage: "ellipsis.circle")
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .buttonStyle(OrionIconButtonStyle())
 
                 SettingsLink {
                     Label("Settings", systemImage: "gearshape")
@@ -79,7 +112,7 @@ private struct AddressBarView: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: "magnifyingglass")
+            Image(systemName: securityIcon)
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(OrionVisualStyle.secondaryText(for: colorScheme))
 
@@ -95,8 +128,22 @@ private struct AddressBarView: View {
                 browser.submitAddress(for: tab)
             }
 
-            Button {
-                browser.toggleBookmarkForActiveTab()
+            Menu {
+                if browser.isBookmarked(tab) {
+                    Button("Remove Bookmark", role: .destructive) {
+                        browser.toggleBookmarkForActiveTab()
+                    }
+                } else {
+                    Button("Bookmarks Bar") {
+                        browser.bookmarkActiveTab(destinations: [.bar])
+                    }
+                    Button("New Tab") {
+                        browser.bookmarkActiveTab(destinations: [.newTab])
+                    }
+                    Button("Both") {
+                        browser.bookmarkActiveTab(destinations: [.bar, .newTab])
+                    }
+                }
             } label: {
                 Label(
                     browser.isBookmarked(tab) ? "Remove Bookmark" : "Add Bookmark",
@@ -129,5 +176,15 @@ private struct AddressBarView: View {
         }
         .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.28 : 0.10), radius: focused ? 18 : 13, y: focused ? 8 : 6)
         .animation(.easeOut(duration: 0.16), value: focused)
+        .onReceive(NotificationCenter.default.publisher(for: .orionFocusAddress)) { _ in
+            focused = true
+        }
+    }
+
+    private var securityIcon: String {
+        guard let scheme = URL(string: tab.navigationState.urlString)?.scheme?.lowercased() else {
+            return "magnifyingglass"
+        }
+        return scheme == "https" ? "lock.fill" : "exclamationmark.triangle"
     }
 }

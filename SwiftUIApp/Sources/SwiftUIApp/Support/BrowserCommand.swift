@@ -6,8 +6,16 @@ enum BrowserCommand: String {
     case goBack
     case goForward
     case reload
+    case hardReload
+    case reopenClosedTab
+    case nextTab
+    case previousTab
+    case showFind
     case showHistory
     case showBookmarks
+    case showDownloads
+    case toggleReader
+    case bookmarkPage
 }
 
 enum BrowserCommandCenter {

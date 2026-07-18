@@ -1,6 +1,6 @@
 # Orion Browser
 
-Orion is a lightweight desktop browser built with Electron. It pairs a clean, customizable shell with practical browsing features: tabs, profiles, bookmarks, history, downloads, reader mode, privacy controls, unpacked extensions, adblock rules, and an offline arcade fallback.
+Orion is a lightweight desktop browser built with Electron. It pairs a clean, customizable shell with practical browsing features: tabs, profiles, bookmarks, history, downloads, reader mode, privacy controls, managed and unpacked extensions, and an offline arcade fallback.
 
 ## Quick Start
 
@@ -27,7 +27,7 @@ npm test
 npm run test:electron
 ```
 
-The test suite covers adblock behavior, privacy defaults, security helpers, reader mode extraction/session handling, offline routing and arcade rotation, localization, preload bridge scoping, and startup regressions.
+The test suite covers managed uBlock Origin Lite provisioning and policy, privacy defaults, security helpers, reader mode extraction/session handling, offline routing and arcade rotation, localization, preload bridge scoping, and startup regressions.
 
 ### Performance gates
 
@@ -82,7 +82,8 @@ npm run dist:win
 - Theme customization, accent colors, vertical tabs, and optional seconds in time widgets.
 - An optional automatic RAM budget, sized to half of installed memory, that unloads background tabs with the highest observed memory use and restores them on selection while protecting active and audible tabs.
 - Chrome Web Store installation support plus unpacked extension loading through `chrome://extensions`, with extension permission inspection.
-- Built-in adblock lists, cached list refreshes, per-list toggles, and custom filter rules.
+- Mandatory uBlock Origin Lite protection for every persistent Electron profile, installed and updated from the Chrome Web Store. Web navigation stays blocked until the managed extension is ready; its popup and options remain available.
+- Memory-only incognito sessions do not load extensions; this policy applies to normal persistent Electron profiles.
 - Privacy controls for HTTPS-Only Mode, anti-fingerprinting hardening, and DNS-over-HTTPS through Cloudflare secure DNS.
 - Scoped internal pages for new tab, extensions, reader mode, and offline fallback.
 - Offline arcade fallback with Snake, Tetris, and Pac-Man when navigation fails because the device is offline.
@@ -91,9 +92,10 @@ npm run dist:win
 ## Project Structure
 
 - `main.js` runs the Electron main process, window and tab orchestration, sessions, permissions, updates, internal pages, and browser IPC.
-- `renderer.js` drives the main browser UI, settings, panels, profiles, bookmarks, downloads, reader controls, and localization updates.
+- `renderer.js` drives the main browser UI, settings, panels, profiles, bookmarks, downloads, reader controls, required-extension status, and localization updates.
 - `preload.js` exposes scoped bridges for trusted Orion pages.
-- `adblock.js`, `browser-privacy.js`, and `browser-security.js` contain blocking, privacy, permission, and extension-safety helpers.
+- `extension-manager.js` provisions uBlock Origin Lite per profile, configures Web Store updates, reconciles unloads, and enforces managed-extension policy.
+- `browser-privacy.js` and `browser-security.js` contain privacy, permission, and extension-safety helpers.
 - `reader*.js` and `reader.html` power reader mode.
 - `offline*.js` and `offline.html` power offline routing and arcade games.
 - `localization.js` contains UI strings and platform-specific labels.

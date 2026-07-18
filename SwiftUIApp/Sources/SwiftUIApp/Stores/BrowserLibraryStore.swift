@@ -4,20 +4,22 @@ import Foundation
 @MainActor
 final class BrowserLibraryStore: ObservableObject {
     @Published private(set) var history: [NavigationEntry] = []
-    @Published private(set) var bookmarks: [NavigationEntry] = []
+    @Published private(set) var bookmarks: [BrowserBookmark] = []
     @Published private(set) var isReady = false
 
     private enum Mutation {
         case addHistory(title: String, urlString: String)
         case clearHistory
-        case toggleBookmark(title: String, urlString: String)
+        case clearHistorySince(Date)
+        case removeHistory(UUID)
+        case addBookmark(BrowserBookmark)
         case removeBookmark(UUID)
 
         var writesHistory: Bool {
             switch self {
-            case .addHistory, .clearHistory:
+            case .addHistory, .clearHistory, .clearHistorySince, .removeHistory:
                 true
-            case .toggleBookmark, .removeBookmark:
+            case .addBookmark, .removeBookmark:
                 false
             }
         }
@@ -26,8 +28,9 @@ final class BrowserLibraryStore: ObservableObject {
     }
 
     private let historyStore: JSONFileStore<[NavigationEntry]>
-    private let bookmarkStore: JSONFileStore<[NavigationEntry]>
+    private let bookmarkStore: JSONFileStore<[BrowserBookmark]>
     private let writeDebounce: Duration
+    private let isPersistent: Bool
     private var bookmarkedURLStrings: Set<String> = []
     private var pendingMutations: [Mutation] = []
     private var loadStarted = false
@@ -35,10 +38,15 @@ final class BrowserLibraryStore: ObservableObject {
     private var historyWriteTask: Task<Void, Never>?
     private var bookmarkWriteTask: Task<Void, Never>?
 
-    init(storageDirectory: URL? = nil, writeDebounce: Duration = .milliseconds(250)) {
+    init(
+        storageDirectory: URL? = nil,
+        writeDebounce: Duration = .milliseconds(250),
+        isPersistent: Bool = true
+    ) {
         historyStore = JSONFileStore(filename: "history.json", storageDirectory: storageDirectory)
         bookmarkStore = JSONFileStore(filename: "bookmarks.json", storageDirectory: storageDirectory)
         self.writeDebounce = writeDebounce
+        self.isPersistent = isPersistent
     }
 
     func load() async {
@@ -51,6 +59,18 @@ final class BrowserLibraryStore: ObservableObject {
         }
 
         loadStarted = true
+        guard isPersistent else {
+            history = []
+            bookmarks = []
+            bookmarkedURLStrings = []
+            pendingMutations.removeAll()
+            isReady = true
+            let waiters = readinessWaiters
+            readinessWaiters.removeAll()
+            waiters.forEach { $0.resume() }
+            return
+        }
+
         async let storedHistory = historyStore.load(defaultValue: [])
         async let storedBookmarks = bookmarkStore.load(defaultValue: [])
         let (loadedHistory, loadedBookmarks) = await (storedHistory, storedBookmarks)
@@ -92,11 +112,60 @@ final class BrowserLibraryStore: ObservableObject {
         record(.clearHistory)
     }
 
-    func toggleBookmark(title: String, urlString: String) -> Bool {
+    func clearHistory(since date: Date) {
+        record(.clearHistorySince(date))
+    }
+
+    func removeHistory(_ entry: NavigationEntry) {
+        record(.removeHistory(entry.id))
+    }
+
+    func toggleBookmark(
+        title: String,
+        urlString: String,
+        destinations: Set<BookmarkDestination> = [.bar]
+    ) -> Bool {
         guard let normalizedURL = normalizedURLString(urlString) else { return false }
 
-        record(.toggleBookmark(title: title, urlString: normalizedURL))
+        if let index = bookmarks.firstIndex(where: { $0.urlString == normalizedURL }) {
+            record(.removeBookmark(bookmarks[index].id))
+        } else {
+            addBookmark(
+                title: title,
+                urlString: normalizedURL,
+                destinations: destinations
+            )
+        }
         return bookmarkedURLStrings.contains(normalizedURL)
+    }
+
+    func addBookmark(
+        title: String,
+        urlString: String,
+        destinations: Set<BookmarkDestination>
+    ) {
+        guard let normalizedURL = normalizedURLString(urlString) else { return }
+        if let index = bookmarks.firstIndex(where: { $0.urlString == normalizedURL }) {
+            bookmarks[index].title = title
+            bookmarks[index].destinations = destinations.isEmpty ? [.bar] : destinations
+            rebuildBookmarkIndex()
+            guard isReady, isPersistent else { return }
+            scheduleBookmarkWrite()
+            return
+        }
+        record(
+            .addBookmark(
+                BrowserBookmark(
+                    title: title,
+                    urlString: normalizedURL,
+                    destinations: destinations
+                )
+            )
+        )
+    }
+
+    func removeBookmark(_ bookmark: BrowserBookmark) {
+        record(.removeBookmark(bookmark.id))
     }
 
     func removeBookmark(_ entry: NavigationEntry) {
@@ -109,6 +178,7 @@ final class BrowserLibraryStore: ObservableObject {
     }
 
     func flush() async {
+        guard isPersistent else { return }
         await load()
         historyWriteTask?.cancel()
         bookmarkWriteTask?.cancel()
@@ -130,6 +200,7 @@ final class BrowserLibraryStore: ObservableObject {
             return
         }
 
+        guard isPersistent else { return }
         if mutation.writesHistory {
             scheduleHistoryWrite()
         } else {
@@ -147,11 +218,15 @@ final class BrowserLibraryStore: ObservableObject {
             }
         case .clearHistory:
             history.removeAll()
-        case let .toggleBookmark(title, urlString):
-            if let index = bookmarks.firstIndex(where: { $0.urlString == urlString }) {
-                bookmarks.remove(at: index)
+        case let .clearHistorySince(date):
+            history.removeAll { $0.date >= date }
+        case let .removeHistory(id):
+            history.removeAll { $0.id == id }
+        case let .addBookmark(bookmark):
+            if let index = bookmarks.firstIndex(where: { $0.urlString == bookmark.urlString }) {
+                bookmarks[index] = bookmark
             } else {
-                bookmarks.insert(NavigationEntry(title: title, urlString: urlString), at: 0)
+                bookmarks.insert(bookmark, at: 0)
             }
             rebuildBookmarkIndex()
         case let .removeBookmark(id):
@@ -188,7 +263,10 @@ final class BrowserLibraryStore: ObservableObject {
         }
     }
 
-    private func save(_ value: [NavigationEntry], to store: JSONFileStore<[NavigationEntry]>) async {
+    private func save<Value: Codable & Sendable>(
+        _ value: Value,
+        to store: JSONFileStore<Value>
+    ) async {
         try? await store.save(value)
     }
 

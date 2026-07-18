@@ -11,7 +11,9 @@ struct LibrarySidebarView: View {
         case .history:
             library.history
         case .bookmarks:
-            library.bookmarks
+            library.bookmarks.map(\.navigationEntry)
+        case .downloads, .summary:
+            []
         }
     }
 
@@ -56,28 +58,60 @@ struct LibrarySidebarView: View {
             .padding(.horizontal, 18)
             .padding(.bottom, 12)
 
-            if entries.isEmpty {
-                ContentUnavailablePanel(mode: mode)
-            } else {
-                List(entries) { entry in
-                    LibraryEntryRow(entry: entry) {
-                        browser.load(entry: entry)
-                    }
-                    .contextMenu {
-                        if mode == .bookmarks {
-                            Button("Remove Bookmark") {
-                                library.removeBookmark(entry)
+            Group {
+                switch mode {
+                case .history, .bookmarks:
+                    if entries.isEmpty {
+                        ContentUnavailablePanel(mode: mode)
+                    } else {
+                        List(entries) { entry in
+                            LibraryEntryRow(entry: entry) {
+                                browser.load(entry: entry)
+                            }
+                            .contextMenu {
+                                if mode == .bookmarks {
+                                    Button("Remove Bookmark") {
+                                        library.removeBookmark(entry)
+                                    }
+                                } else {
+                                    Button("Remove from History") {
+                                        library.removeHistory(entry)
+                                    }
+                                }
                             }
                         }
+                        .listStyle(.sidebar)
                     }
+                case .downloads:
+                    DownloadsSidebarContent(downloads: browser.downloads)
+                case .summary:
+                    PageSummarySidebarContent(
+                        summary: browser.pageSummary,
+                        isLoading: browser.isSummarizing
+                    )
                 }
-                .listStyle(.sidebar)
             }
 
             if mode == .history, !library.history.isEmpty {
                 Divider()
-                Button("Clear History") {
-                    library.clearHistory()
+                Menu("Clear History") {
+                    Button("Last Hour") {
+                        library.clearHistory(since: Date().addingTimeInterval(-3_600))
+                    }
+
+                    Button("Today") {
+                        library.clearHistory(since: Calendar.current.startOfDay(for: Date()))
+                    }
+
+                    Button("Last 7 Days") {
+                        library.clearHistory(since: Date().addingTimeInterval(-7 * 86_400))
+                    }
+
+                    Divider()
+
+                    Button("All History", role: .destructive) {
+                        library.clearHistory()
+                    }
                 }
                 .padding(10)
             }
@@ -86,6 +120,88 @@ struct LibrarySidebarView: View {
             OrionVisualStyle.pageBackground(for: colorScheme)
                 .overlay(Color.white.opacity(colorScheme == .dark ? 0.02 : 0.34))
         )
+    }
+}
+
+private struct DownloadsSidebarContent: View {
+    let downloads: [BrowserDownload]
+
+    var body: some View {
+        if downloads.isEmpty {
+            ContentUnavailablePanel(mode: .downloads)
+        } else {
+            List(downloads) { download in
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(download.filename)
+                        .lineLimit(1)
+
+                    switch download.state {
+                    case .downloading:
+                        HStack {
+                            ProgressView(value: download.fractionCompleted)
+                            Text(download.fractionCompleted, format: .percent.precision(.fractionLength(0)))
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                        }
+                    case .finished:
+                        Label("Done", systemImage: "checkmark.circle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.green)
+                    case let .failed(message):
+                        Label(message, systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                            .lineLimit(2)
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+            .listStyle(.sidebar)
+        }
+    }
+}
+
+private struct PageSummarySidebarContent: View {
+    let summary: PageSummary?
+    let isLoading: Bool
+
+    var body: some View {
+        if isLoading {
+            VStack(spacing: 12) {
+                ProgressView()
+                Text("Summarizing on this Mac…")
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if let summary {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    Text(summary.title)
+                        .font(.title3.weight(.semibold))
+
+                    HStack {
+                        Text(summary.source)
+                        Spacer()
+                        Text("\(summary.readingTimeMinutes) min read")
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                    ForEach(Array(summary.bullets.enumerated()), id: \.offset) { _, bullet in
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: "circle.fill")
+                                .font(.system(size: 5))
+                                .padding(.top, 7)
+                            Text(bullet)
+                                .textSelection(.enabled)
+                        }
+                    }
+                }
+                .padding(18)
+            }
+        } else {
+            ContentUnavailablePanel(mode: .summary)
+        }
     }
 }
 

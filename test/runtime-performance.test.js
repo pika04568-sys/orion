@@ -131,7 +131,7 @@ test("Electron runtime staging is versioned and reused outside the project", () 
   }
 });
 
-test("main startup creates the shell before deferred services and navigation is not adblock-gated", () => {
+test("main startup creates the shell before deferred services and gates web navigation on uBlock Origin Lite", () => {
   const source = fs.readFileSync(path.join(__dirname, "..", "main.js"), "utf8");
   const readyBlock = source.slice(source.indexOf("app.whenReady().then"));
   const createWindowIndex = readyBlock.indexOf("createW(0)");
@@ -140,14 +140,17 @@ test("main startup creates the shell before deferred services and navigation is 
   assert.ok(createWindowIndex < readyBlock.indexOf("runLegacyIncognitoPartitionMigration"));
   assert.ok(createWindowIndex < readyBlock.indexOf("initializeMemoryController"));
   assert.ok(createWindowIndex < readyBlock.indexOf("configureAutoUpdater"));
-  assert.doesNotMatch(source, /prepareAdblockForNavigation/);
-  assert.match(source, /return view\.webContents\.loadURL\(normalizedUrl\)/);
+  assert.doesNotMatch(source, /prepareAdblockForNavigation|ensureAdblockRuntime|adblock-worker/);
+  assert.match(source, /return queueManagedNavigation\(tabId, pIdx, normalizedUrl\)/);
+  assert.match(source, /pendingManagedNavigations\.set\(tabId, pending\)/);
+  assert.match(source, /manager\.ensureManagedExtension\(win\.profileIndex, sess\)/);
+  assert.match(source, /state !== "ready"/);
   assert.match(source, /if \(!w\) return;/);
   assert.doesNotMatch(source, /preconnect-origin|prewarmedNewTabViews|scheduleNewTabPrewarm/);
   assert.doesNotMatch(source, /settingsWriter\.read/);
   assert.match(source, /recoveryWriter\.scheduleFactory\(buildCurrentRecoveryState\)/);
   assert.match(source, /createT\(pIdx, win, \{ quiet: true \}\)/);
-  assert.match(source, /ensureAdblockRuntime\(\{ blockingReady: true \}\)\.then/);
+  assert.match(source, /cleanupLegacyAdblockData\(\)/);
 
   const buildSource = fs.readFileSync(path.join(__dirname, "..", "scripts", "build-runtime.js"), "utf8");
   assert.match(buildSource, /main-app\.cjs/);

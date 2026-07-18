@@ -62,8 +62,11 @@ function getMemoryManagerModule() {
 }
 const APP_RESOURCE_ROOT = path.join(__dirname, "public");
 const PRELOAD_PATH = path.join(__dirname, "preload.cjs");
-const ADBLOCK_WORKER_PATH = path.join(__dirname, "adblock-worker.cjs");
 const DISABLE_BACKGROUND_NETWORK = process.env.ORION_DISABLE_BACKGROUND_NETWORK === "1";
+const UBLOCK_ORIGIN_LITE_ID = "ddkjiahejlhfcafbddmgiahcphecmpfh";
+const MANAGED_EXTENSION_TEST_MODE = !app.isPackaged
+  ? String(process.env.ORION_TEST_MANAGED_EXTENSION_MODE || "")
+  : "";
 if (process.env.ORION_USER_DATA_DIR) app.setPath("userData", process.env.ORION_USER_DATA_DIR);
 const earlyStartupPerformance = globalThis.__orionEarlyStartupPerformance || null;
 const startupEventLoopDelay = earlyStartupPerformance && earlyStartupPerformance.eventLoopDelay
@@ -132,7 +135,6 @@ let states = {};
 let recentlyClosedTabs = {};
 let offlineRotationStates = {};
 let offlineTabs = {};
-let adblockManager = null;
 let readerExtractionService = null;
 let aiSummaryModule = null;
 let incognitoSitePermissions = {};
@@ -188,7 +190,6 @@ const GITHUB_UPDATE_FEED = {
   repo: "orion",
   releaseType: "release"
 };
-const STARTUP_DEFERRED_ADBLOCK_DELAY_MS = 2500;
 const STARTUP_DEFERRED_EXTENSION_RESTORE_DELAY_MS = 1200;
 const STARTUP_DEFERRED_UPDATE_CHECK_DELAY_MS = 8000;
 const FINGERPRINTING_PROTECTION_SCRIPT = browserPrivacy.createFingerprintingProtectionScript({ platform: process.platform });
@@ -227,26 +228,21 @@ let installingUpdate = false;
 let autoUpdater = null;
 let extensionManager = null;
 let extensionRuntimePromise = null;
-let adblockRuntimePromise = null;
 let ElectronChromeExtensions = null;
 let chromeWebStore = null;
-let adblockModule = null;
 let extensionManagerModule = null;
 let deferredStartup = appUtils.createDeferredStartupController({
   isDeferredNavigation: (url) => isHttpUrl(url)
 });
 let scheduledExtensionRestoreProfiles = new Set();
 let restoredExtensionProfiles = new Set();
+const managedExtensionStatuses = new Map();
+const pendingManagedNavigations = new Map();
 let startupDeferredTimers = new Set();
 const extensionTabRemovalNotifications = new WeakSet();
 const historyWriter = createCoalescedAtomicWriter({ filePath: hPath, delayMs: 150 });
 const settingsWriter = createCoalescedAtomicWriter({ filePath: sPath, delayMs: 100 });
 const recoveryWriter = createCoalescedAtomicWriter({ filePath: recoveryPath, delayMs: 250 });
-
-function getAdblockModule() {
-  if (!adblockModule) adblockModule = require("./adblock");
-  return adblockModule;
-}
 
 function getExtensionManagerModule() {
   if (!extensionManagerModule) extensionManagerModule = require("./extension-manager");
@@ -289,7 +285,9 @@ async function ensureExtensionRuntime(win = null) {
         createWindow: createExtensionWindow,
         removeWindow: removeExtensionWindow,
         assignTabDetails: assignExtensionTabDetails,
-        requestPermissions: requestExtensionPermissions
+        requestPermissions: requestExtensionPermissions,
+        managedExtensionId: UBLOCK_ORIGIN_LITE_ID,
+        onManagedExtensionStatusChanged: handleManagedExtensionStatusChanged
       });
       return extensionManager;
     }).catch((error) => {
@@ -307,29 +305,160 @@ async function ensureExtensionRuntime(win = null) {
         manager.addTab(win.profileIndex, view.webContents, win);
       }
     });
-    if (profile && profile.webStoreReady) await profile.webStoreReady;
-    if (!win.isDestroyed()) win.webContents.send("extensions-ready");
+    if (MANAGED_EXTENSION_TEST_MODE === "fail-until-retry") {
+      try {
+        resolveManagedExtensionTestSeam(win.profileIndex);
+      } catch (_error) {}
+    } else if (DISABLE_BACKGROUND_NETWORK && !app.isPackaged) {
+      handleManagedExtensionStatusChanged(win.profileIndex, {
+        profileIndex: win.profileIndex,
+        extensionId: UBLOCK_ORIGIN_LITE_ID,
+        state: "ready",
+        version: "test-bypass",
+        error: null
+      });
+    } else {
+      void manager.ensureManagedExtension(win.profileIndex, sess).catch(() => {});
+    }
   }
   return manager;
 }
 
-async function ensureAdblockRuntime(options = {}) {
-  if (!adblockRuntimePromise) {
-    adblockRuntimePromise = Promise.resolve().then(async () => {
-      adblockManager = getAdblockModule().createAdblockManager({
-        userDataDir: app.getPath("userData"),
-        workerPath: ADBLOCK_WORKER_PATH
-      });
-      await adblockManager.initializeAsync({ lazy: true });
-      return adblockManager;
-    }).catch((error) => {
-      adblockRuntimePromise = null;
-      throw error;
+function resolveManagedExtensionTestSeam(profileIndex, options = {}) {
+  if (MANAGED_EXTENSION_TEST_MODE !== "fail-until-retry") return null;
+  const current = managedExtensionStatuses.get(profileIndex);
+  if (options.retry || (current && current.state === "ready")) {
+    return handleManagedExtensionStatusChanged(profileIndex, {
+      state: "ready",
+      version: "test-seam",
+      error: null
     });
   }
-  const manager = await adblockRuntimePromise;
-  if (options.blockingReady) await manager.ensureBlockingReadyAsync();
-  return manager;
+  handleManagedExtensionStatusChanged(profileIndex, {
+    state: "error",
+    version: null,
+    error: "Test-only managed extension installation failure."
+  });
+  throw new Error("Test-only managed extension installation failure.");
+}
+
+function sanitizeManagedExtensionError(value) {
+  if (typeof value !== "string" || !value) return null;
+  const sanitized = value
+    .replace(/[\u0000-\u001f\u007f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return sanitized ? sanitized.slice(0, 500) : null;
+}
+
+function sanitizeManagedExtensionStatus(profileIndex, status = {}) {
+  const allowedStates = new Set(["idle", "installing", "ready", "error"]);
+  const state = allowedStates.has(status.state) ? status.state : "idle";
+  return {
+    profileId: profileIndex,
+    extensionId: UBLOCK_ORIGIN_LITE_ID,
+    state,
+    version: typeof status.version === "string" && status.version ? status.version.slice(0, 80) : null,
+    error: sanitizeManagedExtensionError(status.error)
+  };
+}
+
+function getManagedExtensionStatus(profileIndex) {
+  if (managedExtensionStatuses.has(profileIndex)) {
+    return { ...managedExtensionStatuses.get(profileIndex) };
+  }
+  if (extensionManager) {
+    return sanitizeManagedExtensionStatus(
+      profileIndex,
+      extensionManager.getManagedExtensionStatus(profileIndex)
+    );
+  }
+  return sanitizeManagedExtensionStatus(profileIndex, { state: "installing" });
+}
+
+function handleManagedExtensionStatusChanged(profileIndex, status) {
+  const next = sanitizeManagedExtensionStatus(profileIndex, status);
+  managedExtensionStatuses.set(profileIndex, next);
+  const win = windows[profileIndex];
+  if (win && !win.isDestroyed() && !win.incognitoWindow) {
+    win.webContents.send("managed-extension-status-changed", next);
+    if (next.state === "ready") win.webContents.send("extensions-ready");
+  }
+  if (next.state === "ready") resumePendingManagedNavigations(profileIndex);
+  return next;
+}
+
+async function ensureManagedExtensionForProfile(profileIndex, options = {}) {
+  if (!Number.isInteger(profileIndex) || profileIndex < 0 || profileIndex >= INCOGNITO_PROFILE_BASE) {
+    throw new Error("uBlock Origin Lite is unavailable for this browser profile.");
+  }
+  const testResult = resolveManagedExtensionTestSeam(profileIndex, options);
+  if (testResult) return testResult;
+  if (DISABLE_BACKGROUND_NETWORK && !app.isPackaged) {
+    return handleManagedExtensionStatusChanged(profileIndex, {
+      state: "ready",
+      version: "test-bypass",
+      error: null
+    });
+  }
+  const win = windows[profileIndex];
+  const manager = await ensureExtensionRuntime(win && !win.isDestroyed() ? win : null);
+  const sess = ensureSessionSecurity(getPartitionForProfile(profileIndex, false), profileIndex, false);
+  manager.ensureProfile(profileIndex, sess, { incognito: false });
+  await manager.ensureManagedExtension(profileIndex, sess);
+  return getManagedExtensionStatus(profileIndex);
+}
+
+async function provisionRecoveredManagedExtensions() {
+  const profileIds = Object.keys(pNames)
+    .map((value) => Number(value))
+    .filter((value) => Number.isInteger(value) && value >= 0 && value < INCOGNITO_PROFILE_BASE);
+  await Promise.all(profileIds.map((profileIndex) => (
+    ensureManagedExtensionForProfile(profileIndex).catch(() => null)
+  )));
+}
+
+function dispatchPendingManagedNavigation(tabId, expectedRequest = null) {
+  const pending = pendingManagedNavigations.get(tabId);
+  if (!pending || (expectedRequest && pending !== expectedRequest)) return false;
+  if (getManagedExtensionStatus(pending.profileIndex).state !== "ready") return false;
+  const view = views[tabId];
+  if (!view || !view.webContents || view.webContents.isDestroyed()) {
+    pendingManagedNavigations.delete(tabId);
+    return false;
+  }
+
+  pendingManagedNavigations.delete(tabId);
+  const loadPromise = view.webContents.loadURL(pending.url);
+  if (view.performanceContext) {
+    view.performanceContext.navigationDispatchedAtEpochMs = getPerformanceEpochMs();
+  }
+  return loadPromise.catch(() => false);
+}
+
+function resumePendingManagedNavigations(profileIndex) {
+  for (const [tabId, pending] of pendingManagedNavigations.entries()) {
+    if (pending.profileIndex === profileIndex) {
+      void dispatchPendingManagedNavigation(tabId, pending);
+    }
+  }
+}
+
+function queueManagedNavigation(tabId, profileIndex, url) {
+  const pending = Object.freeze({ profileIndex, url });
+  pendingManagedNavigations.set(tabId, pending);
+  void ensureManagedExtensionForProfile(profileIndex).then(() => {
+    void dispatchPendingManagedNavigation(tabId, pending);
+  }).catch(() => {});
+  return true;
+}
+
+function cleanupLegacyAdblockData() {
+  const userDataDir = app.getPath("userData");
+  void Promise.all([
+    fs.promises.rm(path.join(userDataDir, "adblock-state.json"), { force: true }),
+    fs.promises.rm(path.join(userDataDir, "adblock-cache"), { recursive: true, force: true })
+  ]).catch(() => {});
 }
 
 function getAutoUpdater() {
@@ -406,33 +535,6 @@ function markFirstWindowReady() {
 
 function noteHttpNavigation(url) {
   return deferredStartup.markNavigation(url);
-}
-
-function ensureAdblockReadyForSession() {
-  void ensureAdblockRuntime({ blockingReady: true }).catch(() => {});
-  return adblockManager ? adblockManager.getState() : null;
-}
-
-function hasActiveAdblockRules(state) {
-  if (!state) return false;
-  if (typeof state.customRules === "string" && state.customRules.trim()) return true;
-  return Array.isArray(state.lists)
-    && state.lists.some((list) => list && list.enabled !== false && Number(list.ruleCount) > 0);
-}
-
-function scheduleAdblockWarmup() {
-  runOnFirstHttpNavigation(() => {
-    ensureAdblockReadyForSession();
-  });
-  runMaintenanceAfterWindowReady(() => {
-    void ensureAdblockRuntime().then(async (manager) => {
-      const refreshPromise = DISABLE_BACKGROUND_NETWORK
-        ? Promise.resolve(manager.getState())
-        : manager.refreshBuiltInLists({ reason: "startup" });
-      await manager.ensureBlockingReadyAsync();
-      await refreshPromise;
-    }).catch(() => {});
-  }, STARTUP_DEFERRED_ADBLOCK_DELAY_MS);
 }
 
 function scheduleExtensionRestoreForWindow(win) {
@@ -1535,19 +1637,6 @@ function ensureSessionSecurity(partition, pIdx, incognito = false) {
 
   const sess = session.fromPartition(partition);
   registerAppProtocolForSession(sess);
-  sess.webRequest.onBeforeRequest((details, callback) => {
-    if (!details.url.startsWith("http")) return callback({ cancel: false });
-    if (adblockManager && adblockManager.isBlockingReady()) {
-      callback({ cancel: adblockManager.shouldBlockRequest(details) });
-      return;
-    }
-    void ensureAdblockRuntime({ blockingReady: true }).then((manager) => {
-      callback({ cancel: manager.shouldBlockRequest(details) });
-    }).catch((error) => {
-      console.error("Adblock initialization failed; blocking request:", error && error.message ? error.message : error);
-      callback({ cancel: true });
-    });
-  });
   sess.webRequest.onBeforeSendHeaders((details, callback) => {
     const settings = getPrivacySettings();
     if (!settings.antiFingerprinting || !details.url.startsWith("http")) {
@@ -1718,6 +1807,16 @@ function reloadActiveView(pIdx, options = {}) {
   const s = states[pIdx];
   if (!s || !s.activeView || s.activeView.webContents.isDestroyed()) return false;
   const activeTabId = getActiveT(pIdx);
+  const currentUrl = s.activeView.webContents.getURL();
+  const activeTab = (pTabs[pIdx] || []).find((tab) => tab && tab.id === activeTabId);
+  if (
+    activeTabId &&
+    !(activeTab && activeTab.incognito) &&
+    /^https?:\/\//i.test(currentUrl) &&
+    getManagedExtensionStatus(pIdx).state !== "ready"
+  ) {
+    return queueManagedNavigation(activeTabId, pIdx, currentUrl);
+  }
   const offlineContext = getOfflineTabContext(activeTabId);
   if (activeTabId && offlineContext && isOfflinePageUrl(s.activeView.webContents.getURL())) {
     return !!loadTabUrl(
@@ -2993,7 +3092,10 @@ function loadTabUrl(tabId, pIdx, rawUrl, options = {}) {
   }
   if (isHttpUrl(normalizedUrl)) {
     noteHttpNavigation(normalizedUrl);
-    ensureAdblockReadyForSession();
+    const tab = pTabs[pIdx] && pTabs[pIdx].find((entry) => entry && entry.id === tabId);
+    if (!tab || !tab.incognito) {
+      return queueManagedNavigation(tabId, pIdx, normalizedUrl);
+    }
     const loadPromise = view.webContents.loadURL(normalizedUrl);
     if (view.performanceContext) {
       view.performanceContext.navigationDispatchedAtEpochMs = getPerformanceEpochMs();
@@ -3039,6 +3141,16 @@ function createW(pIdx = 0, opts = {}) {
   win.profileIndex = pIdx;
   win.incognitoWindow = isIncognito;
   windows[pIdx] = win;
+  if (!isIncognito) {
+    handleManagedExtensionStatusChanged(pIdx, { state: "installing", version: null, error: null });
+    void ensureExtensionRuntime(win).catch((error) => {
+      handleManagedExtensionStatusChanged(pIdx, {
+        state: "error",
+        version: null,
+        error: error && error.message ? error.message : "Unable to initialize Chrome extension support."
+      });
+    });
+  }
   attachBrowserShortcutHandler(win.webContents, () => win.profileIndex);
   if (!pTabs[pIdx]) pTabs[pIdx] = [];
   if (!pGroups[pIdx]) pGroups[pIdx] = [];
@@ -3066,6 +3178,9 @@ function createW(pIdx = 0, opts = {}) {
     delete states[pIdx];
     delete offlineRotationStates[pIdx];
     clearOfflineTabContextsForProfile(pIdx);
+    for (const [tabId, pending] of pendingManagedNavigations.entries()) {
+      if (pending.profileIndex === pIdx) pendingManagedNavigations.delete(tabId);
+    }
     if (isIncognito) {
       delete incognitoSitePermissions[getPermissionScopeKey(pIdx, true)];
       delete pTabs[pIdx];
@@ -3400,6 +3515,7 @@ async function ensureWindowBootstrapState(win) {
     platform: getCurrentUiPlatform(),
     browserSettings: getBrowserSettings(),
     memoryStatus: { ...memoryStatus },
+    managedExtensionStatus: win.incognitoWindow ? null : getManagedExtensionStatus(pIdx),
     updaterState: getUpdaterState(),
     version: app.getVersion(),
     startupPerformance: {
@@ -3465,7 +3581,8 @@ function createV(id, url, inc, pIdx, options = {}) {
     }
     if (isHttpUrl(targetUrl)) {
       const target = normalizeNavigationTarget(targetUrl);
-      if (target.upgraded) {
+      const managedReady = inc || getManagedExtensionStatus(pIdx).state === "ready";
+      if (target.upgraded || !managedReady) {
         event.preventDefault();
         loadTabUrl(id, pIdx, target.url, { source: "navigate" });
       }
@@ -3759,6 +3876,7 @@ function closeTab(pIdx, id, win) {
   const s = states[pIdx];
   const view = views[id] || null;
   if (!w) return;
+  pendingManagedNavigations.delete(id);
   
   const session = getReaderSession(id);
   const profileTabs = pTabs[pIdx] || [];
@@ -4298,6 +4416,9 @@ ipcMain.handle("get-extensions", withTrustedSender(async (e) => {
   const manager = await ensureExtensionRuntime(w);
   const sess = getSessionForWindow(w);
   const pIdx = w ? w.profileIndex : 0;
+  if (!(DISABLE_BACKGROUND_NETWORK && !app.isPackaged)) {
+    await manager.ensureManagedExtension(pIdx, sess).catch(() => {});
+  }
   return manager.getExtensions(pIdx, sess);
 }, []));
 ipcMain.handle("remove-extension", withTrustedSender(async (e, id) => {
@@ -4331,6 +4452,14 @@ ipcMain.handle("update-extensions", withTrustedSender(async (e) => {
   const sess = getSessionForWindow(w);
   return manager.updateExtensions(w.profileIndex, sess);
 }, { success: false, error: "Untrusted sender." }));
+ipcMain.handle("retry-managed-extension-install", withTrustedSender(async (e) => {
+  const w = getSenderWindow(e.sender);
+  if (!w || w.incognitoWindow) return null;
+  try {
+    await ensureManagedExtensionForProfile(w.profileIndex, { retry: true });
+  } catch (_error) {}
+  return getManagedExtensionStatus(w.profileIndex);
+}, null));
 ipcMain.handle("get-app-version", withTrustedSender(() => {
   return app.getVersion();
 }, null));
@@ -4370,44 +4499,6 @@ ipcMain.handle("set-language", withTrustedSender((e, locale) => {
 ipcMain.handle("check-for-updates", withTrustedSender((e) => {
   return checkForUpdates("manual");
 }, null));
-ipcMain.handle("get-adblock-state", withTrustedSender(async () => {
-  try {
-    const manager = await ensureAdblockRuntime({ blockingReady: true });
-    return manager.getState();
-  } catch (_error) {
-    return {
-    customRules: "",
-    hasCustomRules: false,
-    lists: [],
-    syncState: {
-      status: "idle",
-      message: "Adblock is initializing.",
-      lastSyncAt: null,
-      lastError: null
-    },
-    defaults: {
-      refreshIntervalMs: null,
-      builtInListCount: 0
-    }
-    };
-  }
-}, null));
-ipcMain.handle("update-adblock-rules", withTrustedSender(async (e, r) => {
-  const manager = await ensureAdblockRuntime({ blockingReady: true });
-  return manager.updateCustomRulesAsync(r || "");
-}, null));
-ipcMain.handle("set-adblock-list-enabled", withTrustedSender(async (e, { listId, enabled }) => {
-  const manager = await ensureAdblockRuntime({ blockingReady: true });
-  return manager.setListEnabledAsync(listId, enabled);
-}, null));
-ipcMain.handle("refresh-adblock-lists", withTrustedSender(async () => {
-  const manager = await ensureAdblockRuntime({ blockingReady: true });
-  return manager.refreshBuiltInLists({ force: true });
-}, null));
-ipcMain.handle("reset-adblock-defaults", withTrustedSender(async () => {
-  const manager = await ensureAdblockRuntime({ blockingReady: true });
-  return manager.resetToDefaultsAsync();
-}, null));
 
 app.on("window-all-closed", () => {
   intentionalQuit = true;
@@ -4423,10 +4514,7 @@ app.on("before-quit", (event) => {
   if (quitFlushPromise) return;
   quitFlushPromise = Promise.all([
     historyWriter.flush(),
-    settingsWriter.flush(),
-    adblockManager && typeof adblockManager.flushPersistence === "function"
-      ? adblockManager.flushPersistence()
-      : Promise.resolve()
+    settingsWriter.flush()
   ]).then(() => deleteRecoveryState()).catch(() => {}).finally(() => {
     quitFlushComplete = true;
     app.quit();
@@ -4436,17 +4524,18 @@ app.on("before-quit", (event) => {
 app.whenReady().then(() => {
   startupMilestones.appReadyMs = performance.now();
   registerAppProtocol();
+  void cleanupLegacyAdblockData();
   applyDnsOverHttpsSettings();
   startupDataPromise = loadStartupData().catch((error) => {
     console.warn("Unable to restore startup data:", error && error.message ? error.message : error);
     return false;
   });
+  void startupDataPromise.then(() => provisionRecoveredManagedExtensions());
   createW(0);
   runAfterFirstWindowReady(() => void loadHistoryInBackground());
   runAfterFirstWindowReady(() => void runLegacyIncognitoPartitionMigration(), 3000);
   runAfterFirstWindowReady(setMacDockIcon, 300);
   if (isRamLimiterEnabled()) runMaintenanceAfterWindowReady(initializeMemoryController, 1200);
   if (!DISABLE_BACKGROUND_NETWORK) runMaintenanceAfterWindowReady(configureAutoUpdater, 3000);
-  scheduleAdblockWarmup();
   scheduleStartupUpdateCheck();
 });

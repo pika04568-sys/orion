@@ -33,7 +33,6 @@ const htmlEntries = [
 ];
 
 const lazyMainServiceEntries = [
-  "adblock.js",
   "ai-summary.js",
   "extension-manager.js",
   "memory-manager.js",
@@ -218,7 +217,6 @@ async function buildRuntime() {
         "electron-chrome-extensions/*",
         "electron-chrome-web-store",
         "electron-updater",
-        "./adblock",
         "./ai-summary",
         "./reader-extraction",
         "./extension-manager",
@@ -232,7 +230,7 @@ async function buildRuntime() {
     esbuild.build({
       ...shared,
       entryPoints: [path.join(projectRoot, "preload.js")],
-      external: ["electron", "electron-chrome-extensions/browser-action"],
+      external: ["electron"],
       format: "cjs",
       outfile: path.join(buildRoot, "preload.cjs"),
       platform: "node",
@@ -246,14 +244,6 @@ async function buildRuntime() {
       platform: "node",
       target: "node22"
     })),
-    esbuild.build({
-      ...shared,
-      entryPoints: [path.join(projectRoot, "adblock-worker.js")],
-      format: "cjs",
-      outfile: path.join(buildRoot, "adblock-worker.cjs"),
-      platform: "node",
-      target: "node22"
-    }),
     ...browserEntries.filter((file) => file !== "localization.js").map((file) => {
       const globalName = browserGlobals[file];
       return esbuild.build({

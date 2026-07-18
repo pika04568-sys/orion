@@ -30,10 +30,13 @@ test("hidden panel bodies remain inert until the panel registry mounts them", ()
   const html = fs.readFileSync(path.join(projectRoot, "index.html"), "utf8");
   const source = fs.readFileSync(path.join(projectRoot, "renderer.js"), "utf8");
 
-  assert.equal((html.match(/<template data-panel-template>/g) || []).length, 6);
+  assert.equal((html.match(/<template data-panel-template>/g) || []).length, 5);
   assert.match(source, /template\.content\.cloneNode\(true\)/);
   assert.match(source, /template\.remove\(\)/);
   assert.match(source, /panel\.dataset\.mounted = 'true'/);
-  assert.match(source, /initializeAdblockPanel\(adblockSidebar\)/);
+  assert.doesNotMatch(source, /initializeAdblockPanel|adblock-sidebar/);
+  assert.match(html, /id="managed-extension-overlay"/);
+  assert.match(html, /id="managed-extension-retry"/);
+  assert.match(source, /renderManagedExtensionStatus\(\)/);
   assert.match(source, /initializeSettingsPanelActions\(\)/);
 });

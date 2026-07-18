@@ -15,8 +15,12 @@ let bootstrapSnapshot = null;
 let extensionToolbarInitialized = false;
 let discoInterval = null;
 let discoModeBtn = null;
-let adblockState = null;
-let adblockElements = null;
+let managedExtensionStatus = null;
+let managedExtensionOverlay = null;
+let managedExtensionTitle = null;
+let managedExtensionBody = null;
+let managedExtensionError = null;
+let managedExtensionRetry = null;
 let tabStripRenderSignature = '';
 let metricsFrame = null;
 let lastChromeMetrics = { top: null, left: null };
@@ -61,6 +65,12 @@ function safeSetStorage(key, value) {
   } catch (_error) {
     return false;
   }
+}
+
+function safeRemoveStorage(key) {
+  try {
+    localStorage.removeItem(key);
+  } catch (_error) { }
 }
 
 const EXTENSION_PIN_STORAGE_KEY = 'browser-pinned-extensions';
@@ -601,141 +611,40 @@ function initializeSettingsStateListeners() {
   });
 }
 
-function formatAdblockTimestamp(value) {
-  if (!value) return t('adblock.syncNever');
-  try {
-    return new Date(value).toLocaleString(currentLocale);
-  } catch (_error) {
-    return t('adblock.syncNever');
-  }
+function initializeExtensionToolbarOnce() {
+  if (extensionToolbarInitialized) return;
+  extensionToolbarInitialized = true;
+  document.documentElement.dataset.extensionsReady = 'true';
+  initExtensionActionToolbar();
 }
 
-function renderAdblockState() {
-  if (!adblockElements || !adblockState) return;
-
-  const { listStatus, customStatus, syncStatus, customRules, saveButton, refreshButton, resetButton, listToggles } = adblockElements;
-  const lists = Array.isArray(adblockState.lists) ? adblockState.lists : [];
-  const enabledLists = lists.filter((list) => list.enabled).length;
-  const customCount = (adblockState.customRules || '')
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line && !line.startsWith('!'))
-    .length;
-
-  if (customRules && document.activeElement !== customRules && customRules.value !== (adblockState.customRules || '')) {
-    customRules.value = adblockState.customRules || '';
+function renderManagedExtensionStatus() {
+  if (!managedExtensionOverlay || isIncognitoWindow) {
+    if (managedExtensionOverlay) managedExtensionOverlay.classList.remove('show');
+    return;
   }
-
-  if (listStatus) {
-    listStatus.innerHTML = '';
-    lists.forEach((list) => {
-      const row = document.createElement('label');
-      row.className = 'adblock-toggle-row';
-      const checkbox = document.createElement('input');
-      checkbox.type = 'checkbox';
-      checkbox.checked = !!list.enabled;
-      checkbox.onchange = async () => {
-        const nextState = await ipcRenderer.invoke('set-adblock-list-enabled', {
-          listId: list.id,
-          enabled: checkbox.checked
-        });
-        if (nextState) {
-          adblockState = nextState;
-          renderAdblockState();
-        }
-      };
-      const title = document.createElement('span');
-      title.className = 'adblock-toggle-title';
-      title.textContent = list.name;
-      const details = document.createElement('span');
-      details.className = 'adblock-toggle-meta';
-      const ruleCount = Number.isFinite(list.ruleCount) ? list.ruleCount : 0;
-      const updatedLabel = list.lastUpdatedAt ? formatAdblockTimestamp(list.lastUpdatedAt) : t('adblock.syncNever');
-      details.textContent = `${list.enabled ? t('adblock.enabled') : t('adblock.disabled')} • ${ruleCount.toLocaleString()} ${t('adblock.rules')} • ${updatedLabel}`;
-      row.appendChild(checkbox);
-      row.appendChild(title);
-      row.appendChild(details);
-      listStatus.appendChild(row);
-    });
+  const status = managedExtensionStatus || { state: 'installing', error: '' };
+  const ready = status.state === 'ready';
+  const failed = status.state === 'error';
+  managedExtensionOverlay.classList.toggle('show', !ready);
+  managedExtensionOverlay.dataset.state = failed ? 'error' : 'installing';
+  document.body.classList.toggle('managed-extension-blocked', !ready);
+  if (managedExtensionTitle) {
+    managedExtensionTitle.textContent = t(failed ? 'managedExtension.errorTitle' : 'managedExtension.installingTitle');
   }
-
-  if (customStatus) {
-    customStatus.textContent = `${customCount.toLocaleString()} ${t('adblock.customRulesCount')} • ${enabledLists.toLocaleString()} ${t('adblock.listsEnabled')} • ${formatAdblockTimestamp(adblockState.syncState && adblockState.syncState.lastSyncAt)}`;
+  if (managedExtensionBody) {
+    managedExtensionBody.textContent = t(failed ? 'managedExtension.errorBody' : 'managedExtension.installingBody');
   }
-
-  if (syncStatus) {
-    const syncState = adblockState.syncState || {};
-    syncStatus.textContent = `${syncState.message || t('adblock.syncIdle')}${syncState.lastError ? `\n${syncState.lastError}` : ''}`;
+  if (managedExtensionError) {
+    managedExtensionError.hidden = !failed || !status.error;
+    managedExtensionError.textContent = failed ? (status.error || '') : '';
   }
-
-  if (saveButton) saveButton.textContent = t('adblock.save');
-  if (refreshButton) refreshButton.textContent = t('adblock.refresh');
-  if (resetButton) resetButton.textContent = t('adblock.resetDefaults');
-}
-
-async function loadAdblockState() {
-  const state = await ipcRenderer.invoke('get-adblock-state');
-  if (!state) return;
-  adblockState = state;
-  const legacyRules = safeGetStorage('adblock-rules', '');
-  if ((!adblockState.customRules || !adblockState.customRules.trim()) && legacyRules.trim()) {
-    const migrated = await ipcRenderer.invoke('update-adblock-rules', legacyRules);
-    if (migrated) adblockState = migrated;
+  if (managedExtensionRetry) {
+    managedExtensionRetry.hidden = !failed;
+    managedExtensionRetry.disabled = false;
+    managedExtensionRetry.textContent = t('managedExtension.retry');
   }
-  renderAdblockState();
-}
-
-function initializeAdblockPanel(panel) {
-  if (!panel) return;
-  const customRules = panel.querySelector('#adblock-rules');
-  const saveButton = panel.querySelector('#save-adblock-rules');
-  const refreshButton = panel.querySelector('#refresh-adblock-lists');
-  const resetButton = panel.querySelector('#reset-adblock-defaults');
-  adblockElements = {
-    panel,
-    listStatus: panel.querySelector('#adblock-list-status'),
-    customStatus: panel.querySelector('#adblock-custom-status'),
-    syncStatus: panel.querySelector('#adblock-sync-status'),
-    customRules,
-    saveButton,
-    refreshButton,
-    resetButton
-  };
-
-  if (customRules) customRules.value = safeGetStorage('adblock-rules', '');
-  if (saveButton && customRules) {
-    saveButton.onclick = () => {
-      safeSetStorage('adblock-rules', customRules.value);
-      ipcRenderer.invoke('update-adblock-rules', customRules.value).then((nextState) => {
-        if (nextState) {
-          adblockState = nextState;
-          renderAdblockState();
-        }
-        saveButton.textContent = t('adblock.saved');
-        setTimeout(() => {
-          saveButton.textContent = t('adblock.save');
-        }, 2000);
-      });
-    };
-  }
-  if (refreshButton) {
-    refreshButton.onclick = async () => {
-      const nextState = await ipcRenderer.invoke('refresh-adblock-lists');
-      if (nextState) {
-        adblockState = nextState;
-        renderAdblockState();
-      }
-    };
-  }
-  if (resetButton) {
-    resetButton.onclick = async () => {
-      const nextState = await ipcRenderer.invoke('reset-adblock-defaults');
-      if (nextState) {
-        adblockState = nextState;
-        renderAdblockState();
-      }
-    };
-  }
+  if (ready) initializeExtensionToolbarOnce();
 }
 
 function isReaderActiveTab() {
@@ -875,7 +784,7 @@ function applyTranslations() {
   renderProfileList();
   if (isPanelInitialized(bookmarksSidebar)) renderBookmarks();
   renderBookmarksBar();
-  if (isPanelInitialized(adblockElements && adblockElements.panel)) renderAdblockState();
+  renderManagedExtensionStatus();
   updateReaderButtonState();
   if (findResults && findResults.textContent === '0/0') findResults.textContent = t('find.empty');
 }
@@ -1177,18 +1086,19 @@ function init(snapshot = {}) {
   startupLanguagePicker = document.getElementById('startup-language-picker');
   settingsLanguagePicker = document.getElementById('settings-language-picker');
   readerToast = document.getElementById('reader-toast');
-
-  const adblockBtn = document.getElementById('adblock-btn');
-  const adblockSidebar = document.getElementById('adblock-sidebar');
-  const closeAdblockBtn = document.getElementById('close-adblock');
-  adblockElements = null;
+  managedExtensionOverlay = document.getElementById('managed-extension-overlay');
+  managedExtensionTitle = document.getElementById('managed-extension-title');
+  managedExtensionBody = document.getElementById('managed-extension-body');
+  managedExtensionError = document.getElementById('managed-extension-error');
+  managedExtensionRetry = document.getElementById('managed-extension-retry');
+  managedExtensionStatus = bootstrapSnapshot.managedExtensionStatus || null;
 
   if (bootstrapSnapshot.updaterState) {
     updaterState = { ...updaterState, ...bootstrapSnapshot.updaterState };
   }
   if (bootstrapSnapshot.memoryStatus) applyMemoryStatus(bootstrapSnapshot.memoryStatus);
 
-  const sidebars = [historySidebar, settingsSidebar, bookmarksSidebar, downloadsSidebar, adblockSidebar, aiSummarySidebar].filter(Boolean);
+  const sidebars = [historySidebar, settingsSidebar, bookmarksSidebar, downloadsSidebar, aiSummarySidebar].filter(Boolean);
   const toggle = (s, v) => {
     if (
       aiSummarySidebar &&
@@ -1215,13 +1125,28 @@ function init(snapshot = {}) {
     }
   };
   closePanels = () => toggle(null, false);
-
-  if (adblockBtn) adblockBtn.onclick = () => {
-    const firstOpen = ensurePanelInitialized(adblockSidebar, () => initializeAdblockPanel(adblockSidebar));
-    toggle(adblockSidebar, true);
-    if (firstOpen) void loadAdblockState();
-  };
-  if (closeAdblockBtn) closeAdblockBtn.onclick = () => toggle(adblockSidebar, false);
+  if (managedExtensionRetry) {
+    managedExtensionRetry.onclick = async () => {
+      managedExtensionRetry.disabled = true;
+      managedExtensionStatus = { ...(managedExtensionStatus || {}), state: 'installing', error: '' };
+      renderManagedExtensionStatus();
+      try {
+        managedExtensionStatus = await ipcRenderer.invoke('retry-managed-extension-install');
+      } catch (error) {
+        managedExtensionStatus = {
+          ...(managedExtensionStatus || {}),
+          state: 'error',
+          error: error && error.message ? error.message : String(error)
+        };
+      }
+      renderManagedExtensionStatus();
+    };
+  }
+  ipcRenderer.on('managed-extension-status-changed', (_event, status) => {
+    if (!status || status.profileId !== activeProfile) return;
+    managedExtensionStatus = status;
+    renderManagedExtensionStatus();
+  });
 
   const updateChromeMetrics = () => {
     metricsFrame = null;
@@ -1430,12 +1355,7 @@ function init(snapshot = {}) {
     if (findBar) findBar.style.display = 'none';
     ipcRenderer.invoke('stop-find-in-page', 'clearSelection');
   };
-  ipcRenderer.on('extensions-ready', () => {
-    if (extensionToolbarInitialized) return;
-    extensionToolbarInitialized = true;
-    document.documentElement.dataset.extensionsReady = 'true';
-    initExtensionActionToolbar();
-  });
+  ipcRenderer.on('extensions-ready', initializeExtensionToolbarOnce);
 }
 
 function initSettings(initialSettings = {}, initialMemoryStatus = null) {
@@ -1653,7 +1573,9 @@ ipcRenderer.on('view-event', (e, d) => {
   }
   else if (['did-start-loading', 'did-stop-loading'].includes(d.type) && d.tabId === activeTabId) {
     if (d.type === 'did-start-loading') invalidateAiSummaryRequest({ closePanel: true });
-    progressBarContainer.classList.toggle('loading', d.type === 'did-start-loading');
+    if (progressBarContainer) {
+      progressBarContainer.classList.toggle('loading', d.type === 'did-start-loading');
+    }
   }
 });
 ipcRenderer.on('history-data-received', (e, h) => renderHistory(h));
@@ -1671,10 +1593,7 @@ ipcRenderer.on('keyboard-shortcut', (e, t) => {
   else if (t === 'show-downloads') downloadsBtn.click();
   else if (t === 'show-bookmarks') bookmarkBtn.click();
   else if (t === 'show-settings') settingsBtn.click();
-  else if (t === 'show-adblock') {
-    const btn = document.getElementById('adblock-btn');
-    if (btn) btn.click();
-  } else if (t === 'bookmark-page') {
+  else if (t === 'bookmark-page') {
     openBookmarkModal();
   }
   else if (t === 'find-in-page') {
@@ -2304,6 +2223,7 @@ async function bootstrap() {
 
   await ensureLocaleLoaded(bootstrapState.locale);
   setLocale(bootstrapState.locale);
+  safeRemoveStorage('adblock-rules');
   init(snapshot || {});
   hydrateFromBootstrapState(snapshot);
   if (!bootstrapState.showOnboarding) {

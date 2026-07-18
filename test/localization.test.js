@@ -65,6 +65,15 @@ test("privacy settings strings are localized for the settings panel and HTTPS-on
   assert.equal(localization.t("en", "privacy.httpsOnlyErrorTitle"), "Secure connection required");
 });
 
+test("managed uBlock Origin Lite status and badge strings are localized", () => {
+  for (const locale of ["en", "fr", "de", "ja"]) {
+    assert.notEqual(localization.t(locale, "managedExtension.installingTitle"), "managedExtension.installingTitle");
+    assert.notEqual(localization.t(locale, "managedExtension.errorBody"), "managedExtension.errorBody");
+    assert.notEqual(localization.t(locale, "managedExtension.retry"), "managedExtension.retry");
+    assert.notEqual(localization.t(locale, "extension.managed"), "extension.managed");
+  }
+});
+
 test("RAM limiter settings and status strings are localized", () => {
   assert.equal(localization.t("en", "settings.performanceTitle"), "Performance");
   assert.equal(localization.t("fr", "settings.ramOff"), "Désactivée");

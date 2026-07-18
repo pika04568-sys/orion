@@ -2,10 +2,17 @@ import Foundation
 
 enum SearchEngine: String, CaseIterable, Codable, Identifiable {
     case google
-    case duckDuckGo
     case bing
+    case yahoo
+    case duckDuckGo
     case brave
+    case yandex
+    case baidu
     case startpage
+    case naver
+    case ecosia
+    case yahooJapan
+    case yandexJapan
 
     var id: String { rawValue }
 
@@ -17,10 +24,24 @@ enum SearchEngine: String, CaseIterable, Codable, Identifiable {
             "DuckDuckGo"
         case .bing:
             "Bing"
+        case .yahoo:
+            "Yahoo"
         case .brave:
             "Brave"
+        case .yandex:
+            "Yandex"
+        case .baidu:
+            "Baidu"
         case .startpage:
-            "Startpage"
+            "StartPage"
+        case .naver:
+            "Naver"
+        case .ecosia:
+            "Ecosia"
+        case .yahooJapan:
+            "Yahoo! Japan"
+        case .yandexJapan:
+            "Yandex Japan"
         }
     }
 
@@ -34,13 +55,40 @@ enum SearchEngine: String, CaseIterable, Codable, Identifiable {
             components = URLComponents(string: "https://duckduckgo.com/")!
         case .bing:
             components = URLComponents(string: "https://www.bing.com/search")!
+        case .yahoo:
+            components = URLComponents(string: "https://search.yahoo.com/search")!
         case .brave:
             components = URLComponents(string: "https://search.brave.com/search")!
+        case .yandex:
+            components = URLComponents(string: "https://yandex.com/search/")!
+        case .baidu:
+            components = URLComponents(string: "https://www.baidu.com/s")!
         case .startpage:
-            components = URLComponents(string: "https://www.startpage.com/sp/search")!
+            components = URLComponents(string: "https://www.startpage.com/do/search")!
+        case .naver:
+            components = URLComponents(string: "https://search.naver.com/search.naver")!
+        case .ecosia:
+            components = URLComponents(string: "https://www.ecosia.org/search")!
+        case .yahooJapan:
+            components = URLComponents(string: "https://search.yahoo.co.jp/search")!
+        case .yandexJapan:
+            components = URLComponents(string: "https://yandex.co.jp/search/")!
         }
 
-        components.queryItems = [URLQueryItem(name: "q", value: query)]
+        let queryName: String
+        switch self {
+        case .yahoo, .yahooJapan:
+            queryName = "p"
+        case .yandex, .yandexJapan:
+            queryName = "text"
+        case .baidu:
+            queryName = "wd"
+        case .naver:
+            queryName = "query"
+        default:
+            queryName = "q"
+        }
+        components.queryItems = [URLQueryItem(name: queryName, value: query)]
         return components.url!
     }
 }

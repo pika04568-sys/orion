@@ -124,11 +124,14 @@
             unknown: t("extension.unknown"),
             unknownManifest: t("extension.unknownManifest"),
             unpacked: t("extension.sourceUnpacked"),
-            webStore: t("extension.sourceWebStore")
+            webStore: t("extension.sourceWebStore"),
+            managed: t("extension.managed")
           });
-          removeBtn.addEventListener("click", () => {
-            void removeExtension(extensionInfo.id);
-          });
+          if (removeBtn) {
+            removeBtn.addEventListener("click", () => {
+              void removeExtension(extensionInfo.id);
+            });
+          }
           list.appendChild(card);
         });
       } catch (error) {

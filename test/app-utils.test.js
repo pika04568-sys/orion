@@ -3,6 +3,23 @@ const assert = require("node:assert/strict");
 
 const appUtils = require("../app-utils");
 
+function createMockDocument() {
+  return {
+    createElement(tagName) {
+      return {
+        tagName,
+        children: [],
+        className: "",
+        textContent: "",
+        appendChild(child) {
+          this.children.push(child);
+          return child;
+        }
+      };
+    }
+  };
+}
+
 test("reader pages map to the internal alias and stay trusted only through bundled app paths", () => {
   const readerUrl = appUtils.getAppPageUrl("reader.html");
   const newtabUrl = appUtils.getAppPageUrl("newtab.html");
@@ -62,4 +79,23 @@ test("deferred startup controller triggers first-navigation work only for http u
   assert.equal(controller.markNavigation("https://second.example.com"), false);
 
   assert.deepEqual(events, ["https://example.com"]);
+});
+
+test("extension cards hide removal for managed extensions only", () => {
+  const doc = createMockDocument();
+  const managed = appUtils.createExtensionCard(doc, {
+    name: "uBlock Origin Lite",
+    managed: true,
+    removable: false
+  }, { managed: "Managed by Orion" });
+  const normal = appUtils.createExtensionCard(doc, {
+    name: "Other extension",
+    managed: false,
+    removable: true
+  });
+
+  assert.equal(managed.removeBtn, null);
+  assert.equal(managed.card.children[3].children[0].className, "managed-extension-badge");
+  assert.equal(managed.card.children[3].children[0].textContent, "Managed by Orion");
+  assert.equal(normal.removeBtn.className, "remove-btn");
 });
