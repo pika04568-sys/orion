@@ -6,6 +6,7 @@ APP_NAME="Orion"
 BUNDLE_ID="com.orion.browser"
 APP_VERSION="1.1.0"
 MIN_SYSTEM_VERSION="15.4"
+BUILD_CONFIGURATION="release"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST_DIR="$ROOT_DIR/dist"
@@ -27,17 +28,27 @@ cleanup_build_log() {
 }
 trap cleanup_build_log EXIT
 
-if ! swift build -debug-info-format none >"$BUILD_LOG" 2>&1; then
+if [[ "$MODE" == "--debug" || "$MODE" == "debug" ]]; then
+  BUILD_CONFIGURATION="debug"
+fi
+
+if ! swift build -c "$BUILD_CONFIGURATION" -debug-info-format none >"$BUILD_LOG" 2>&1; then
   if grep -Fq "Unknown error parsing property list" "$BUILD_LOG"; then
     echo "SwiftPM default backend hit the known property-list initialization error; retrying with native backend." >&2
     BUILD_BACKEND=(--build-system native)
-    swift build "${BUILD_BACKEND[@]}" -debug-info-format none
+    swift build -c "$BUILD_CONFIGURATION" "${BUILD_BACKEND[@]}" -debug-info-format none
   else
     cat "$BUILD_LOG" >&2
     exit 1
   fi
 fi
-BUILD_BIN_DIR="$(swift build "${BUILD_BACKEND[@]}" -debug-info-format none --show-bin-path)"
+if [[ "$MODE" == "--test" || "$MODE" == "test" ]]; then
+  swift test "${BUILD_BACKEND[@]}" --disable-xctest --enable-swift-testing
+  if ! xcrun --find xctest >/dev/null 2>&1; then
+    bash "$ROOT_DIR/script/run_swift_testing_runner.sh"
+  fi
+fi
+BUILD_BIN_DIR="$(swift build -c "$BUILD_CONFIGURATION" "${BUILD_BACKEND[@]}" -debug-info-format none --show-bin-path)"
 BUILD_BINARY="$BUILD_BIN_DIR/$APP_NAME"
 RESOURCE_BUNDLE="$BUILD_BIN_DIR/Orion_Orion.bundle"
 
@@ -102,11 +113,16 @@ case "$MODE" in
     ;;
   --verify|verify)
     open_app
-    sleep 1
-    pgrep -x "$APP_NAME" >/dev/null
+    for _ in {1..30}; do
+      sleep 0.5
+      pgrep -x "$APP_NAME" >/dev/null
+    done
+    pkill -x "$APP_NAME" >/dev/null 2>&1 || true
+    ;;
+  --test|test)
     ;;
   *)
-    echo "usage: $0 [run|--debug|--logs|--telemetry|--verify]" >&2
+    echo "usage: $0 [run|--debug|--logs|--telemetry|--verify|--test]" >&2
     exit 2
     ;;
 esac

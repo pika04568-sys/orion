@@ -35,6 +35,13 @@ enum RAMLimitMode: String, Codable, CaseIterable, Identifiable, Sendable {
     case automatic
 
     var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .off: "Off"
+        case .automatic: "Automatic"
+        }
+    }
 }
 
 enum OrionAccent: String, Codable, CaseIterable, Identifiable, Sendable {

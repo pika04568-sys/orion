@@ -1,15 +1,16 @@
 import Testing
 @testable import Orion
 
-struct NavigationStateTests {
+@Suite(.serialized)
+final class NavigationStateTests {
     @Test
-    func defaultStateRepresentsIdleNewTab() {
+    func testDefaultStateRepresentsIdleNewTab() {
         let state = NavigationState()
-        #expect(state.title == "New Tab")
-        #expect(state.estimatedProgress == 0)
-        #expect(!state.isLoading)
-        #expect(!state.canGoBack)
-        #expect(!state.canGoForward)
-        #expect(state.errorMessage == nil)
+        XCTAssertEqual(state.title, "New Tab")
+        XCTAssertEqual(state.estimatedProgress, 0)
+        XCTAssertFalse(state.isLoading)
+        XCTAssertFalse(state.canGoBack)
+        XCTAssertFalse(state.canGoForward)
+        XCTAssertNil(state.errorMessage)
     }
 }

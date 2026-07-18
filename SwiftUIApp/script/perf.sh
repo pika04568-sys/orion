@@ -86,6 +86,12 @@ for ((sample = 1; sample <= SAMPLES; sample += 1)); do
     sleep 0.05
   done
 
+  # The metrics file is written atomically before the app requests termination.
+  # WebKit extension/network activity can keep AppKit alive after that request,
+  # so the harness owns teardown once the complete sample is available.
+  if [[ -s "$RESULT" ]] && kill -0 "$APP_PID" >/dev/null 2>&1; then
+    kill "$APP_PID" >/dev/null 2>&1 || true
+  fi
   wait "$APP_PID" || true
   APP_PID=""
   if [[ ! -s "$RESULT" ]]; then

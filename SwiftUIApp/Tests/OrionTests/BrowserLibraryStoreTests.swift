@@ -2,28 +2,29 @@ import Foundation
 import Testing
 @testable import Orion
 
+@Suite(.serialized)
 @MainActor
-struct BrowserLibraryStoreTests {
+final class BrowserLibraryStoreTests {
     @Test
-    func queuedMutationPersistsAfterAsynchronousLoad() async throws {
+    func testQueuedMutationPersistsAfterAsynchronousLoad() async throws {
         let directory = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
 
         let store = BrowserLibraryStore(storageDirectory: directory, writeDebounce: .zero)
-        #expect(store.toggleBookmark(title: "Example", urlString: "https://example.com"))
-        #expect(!store.isReady)
+        XCTAssertTrue(store.toggleBookmark(title: "Example", urlString: "https://example.com"))
+        XCTAssertFalse(store.isReady)
         await store.load()
         await store.flush()
 
         let reloaded = BrowserLibraryStore(storageDirectory: directory, writeDebounce: .zero)
         await reloaded.load()
-        #expect(reloaded.isReady)
-        #expect(reloaded.isBookmarked(urlString: "https://example.com"))
-        #expect(reloaded.bookmarks.count == 1)
+        XCTAssertTrue(reloaded.isReady)
+        XCTAssertTrue(reloaded.isBookmarked(urlString: "https://example.com"))
+        XCTAssertEqual(reloaded.bookmarks.count, 1)
     }
 
     @Test
-    func existingJSONEncodingRemainsCompatible() async throws {
+    func testExistingJSONEncodingRemainsCompatible() async throws {
         let directory = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -41,13 +42,13 @@ struct BrowserLibraryStoreTests {
 
         let store = BrowserLibraryStore(storageDirectory: directory)
         await store.load()
-        #expect(store.bookmarks.map(\.navigationEntry) == [expected])
-        #expect(store.bookmarks.first?.destinations == [.bar])
-        #expect(store.isBookmarked(urlString: expected.urlString))
+        XCTAssertEqual(store.bookmarks.map(\.navigationEntry), [expected])
+        XCTAssertEqual(store.bookmarks.first?.destinations, [.bar])
+        XCTAssertTrue(store.isBookmarked(urlString: expected.urlString))
     }
 
     @Test
-    func bookmarkDestinationsSurviveQueuedLoadAndPersistence() async throws {
+    func testBookmarkDestinationsSurviveQueuedLoadAndPersistence() async throws {
         let directory = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
 
@@ -62,7 +63,7 @@ struct BrowserLibraryStoreTests {
 
         let reloaded = BrowserLibraryStore(storageDirectory: directory)
         await reloaded.load()
-        #expect(reloaded.bookmarks.first?.destinations == [.newTab])
+        XCTAssertEqual(reloaded.bookmarks.first?.destinations, [.newTab])
     }
 
     private func temporaryDirectory() -> URL {

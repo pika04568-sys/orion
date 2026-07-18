@@ -1,6 +1,12 @@
 // swift-tools-version: 6.4
 
 import PackageDescription
+import Foundation
+
+let developerDirectory = ProcessInfo.processInfo.environment["DEVELOPER_DIR"]
+    ?? "/Library/Developer/CommandLineTools"
+let testingFrameworksPath = "\(developerDirectory)/Library/Developer/Frameworks"
+let testingLibraryPath = "\(developerDirectory)/Library/Developer/usr/lib"
 
 let package = Package(
     name: "Orion",
@@ -24,7 +30,19 @@ let package = Package(
         ),
         .testTarget(
             name: "OrionTests",
-            dependencies: ["Orion"]
+            dependencies: ["Orion"],
+            swiftSettings: [
+                .unsafeFlags(["-F", testingFrameworksPath])
+            ],
+            linkerSettings: [
+                .unsafeFlags([
+                    "-F", testingFrameworksPath,
+                    "-Xlinker", "-rpath",
+                    "-Xlinker", testingFrameworksPath,
+                    "-Xlinker", "-rpath",
+                    "-Xlinker", testingLibraryPath
+                ])
+            ]
         )
     ]
 )

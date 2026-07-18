@@ -17,7 +17,7 @@ struct LanguageOnboardingView: View {
                 .frame(maxWidth: 400)
             Picker("Language", selection: $language) {
                 ForEach(InterfaceLanguage.allCases) { option in
-                    Text(option.title).tag(option.rawValue)
+                    Text(option.displayName).tag(option.rawValue)
                 }
             }
             .pickerStyle(.radioGroup)

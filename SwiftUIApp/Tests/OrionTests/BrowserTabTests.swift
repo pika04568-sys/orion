@@ -2,60 +2,80 @@ import WebKit
 import Testing
 @testable import Orion
 
+@Suite(.serialized)
 @MainActor
-struct BrowserTabTests {
+final class BrowserTabTests {
     @Test
-    func webViewIsLazyRetainedAndDelegatedBeforeQueuedLoad() {
+    func testWebViewIsLazyRetainedAndDelegatedBeforeQueuedLoad() {
         var delegateStateObservedBeforeLoad = false
         let tab = BrowserTab(
-            makeWebView: WebViewEnvironment.makeWebView,
+            makeWebView: { WebViewEnvironment.makeWebView() },
             onWillLoad: { webView in
-                #expect(webView.navigationDelegate != nil)
-                #expect(webView.uiDelegate != nil)
+                XCTAssertNotNil(webView.navigationDelegate)
+                XCTAssertNotNil(webView.uiDelegate)
                 delegateStateObservedBeforeLoad = true
             }
         )
 
         tab.load(URLRequest(url: URL(string: "about:blank")!))
-        #expect(tab.webView == nil)
+        XCTAssertNil(tab.webView)
         let materialized = tab.activate()
-        #expect(delegateStateObservedBeforeLoad)
-        #expect(materialized === tab.webView)
-        #expect(materialized === tab.activate())
+        XCTAssertTrue(delegateStateObservedBeforeLoad)
+        XCTAssertIdentical(materialized, tab.webView)
+        XCTAssertIdentical(materialized, tab.activate())
     }
 
     @Test
-    func configurationsSharePersistentWebKitResources() {
+    func testConfigurationsSharePersistentWebKitResources() {
         let first = WebViewEnvironment.makeWebView()
         let second = WebViewEnvironment.makeWebView()
-        #expect(first.configuration.websiteDataStore === WKWebsiteDataStore.default())
-        #expect(second.configuration.websiteDataStore === WKWebsiteDataStore.default())
-        #expect(first.configuration.processPool === second.configuration.processPool)
+        XCTAssertIdentical(first.configuration.websiteDataStore, second.configuration.websiteDataStore)
+        XCTAssertFalse(first.configuration.websiteDataStore === WKWebsiteDataStore.default())
     }
 
     @Test
-    func fiftyBackgroundTabsRemainUnmaterialized() {
+    func testFiftyBackgroundTabsRemainUnmaterialized() {
         let browser = BrowserState(library: BrowserLibraryStore(), initialURL: nil)
         for _ in 0..<50 {
             browser.newTab(initial: "about:blank", activate: false)
         }
-        #expect(browser.tabs.count == 51)
-        #expect(browser.tabs.compactMap(\.webView).count == 1)
+        XCTAssertEqual(browser.tabs.count, 51)
+        XCTAssertEqual(browser.tabs.compactMap(\.webView).count, 0)
     }
 
     @Test
-    func closingActiveTabActivatesPendingSuccessor() throws {
+    func testClosingActiveTabActivatesPendingSuccessor() throws {
         let browser = BrowserState(library: BrowserLibraryStore(), initialURL: nil)
-        let closingID = try #require(browser.activeTabID)
+        let closingID = try XCTUnwrap(browser.activeTabID)
         browser.newTab(initial: "about:blank", activate: false)
         let pendingTab = browser.tabs[1]
-        #expect(pendingTab.webView == nil)
+        XCTAssertNil(pendingTab.webView)
 
         browser.closeTab(closingID)
 
-        #expect(browser.activeTabID == pendingTab.id)
-        #expect(pendingTab.webView != nil)
-        #expect(pendingTab.webView?.navigationDelegate != nil)
-        #expect(pendingTab.webView?.uiDelegate != nil)
+        XCTAssertEqual(browser.activeTabID, pendingTab.id)
+        XCTAssertNotNil(pendingTab.webView)
+        XCTAssertNotNil(pendingTab.webView?.navigationDelegate)
+        XCTAssertNotNil(pendingTab.webView?.uiDelegate)
+    }
+
+    @Test
+    func testPrivateTabsAreNotPersistedByANormalWindow() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OrionPrivateSession-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let sessionStore = BrowserSessionStore(storageDirectory: directory)
+        let browser = BrowserState(
+            library: BrowserLibraryStore(storageDirectory: directory),
+            initialURL: nil,
+            sessionStore: sessionStore
+        )
+        browser.newPrivateTab(initial: "https://private.example")
+        await browser.flushSession()
+
+        let snapshot = await sessionStore.load()
+        XCTAssertEqual(snapshot.tabs.count, 1)
+        XCTAssertEqual(snapshot.tabs.first?.urlString, "chrome://newtab")
     }
 }

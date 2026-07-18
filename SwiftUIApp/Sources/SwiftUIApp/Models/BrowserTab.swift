@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import Foundation
 import WebKit
@@ -15,6 +16,7 @@ final class BrowserTab: ObservableObject, Identifiable {
     @Published private(set) var lastActivatedAt = Date.distantPast
     @Published private(set) var estimatedResourceBytes: UInt64 = 96 * 1_024 * 1_024
     @Published private(set) var historicalPeakBytes: UInt64 = 96 * 1_024 * 1_024
+    @Published private(set) var isAudible = false
 
     var onNavigationFinished: ((BrowserTab) -> Void)?
     var onDownloadStarted: ((BrowserDownload) -> Void)?
@@ -23,6 +25,7 @@ final class BrowserTab: ObservableObject, Identifiable {
 
     private let makeWebView: @MainActor () -> WKWebView
     private let onWillLoad: (@MainActor (WKWebView) -> Void)?
+    private let permissionStore: WebsitePermissionStore?
     private var pendingRequest: URLRequest?
     private var readerSourceURL: URL?
     private var navigationGeneration = 0
@@ -36,6 +39,7 @@ final class BrowserTab: ObservableObject, Identifiable {
         isPrivate: Bool = false,
         groupID: UUID? = nil,
         makeWebView: @escaping @MainActor () -> WKWebView = { WebViewEnvironment.makeWebView() },
+        permissionStore: WebsitePermissionStore? = nil,
         onWillLoad: (@MainActor (WKWebView) -> Void)? = nil
     ) {
         self.id = id
@@ -47,6 +51,7 @@ final class BrowserTab: ObservableObject, Identifiable {
         self.surface = urlString.isEmpty ? .newTab : .web
         self.readerSnapshot = nil
         self.makeWebView = makeWebView
+        self.permissionStore = permissionStore
         self.onWillLoad = onWillLoad
     }
 
@@ -295,6 +300,44 @@ final class BrowserTab: ObservableObject, Identifiable {
         }
     }
 
+    func permissionDecision(
+        for origin: WKSecurityOrigin,
+        permission: String
+    ) -> WKPermissionDecision {
+        guard let permissionStore else { return .prompt }
+        let originString = Self.permissionOriginString(origin)
+        switch permissionStore.decision(origin: originString, permission: permission) {
+        case .ask: return WKPermissionDecision.prompt
+        case .allow: return WKPermissionDecision.grant
+        case .deny: return WKPermissionDecision.deny
+        }
+    }
+
+    func rememberPermissionDecision(
+        _ value: WebsitePermissionDecision.Value,
+        for origin: WKSecurityOrigin,
+        permission: String
+    ) {
+        permissionStore?.set(
+            value,
+            origin: Self.permissionOriginString(origin),
+            permission: permission
+        )
+    }
+
+    private static func permissionOriginString(_ origin: WKSecurityOrigin) -> String {
+        let port = origin.port == 0 ? "" : ":\(origin.port)"
+        return "\(origin.protocol)://\(origin.host)\(port)"
+    }
+
+    func refreshAudibleState(from webView: WKWebView) {
+        webView.evaluateJavaScript(
+            "[...document.querySelectorAll('audio,video')].some(media => !media.paused && !media.muted && media.volume > 0)"
+        ) { [weak self] value, _ in
+            self?.isAudible = value as? Bool ?? false
+        }
+    }
+
     private func dispatch(_ request: URLRequest, to webView: WKWebView) {
         let dispatchStartedAt = OrionPerformance.navigationWillDispatch(tabID: id)
         onWillLoad?(webView)
@@ -446,7 +489,6 @@ final class BrowserTab: ObservableObject, Identifiable {
 
 @MainActor
 enum WebViewEnvironment {
-    static let processPool = WKProcessPool()
     private static var persistentStores: [UUID: WKWebsiteDataStore] = [:]
 
     static func makeWebView(
@@ -466,19 +508,39 @@ enum WebViewEnvironment {
             configuration.websiteDataStore = dataStore
             configuration.webExtensionController = webExtensionController
         }
-        configuration.processPool = processPool
         if BrowserPreferences.antiFingerprinting {
             let source = """
-            Object.defineProperty(navigator,'hardwareConcurrency',{get:()=>4});
-            Object.defineProperty(navigator,'deviceMemory',{get:()=>8});
-            Object.defineProperty(navigator,'languages',{get:()=>['en-US','en']});
+            (() => {
+              const define = (object, key, value) => {
+                try { Object.defineProperty(object, key, { get: () => value, configurable: true }); } catch {}
+              };
+              define(Navigator.prototype, 'hardwareConcurrency', 4);
+              define(Navigator.prototype, 'deviceMemory', 8);
+              define(Navigator.prototype, 'languages', ['en-US', 'en']);
+              define(Navigator.prototype, 'language', 'en-US');
+              define(Navigator.prototype, 'platform', 'MacIntel');
+              define(Navigator.prototype, 'vendor', 'Apple Computer, Inc.');
+              define(Screen.prototype, 'colorDepth', 24);
+              define(Screen.prototype, 'pixelDepth', 24);
+              const originalResolvedOptions = Intl.DateTimeFormat.prototype.resolvedOptions;
+              Intl.DateTimeFormat.prototype.resolvedOptions = function() {
+                const options = originalResolvedOptions.call(this);
+                return { ...options, timeZone: 'UTC' };
+              };
+              const originalGetParameter = WebGLRenderingContext.prototype.getParameter;
+              WebGLRenderingContext.prototype.getParameter = function(parameter) {
+                if (parameter === 37445) return 'Apple Inc.';
+                if (parameter === 37446) return 'Apple GPU';
+                return originalGetParameter.call(this, parameter);
+              };
+            })();
             """
             configuration.userContentController.addUserScript(
                 WKUserScript(source: source, injectionTime: .atDocumentStart, forMainFrameOnly: false)
             )
         }
 
-        let webView = WKWebView(frame: .zero, configuration: configuration)
+        let webView = OrionWebView(frame: .zero, configuration: configuration)
         webView.allowsBackForwardNavigationGestures = true
         return webView
     }
@@ -577,6 +639,56 @@ private final class WebViewNavigationCoordinator: NSObject, WKNavigationDelegate
         finish(with: error)
     }
 
+    func webView(
+        _ webView: WKWebView,
+        requestMediaCapturePermissionFor origin: WKSecurityOrigin,
+        initiatedByFrame frame: WKFrameInfo,
+        type: WKMediaCaptureType,
+        decisionHandler: @escaping @MainActor @Sendable (WKPermissionDecision) -> Void
+    ) {
+        let permission: String
+        switch type {
+        case .camera:
+            permission = "camera"
+        case .microphone:
+            permission = "microphone"
+        case .cameraAndMicrophone:
+            permission = "camera-and-microphone"
+        @unknown default:
+            decisionHandler(.deny)
+            return
+        }
+        let savedDecision = tab?.permissionDecision(
+            for: origin,
+            permission: permission
+        ) ?? .prompt
+        guard savedDecision == .prompt else {
+            decisionHandler(savedDecision)
+            return
+        }
+
+        let alert = NSAlert()
+        alert.messageText = String(
+            format: NSLocalizedString("%@ wants to use %@", comment: ""),
+            origin.host,
+            NSLocalizedString(permission, comment: "")
+        )
+        alert.informativeText = NSLocalizedString(
+            "You can change this decision later in Privacy Settings.",
+            comment: ""
+        )
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: NSLocalizedString("Allow", comment: ""))
+        alert.addButton(withTitle: NSLocalizedString("Deny", comment: ""))
+        let allowed = alert.runModal() == .alertFirstButtonReturn
+        tab?.rememberPermissionDecision(
+            allowed ? .allow : .deny,
+            for: origin,
+            permission: permission
+        )
+        decisionHandler(allowed ? .grant : .deny)
+    }
+
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         pendingCompletion = .terminated
         scheduleSync()
@@ -598,27 +710,25 @@ private final class WebViewNavigationCoordinator: NSObject, WKNavigationDelegate
     func webView(
         _ webView: WKWebView,
         decidePolicyFor navigationAction: WKNavigationAction,
-        decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+        preferences: WKWebpagePreferences,
+        decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy, WKWebpagePreferences) -> Void
     ) {
         if BrowserPreferences.httpsOnlyMode,
            navigationAction.targetFrame?.isMainFrame != false,
            let url = navigationAction.request.url,
-           url.scheme?.lowercased() == "http",
-           var components = URLComponents(url: url, resolvingAgainstBaseURL: false) {
-            components.scheme = "https"
-            if let secureURL = components.url {
-                webView.load(URLRequest(url: secureURL))
-                decisionHandler(.cancel)
-                return
-            }
+           RemoteNavigationPolicy.requiresManagedProtection(url) {
+            preferences.preferredHTTPSNavigationPolicy = .errorOnFailure
         }
-        decisionHandler(navigationAction.shouldPerformDownload ? .download : .allow)
+        decisionHandler(
+            navigationAction.shouldPerformDownload ? .download : .allow,
+            preferences
+        )
     }
 
     func webView(
         _ webView: WKWebView,
         decidePolicyFor navigationResponse: WKNavigationResponse,
-        decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void
+        decisionHandler: @escaping @MainActor @Sendable (WKNavigationResponsePolicy) -> Void
     ) {
         decisionHandler(navigationResponse.canShowMIMEType ? .allow : .download)
     }
@@ -693,6 +803,7 @@ private final class WebViewNavigationCoordinator: NSObject, WKNavigationDelegate
 
         tab.applyNavigationState(state)
         if case .finished = completion {
+            tab.refreshAudibleState(from: webView)
             OrionPerformance.navigationDidFinish(tabID: tab.id, webView: webView)
             tab.onNavigationFinished?(tab)
         }
@@ -704,7 +815,7 @@ extension WebViewNavigationCoordinator: WKDownloadDelegate {
         _ download: WKDownload,
         decideDestinationUsing response: URLResponse,
         suggestedFilename: String,
-        completionHandler: @escaping (URL?) -> Void
+        completionHandler: @escaping @MainActor @Sendable (URL?) -> Void
     ) {
         let directory = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
             ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Downloads", isDirectory: true)

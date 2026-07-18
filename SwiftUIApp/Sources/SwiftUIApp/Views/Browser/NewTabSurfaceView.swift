@@ -15,7 +15,7 @@ struct NewTabSurfaceView: View {
     @AppStorage(BrowserPreferenceKeys.showSeconds) private var showSeconds = false
     @AppStorage(BrowserPreferenceKeys.hiddenDefaultShortcuts) private var hiddenShortcutsJSON = "[]"
     @AppStorage(BrowserPreferenceKeys.accentColor) private var accentName = OrionAccent.blue.rawValue
-    @State private var searchText = ""
+    @StateObject private var state = NewTabSurfaceState()
 
     private let defaults = [
         NewTabShortcut(id: "wikipedia", title: "Wikipedia", urlString: "https://wikipedia.org", systemImage: "book"),
@@ -49,13 +49,13 @@ struct NewTabSurfaceView: View {
                 HStack(spacing: 10) {
                     Image(systemName: "magnifyingglass")
                         .foregroundStyle(.secondary)
-                    TextField("Search the web", text: $searchText)
+                    TextField("Search the web", text: $state.searchText)
                         .textFieldStyle(.plain)
                         .font(.title3)
-                        .onSubmit { browser.load(searchText) }
-                    if !searchText.isEmpty {
+                        .onSubmit { browser.load(state.searchText) }
+                    if !state.searchText.isEmpty {
                         Button {
-                            searchText = ""
+                            state.searchText = ""
                         } label: {
                             Image(systemName: "xmark.circle.fill")
                         }
@@ -172,4 +172,9 @@ struct NewTabSurfaceView: View {
             hiddenShortcutsJSON = encoded
         }
     }
+}
+
+@MainActor
+private final class NewTabSurfaceState: ObservableObject {
+    @Published var searchText = ""
 }

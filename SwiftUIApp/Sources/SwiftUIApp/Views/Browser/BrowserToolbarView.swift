@@ -40,6 +40,25 @@ struct BrowserToolbarView: View {
             AddressBarView(browser: browser, tab: tab)
 
             HStack(spacing: 7) {
+                if let runtime = browser.extensionRuntime, !browser.isPrivateSession {
+                    ExtensionToolbarActions(
+                        browser: browser,
+                        tab: tab,
+                        runtime: runtime
+                    )
+                }
+
+                if let storeID = ChromeWebStoreResolver.extensionID(
+                    from: tab.webView?.url?.absoluteString
+                        ?? tab.navigationState.urlString
+                ), let runtime = browser.extensionRuntime {
+                    ChromeWebStoreInstallButton(
+                        browser: browser,
+                        runtime: runtime,
+                        extensionID: storeID
+                    )
+                }
+
                 toolbarButton("History", systemImage: "clock.arrow.circlepath", active: browser.sidebarMode == .history) {
                     browser.sidebarMode = browser.sidebarMode == .history ? nil : .history
                 }
@@ -88,7 +107,7 @@ struct BrowserToolbarView: View {
     }
 
     private func toolbarButton(
-        _ title: String,
+        _ title: LocalizedStringKey,
         systemImage: String,
         disabled: Bool = false,
         active: Bool = false,
@@ -100,7 +119,165 @@ struct BrowserToolbarView: View {
         .buttonStyle(OrionIconButtonStyle(active: active))
         .disabled(disabled)
         .opacity(disabled ? 0.46 : 1)
-        .help(title)
+        .help(Text(title))
+    }
+}
+
+private struct ChromeWebStoreInstallButton: View {
+    @ObservedObject var browser: BrowserState
+    @ObservedObject var runtime: ExtensionRuntime
+    let extensionID: String
+    @StateObject private var state = ExtensionInstallButtonState()
+
+    var body: some View {
+        Button {
+            state.isInstalling = true
+            Task {
+                defer { state.isInstalling = false }
+                do {
+                    try await runtime.installFromChromeWebStore(id: extensionID)
+                    browser.load(BrowserSurface.extensions.displayURLString)
+                } catch {
+                    runtime.report(error)
+                }
+            }
+        } label: {
+            if state.isInstalling {
+                ProgressView()
+                    .controlSize(.small)
+                    .frame(width: 18, height: 18)
+            } else {
+                Label(
+                    isInstalled ? "Installed in Orion" : "Install in Orion",
+                    systemImage: isInstalled ? "checkmark.seal.fill" : "plus.app.fill"
+                )
+            }
+        }
+        .buttonStyle(OrionIconButtonStyle(active: isInstalled))
+        .disabled(state.isInstalling || isInstalled)
+        .help(isInstalled ? "This extension is installed." : "Install this Chrome Web Store extension in Orion")
+    }
+
+    private var isInstalled: Bool {
+        runtime.records.contains { $0.id == extensionID }
+    }
+}
+
+private struct ExtensionToolbarActions: View {
+    @ObservedObject var browser: BrowserState
+    @ObservedObject var tab: BrowserTab
+    @ObservedObject var runtime: ExtensionRuntime
+
+    var body: some View {
+        ForEach(pinnedRecords) { record in
+            Button {
+                runtime.performAction(
+                    for: record.id,
+                    tab: browser.extensionTabAdapter(for: tab.id)
+                )
+            } label: {
+                ZStack(alignment: .topTrailing) {
+                    extensionIcon(record)
+                    let badge = runtime.actionBadge(
+                        for: record.id,
+                        tab: browser.extensionTabAdapter(for: tab.id)
+                    )
+                    if !badge.isEmpty {
+                        Text(badge)
+                            .font(.system(size: 8, weight: .bold))
+                            .padding(.horizontal, 3)
+                            .frame(minWidth: 12, minHeight: 12)
+                            .background(.red, in: Capsule())
+                            .foregroundStyle(.white)
+                            .offset(x: 5, y: -5)
+                    }
+                }
+            }
+            .buttonStyle(OrionIconButtonStyle())
+            .disabled(
+                !runtime.isActionEnabled(
+                    for: record.id,
+                    tab: browser.extensionTabAdapter(for: tab.id)
+                )
+            )
+            .help(
+                runtime.actionLabel(
+                    for: record,
+                    tab: browser.extensionTabAdapter(for: tab.id)
+                )
+            )
+            .contextMenu {
+                Button("Extension Menu…") {
+                    runtime.presentMenu(
+                        for: record.id,
+                        tab: browser.extensionTabAdapter(for: tab.id)
+                    )
+                }
+                if runtime.context(for: record.id)?.optionsPageURL != nil {
+                    Button("Options") {
+                        runtime.openOptions(for: record.id, in: browser)
+                    }
+                }
+                Button("Unpin from Toolbar") {
+                    Task { await runtime.setPinned(false, for: record.id) }
+                }
+            }
+        }
+
+        Menu {
+            if runtime.records.isEmpty {
+                Text("No extensions installed.")
+            }
+            ForEach(runtime.records.filter(\.isEnabled)) { record in
+                Button {
+                    runtime.performAction(
+                        for: record.id,
+                        tab: browser.extensionTabAdapter(for: tab.id)
+                    )
+                } label: {
+                    Label(
+                        runtime.actionLabel(
+                            for: record,
+                            tab: browser.extensionTabAdapter(for: tab.id)
+                        ),
+                        systemImage: record.isPinned ? "pin.fill" : "puzzlepiece.extension"
+                    )
+                }
+                Button(record.isPinned ? "Unpin from Toolbar" : "Pin to Toolbar") {
+                    Task { await runtime.setPinned(!record.isPinned, for: record.id) }
+                }
+            }
+            Divider()
+            Button("Manage Extensions…", systemImage: "slider.horizontal.3") {
+                browser.load(BrowserSurface.extensions.displayURLString)
+            }
+        } label: {
+            Label("Extensions", systemImage: "puzzlepiece.extension")
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .buttonStyle(OrionIconButtonStyle())
+    }
+
+    private var pinnedRecords: [ExtensionRecord] {
+        runtime.records.filter { $0.isEnabled && $0.isPinned }
+    }
+
+    @ViewBuilder
+    private func extensionIcon(_ record: ExtensionRecord) -> some View {
+        if let icon = runtime.actionIcon(
+            for: record.id,
+            tab: browser.extensionTabAdapter(for: tab.id),
+            size: CGSize(width: 18, height: 18)
+        ) {
+            Image(nsImage: icon)
+                .resizable()
+                .scaledToFit()
+                .frame(width: 18, height: 18)
+        } else {
+            Image(systemName: "puzzlepiece.extension.fill")
+                .frame(width: 18, height: 18)
+        }
     }
 }
 
@@ -157,7 +334,13 @@ private struct AddressBarView: View {
             .frame(width: 28, height: 28)
             .contentShape(RoundedRectangle(cornerRadius: 9))
             .disabled(tab.navigationEntry == nil)
-            .help(browser.isBookmarked(tab) ? "Remove bookmark" : "Add bookmark")
+            .help(
+                Text(
+                    browser.isBookmarked(tab)
+                        ? LocalizedStringKey("Remove Bookmark")
+                        : LocalizedStringKey("Add Bookmark")
+                )
+            )
         }
         .padding(.leading, 16)
         .padding(.trailing, 8)

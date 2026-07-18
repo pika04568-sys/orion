@@ -5,8 +5,10 @@ import WebKit
 @MainActor
 final class AppCoordinator: ObservableObject {
     let profileStore: ProfileStore
+    let updates = UpdateRuntime()
 
     private var profileRuntimes: [UUID: ProfileRuntime] = [:]
+    private var didScheduleUpdateCheck = false
 
     init(profileStore: ProfileStore = ProfileStore()) {
         self.profileStore = profileStore
@@ -15,6 +17,17 @@ final class AppCoordinator: ObservableObject {
 
     func load() async {
         await profileStore.load()
+        scheduleUpdateCheck()
+    }
+
+    private func scheduleUpdateCheck() {
+        guard !didScheduleUpdateCheck else { return }
+        didScheduleUpdateCheck = true
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            guard let self, !Task.isCancelled else { return }
+            await updates.check()
+        }
     }
 
     func profile(for route: BrowserWindowRoute) -> BrowserProfile {
@@ -51,6 +64,11 @@ final class AppCoordinator: ObservableObject {
             )
         }
         return runtime(for: route).makeWebView(isPrivate: false)
+    }
+
+    func deleteProfile(_ id: BrowserProfile.ID) {
+        profileRuntimes.removeValue(forKey: id)?.shutdown()
+        profileStore.deleteProfile(id)
     }
 
     func flush() async {

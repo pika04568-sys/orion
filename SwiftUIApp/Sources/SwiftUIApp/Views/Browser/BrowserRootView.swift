@@ -12,6 +12,8 @@ struct BrowserRootView: View {
     @StateObject private var library: BrowserLibraryStore
     @StateObject private var browser: BrowserState
     private let coordinator: AppCoordinator
+    private let profileRuntime: ProfileRuntime?
+    private let initialURL: String?
     let route: BrowserWindowRoute
 
     init(
@@ -22,17 +24,21 @@ struct BrowserRootView: View {
         self.route = route
         let profile = coordinator.profile(for: route)
         let library = coordinator.libraryStore(for: route)
+        let profileRuntime = route.isPrivate ? nil : coordinator.runtime(for: route)
+        self.profileRuntime = profileRuntime
         let initialURL = ProcessInfo.processInfo.environment["ORION_PERF_URL"]
             ?? route.initialURL
             ?? BrowserPreferences.homepageURL
+        self.initialURL = initialURL
         _library = StateObject(wrappedValue: library)
         _browser = StateObject(
             wrappedValue: BrowserState(
                 library: library,
-                initialURL: initialURL,
+                initialURL: nil,
                 profile: profile,
                 isPrivateSession: route.isPrivate,
                 sessionStore: coordinator.sessionStore(for: route),
+                permissionStore: route.isPrivate ? nil : profileRuntime?.permissions,
                 makeWebView: { isPrivate in
                     coordinator.makeWebView(for: route, isPrivate: isPrivate)
                 }
@@ -50,24 +56,7 @@ struct BrowserRootView: View {
                     if !verticalTabs {
                         HStack(spacing: 0) {
                             TabStripView(browser: browser)
-                            ProfileMenuView(
-                                profileStore: coordinator.profileStore,
-                                activeProfile: browser.profile,
-                                isPrivate: route.isPrivate,
-                                openProfile: { profile in
-                                    openWindow(
-                                        id: "browser",
-                                        value: BrowserWindowRoute.normal(profileID: profile.id)
-                                    )
-                                },
-                                createProfile: {
-                                    let profile = coordinator.profileStore.addProfile()
-                                    openWindow(
-                                        id: "browser",
-                                        value: BrowserWindowRoute.normal(profileID: profile.id)
-                                    )
-                                }
-                            )
+                            profileMenu
                         }
                     }
 
@@ -91,8 +80,17 @@ struct BrowserRootView: View {
 
                 HStack(spacing: 0) {
                     if verticalTabs {
-                        TabStripView(browser: browser, vertical: true)
-                            .frame(width: 230)
+                        VStack(spacing: 0) {
+                            HStack {
+                                profileMenu
+                                Spacer()
+                            }
+                            .padding(.leading, 12)
+                            .padding(.vertical, 8)
+
+                            TabStripView(browser: browser, vertical: true)
+                        }
+                        .frame(width: 230)
                         Divider()
                     }
 
@@ -107,12 +105,26 @@ struct BrowserRootView: View {
             }
         }
         .frame(minWidth: 900, minHeight: 620)
+        .overlay(alignment: .bottomTrailing) {
+            UpdateAvailabilityBanner(updates: coordinator.updates)
+                .padding(18)
+        }
         .preferredColorScheme(resolvedColorScheme)
         .environment(\.locale, Locale(identifier: interfaceLanguage))
         .focusedSceneValue(\.browserCommandActions, commandActions)
         .onAppear { [browser] in
+            OrionPerformance.shellDidAppear()
             browser.onOpenWindow = { route in
                 openWindow(id: "browser", value: route)
+            }
+            if !route.isPrivate, let profileRuntime {
+                browser.remoteNavigationAllowed = {
+                    profileRuntime.extensions.managedState.permitsRemoteNavigation
+                }
+                browser.onRetryProtection = {
+                    await profileRuntime.extensions.retryManagedProtection()
+                    return profileRuntime.extensions.managedState.permitsRemoteNavigation
+                }
             }
             if OrionPerformance.isPerformanceRun {
                 OrionPerformance.installInteractionProbe { [weak browser] in
@@ -120,19 +132,52 @@ struct BrowserRootView: View {
                     return await browser.measurePerformanceInteractions()
                 }
             }
-            Task { @MainActor in
-                await Task.yield()
-                await Task.yield()
-                OrionPerformance.shellDidAppear()
-            }
         }
         .task {
+            if OrionPerformance.isPerformanceRun {
+                if let initialURL, !initialURL.isEmpty {
+                    browser.load(initialURL)
+                }
+                return
+            }
             await coordinator.load()
             if !route.isPrivate {
-                await coordinator.runtime(for: route).load()
+                await profileRuntime?.load()
+                if let profileRuntime {
+                    browser.configureExtensions(
+                        controller: profileRuntime.webExtensionController,
+                        runtime: profileRuntime.extensions,
+                        delegate: profileRuntime.webExtensionDelegate
+                    )
+                }
             }
             await library.load()
             await browser.restoreSessionIfAvailable()
+            if browser.tabs.count == 1,
+               browser.activeTab?.surface == .newTab,
+               let initialURL,
+               !initialURL.isEmpty {
+                if route.kind == .extensionWindow,
+                   let extensionID = route.extensionID,
+                   let context = profileRuntime?.extensions.context(for: extensionID),
+                   let url = URL(string: initialURL) {
+                    let placeholderID = browser.activeTabID
+                    if browser.openExtensionPage(url, context: context) != nil,
+                       let placeholderID {
+                        browser.closeTab(placeholderID)
+                    }
+                } else {
+                    browser.load(initialURL)
+                }
+            }
+            browser.resumePendingNavigationIfProtectionReady()
+        }
+        .task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(5))
+                guard !Task.isCancelled else { return }
+                browser.evaluateMemoryPressure()
+            }
         }
         .onChange(of: scenePhase) { _, newPhase in
             guard newPhase != .active else { return }
@@ -195,6 +240,27 @@ struct BrowserRootView: View {
         )
     }
 
+    private var profileMenu: some View {
+        ProfileMenuView(
+            profileStore: coordinator.profileStore,
+            activeProfile: browser.profile,
+            isPrivate: route.isPrivate,
+            openProfile: { profile in
+                openWindow(
+                    id: "browser",
+                    value: BrowserWindowRoute.normal(profileID: profile.id)
+                )
+            },
+            createProfile: {
+                let profile = coordinator.profileStore.addProfile()
+                openWindow(
+                    id: "browser",
+                    value: BrowserWindowRoute.normal(profileID: profile.id)
+                )
+            }
+        )
+    }
+
     private var onboardingPresentation: Binding<Bool> {
         Binding(
             get: { !onboardingCompleted },
@@ -204,6 +270,31 @@ struct BrowserRootView: View {
                 }
             }
         )
+    }
+}
+
+private struct UpdateAvailabilityBanner: View {
+    @ObservedObject var updates: UpdateRuntime
+
+    var body: some View {
+        if case let .available(version, url) = updates.state {
+            HStack(spacing: 12) {
+                Image(systemName: "arrow.down.circle.fill")
+                    .foregroundStyle(.tint)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Orion \(version) is available.")
+                        .font(.headline)
+                    Text("Open the release page to install it.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Link("Open Release", destination: url)
+                    .buttonStyle(.borderedProminent)
+            }
+            .padding(14)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+            .shadow(radius: 18, y: 8)
+        }
     }
 }
 

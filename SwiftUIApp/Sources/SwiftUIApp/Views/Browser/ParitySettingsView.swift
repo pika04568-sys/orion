@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct ParitySettingsView: View {
     @EnvironmentObject private var coordinator: AppCoordinator
@@ -17,7 +18,6 @@ struct ParitySettingsView: View {
     @AppStorage(BrowserPreferenceKeys.antiFingerprinting) private var antiFingerprinting = true
     @AppStorage(BrowserPreferenceKeys.dnsOverHttpsEnabled) private var dnsOverHTTPS = true
     @AppStorage(BrowserPreferenceKeys.ramLimitMode) private var ramMode = RAMLimitMode.automatic.rawValue
-    @StateObject private var updates = UpdateRuntime()
 
     var body: some View {
         TabView {
@@ -47,14 +47,14 @@ struct ParitySettingsView: View {
             Section("Language") {
                 Picker("Interface language", selection: $language) {
                     ForEach(InterfaceLanguage.allCases) { option in
-                        Text(option.title).tag(option.rawValue)
+                        Text(option.displayName).tag(option.rawValue)
                     }
                 }
             }
             Section("Memory") {
                 Picker("RAM control", selection: $ramMode) {
                     ForEach(RAMLimitMode.allCases) { mode in
-                        Text(mode.title).tag(mode.rawValue)
+                        Text(LocalizedStringKey(mode.title)).tag(mode.rawValue)
                     }
                 }
                 Text("Automatic uses half of physical RAM and unloads one least-recently-used background tab at a time.")
@@ -76,7 +76,7 @@ struct ParitySettingsView: View {
                 }
                 Picker("Accent", selection: $accent) {
                     ForEach(OrionAccent.allCases) { option in
-                        Text(option.title).tag(option.rawValue)
+                        Text(LocalizedStringKey(option.title)).tag(option.rawValue)
                     }
                 }
             }
@@ -103,9 +103,20 @@ struct ParitySettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            Section("Site Permissions") {
+                ForEach(coordinator.profileStore.profiles) { profile in
+                    PermissionProfileSection(
+                        profile: profile,
+                        store: coordinator.runtime(
+                            for: .normal(profileID: profile.id)
+                        ).permissions
+                    )
+                }
+            }
         }
         .formStyle(.grouped)
         .padding()
+        .task { await coordinator.load() }
     }
 
     private var profilesAndExtensions: some View {
@@ -113,6 +124,14 @@ struct ParitySettingsView: View {
     }
 
     private var about: some View {
+        UpdateSettingsContent(updates: coordinator.updates)
+    }
+}
+
+private struct UpdateSettingsContent: View {
+    @ObservedObject var updates: UpdateRuntime
+
+    var body: some View {
         Form {
             Section("Orion") {
                 LabeledContent("Version", value: updates.currentVersion)
@@ -127,7 +146,6 @@ struct ParitySettingsView: View {
         .padding()
         .task {
             if updates.state == .idle {
-                try? await Task.sleep(for: .seconds(2))
                 await updates.check()
             }
         }
@@ -159,8 +177,7 @@ struct ParitySettingsView: View {
 private struct ProfileSettingsView: View {
     @ObservedObject var store: ProfileStore
     let coordinator: AppCoordinator
-    @State private var newProfileName = ""
-    @State private var renameValues: [UUID: String] = [:]
+    @StateObject private var form = ProfileSettingsFormState()
 
     var body: some View {
         Form {
@@ -170,23 +187,27 @@ private struct ProfileSettingsView: View {
                         TextField(
                             profile.name,
                             text: Binding(
-                                get: { renameValues[profile.id] ?? profile.name },
-                                set: { renameValues[profile.id] = $0 }
+                                get: { form.renameValues[profile.id] ?? profile.name },
+                                set: { form.renameValues[profile.id] = $0 }
                             )
                         )
                         Button("Rename") {
                             store.renameProfile(
                                 profile.id,
-                                to: renameValues[profile.id] ?? profile.name
+                                to: form.renameValues[profile.id] ?? profile.name
                             )
                         }
+                        Button("Delete", role: .destructive) {
+                            coordinator.deleteProfile(profile.id)
+                        }
+                        .disabled(profile.id == BrowserProfile.defaultID)
                     }
                 }
                 HStack {
-                    TextField("New profile name", text: $newProfileName)
+                    TextField("New profile name", text: $form.newProfileName)
                     Button("Create Profile") {
-                        _ = store.addProfile(name: newProfileName)
-                        newProfileName = ""
+                        _ = store.addProfile(name: form.newProfileName)
+                        form.newProfileName = ""
                     }
                 }
             }
@@ -208,6 +229,7 @@ private struct ProfileSettingsView: View {
 private struct ExtensionProfileRow: View {
     let profile: BrowserProfile
     @ObservedObject var runtime: ExtensionRuntime
+    @StateObject private var form = ExtensionManagerViewState()
 
     var body: some View {
         DisclosureGroup(profile.name) {
@@ -234,21 +256,124 @@ private struct ExtensionProfileRow: View {
                         )
                     )
                     .labelsHidden()
+                    Toggle(
+                        "Pinned",
+                        isOn: Binding(
+                            get: { record.isPinned },
+                            set: { value in
+                                Task { await runtime.setPinned(value, for: record.id) }
+                            }
+                        )
+                    )
+                    .toggleStyle(.checkbox)
                     Button("Remove", role: .destructive) {
                         Task { await runtime.remove(record.id) }
                     }
                     .disabled(record.id == ManagedExtensionState.uBlockOriginLiteID)
                 }
             }
-            Button("Load Unpacked Extension…") {
+            Button("Install Extension Package…") {
                 let panel = NSOpenPanel()
                 panel.canChooseDirectories = true
-                panel.canChooseFiles = false
+                panel.canChooseFiles = true
                 panel.allowsMultipleSelection = false
+                panel.allowedContentTypes = [.zip, .data]
                 guard panel.runModal() == .OK, let url = panel.url else { return }
-                Task { try? await runtime.install(from: url) }
+                Task {
+                    do {
+                        let manifest = try await runtime.inspect(sourceURL: url)
+                        guard ExtensionInstallReview.confirm(manifest) else { return }
+                        try await runtime.install(from: url)
+                    } catch {
+                        runtime.report(error)
+                    }
+                }
             }
+            HStack {
+                TextField("Chrome Web Store extension ID", text: $form.webStoreID)
+                Button("Install") {
+                    let id = form.webStoreID
+                    Task {
+                        do {
+                            try await runtime.installFromChromeWebStore(id: id)
+                            form.webStoreID = ""
+                        } catch {
+                            runtime.report(error)
+                        }
+                    }
+                }
+                .disabled(
+                    !ChromeWebStoreResolver.isExtensionID(
+                        form.webStoreID.trimmingCharacters(in: .whitespacesAndNewlines)
+                    )
+                )
+            }
+            Button("Check Extension Updates") {
+                Task { await runtime.updateExtensions() }
+            }
+            .disabled(runtime.isUpdating)
         }
         .task { await runtime.load() }
+    }
+}
+
+private struct PermissionProfileSection: View {
+    let profile: BrowserProfile
+    @ObservedObject var store: WebsitePermissionStore
+
+    var body: some View {
+        DisclosureGroup(profile.name) {
+            if store.decisions.isEmpty {
+                Text("No saved site permission decisions.")
+                    .foregroundStyle(.secondary)
+            }
+            ForEach(store.decisions, id: \.self) { decision in
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(decision.origin)
+                        Text(decision.permission.capitalized)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Picker(
+                        "Decision",
+                        selection: Binding(
+                            get: {
+                                store.decision(
+                                    origin: decision.origin,
+                                    permission: decision.permission
+                                )
+                            },
+                            set: { value in
+                                store.set(
+                                    value,
+                                    origin: decision.origin,
+                                    permission: decision.permission
+                                )
+                            }
+                        )
+                    ) {
+                        ForEach(WebsitePermissionDecision.Value.allCases) { value in
+                            Text(LocalizedStringKey(value.title)).tag(value)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 110)
+                    Button("Forget", role: .destructive) {
+                        store.remove(
+                            origin: decision.origin,
+                            permission: decision.permission
+                        )
+                    }
+                }
+            }
+            if !store.decisions.isEmpty {
+                Button("Clear Saved Decisions", role: .destructive) {
+                    store.clear()
+                }
+            }
+        }
+        .task { await store.load() }
     }
 }

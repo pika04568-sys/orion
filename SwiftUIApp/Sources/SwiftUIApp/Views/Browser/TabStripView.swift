@@ -4,8 +4,7 @@ struct TabStripView: View {
     @Environment(\.colorScheme) private var colorScheme
     @ObservedObject var browser: BrowserState
     var vertical = false
-    @State private var renamingGroupID: UUID?
-    @State private var groupName = ""
+    @StateObject private var renameState = TabGroupRenameState()
 
     var body: some View {
         Group {
@@ -42,11 +41,11 @@ struct TabStripView: View {
         }
         .background(OrionVisualStyle.chromeBackground(for: colorScheme))
         .alert("Rename Tab Group", isPresented: renameGroupPresented) {
-            TextField("Group name", text: $groupName)
+            TextField("Group name", text: $renameState.groupName)
             Button("Cancel", role: .cancel) {}
             Button("Rename") {
-                guard let renamingGroupID else { return }
-                browser.renameGroup(renamingGroupID, to: groupName)
+                guard let renamingGroupID = renameState.groupID else { return }
+                browser.renameGroup(renamingGroupID, to: renameState.groupName)
             }
         }
     }
@@ -62,8 +61,8 @@ struct TabStripView: View {
                 vertical: vertical,
                 toggle: { browser.toggleGroup(group.id) },
                 rename: {
-                    renamingGroupID = group.id
-                    groupName = group.name
+                    renameState.groupID = group.id
+                    renameState.groupName = group.name
                 },
                 delete: { browser.deleteGroup(group.id) }
             )
@@ -110,9 +109,9 @@ struct TabStripView: View {
 
     private var renameGroupPresented: Binding<Bool> {
         Binding(
-            get: { renamingGroupID != nil },
+            get: { renameState.groupID != nil },
             set: { presented in
-                if !presented { renamingGroupID = nil }
+                if !presented { renameState.groupID = nil }
             }
         )
     }

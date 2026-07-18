@@ -1,79 +1,99 @@
 import SwiftUI
+import WebKit
 
 struct OfflineArcadeView: View {
     let targetURLString: String
     let game: OfflineGame
     let retry: () -> Void
 
-    @State private var score = 0
-    @State private var playerOffset: CGFloat = 0
-
     var body: some View {
-        VStack(spacing: 22) {
-            Image(systemName: "wifi.slash")
-                .font(.system(size: 50, weight: .light))
-            Text("You're Offline")
-                .font(.largeTitle.bold())
-            Text(URL(string: targetURLString)?.host ?? targetURLString)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-            Button("Try Again", action: retry)
-                .buttonStyle(.borderedProminent)
+        OfflineArcadeWebView(
+            targetURLString: targetURLString,
+            game: game,
+            retry: retry
+        )
+    }
+}
 
-            VStack(spacing: 12) {
-                HStack {
-                    Label(game.title, systemImage: gameIcon)
-                        .font(.headline)
-                    Spacer()
-                    Text("Score \(score)")
-                        .monospacedDigit()
-                }
+private struct OfflineArcadeWebView: NSViewRepresentable {
+    let targetURLString: String
+    let game: OfflineGame
+    let retry: () -> Void
 
-                GeometryReader { geometry in
-                    ZStack(alignment: .bottom) {
-                        RoundedRectangle(cornerRadius: 14)
-                            .fill(Color.black.opacity(0.72))
-                        Image(systemName: gameIcon)
-                            .font(.system(size: 34))
-                            .foregroundStyle(.green)
-                            .offset(x: playerOffset)
-                            .padding(.bottom, 20)
-                    }
-                    .contentShape(Rectangle())
-                    .onTapGesture { location in
-                        playerOffset = min(
-                            geometry.size.width / 2 - 32,
-                            max(-geometry.size.width / 2 + 32, location.x - geometry.size.width / 2)
-                        )
-                        score += 1
-                    }
-                }
-                .frame(height: 220)
+    func makeCoordinator() -> Coordinator {
+        Coordinator(retry: retry)
+    }
 
-                Text("Click inside the arcade to move and score.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            .padding(18)
-            .frame(maxWidth: 620)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20))
-        }
-        .padding(40)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(
-            LinearGradient(
-                colors: [Color.indigo.opacity(0.28), Color.black.opacity(0.06)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
+    func makeNSView(context: Context) -> WKWebView {
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .nonPersistent()
+        let webView = WKWebView(frame: .zero, configuration: configuration)
+        webView.navigationDelegate = context.coordinator
+        context.coordinator.load(
+            targetURLString: targetURLString,
+            game: game,
+            in: webView
+        )
+        return webView
+    }
+
+    func updateNSView(_ webView: WKWebView, context: Context) {
+        let signature = "\(game.rawValue)|\(targetURLString)"
+        guard context.coordinator.signature != signature else { return }
+        context.coordinator.load(
+            targetURLString: targetURLString,
+            game: game,
+            in: webView
         )
     }
 
-    private var gameIcon: String {
-        switch game {
-        case .snake: "waveform.path"
-        case .tetris: "square.grid.3x3.fill"
-        case .pacman: "circle.lefthalf.filled"
+    @MainActor
+    final class Coordinator: NSObject, WKNavigationDelegate {
+        var signature = ""
+        private let retry: () -> Void
+
+        init(retry: @escaping () -> Void) {
+            self.retry = retry
+        }
+
+        func load(
+            targetURLString: String,
+            game: OfflineGame,
+            in webView: WKWebView
+        ) {
+            signature = "\(game.rawValue)|\(targetURLString)"
+            guard let root = Bundle.module.resourceURL,
+                  FileManager.default.fileExists(
+                    atPath: root.appendingPathComponent("offline.html").path
+                  ),
+                  var components = URLComponents(
+                    url: root.appendingPathComponent("offline.html"),
+                    resolvingAgainstBaseURL: false
+                  )
+            else {
+                return
+            }
+            components.queryItems = [
+                URLQueryItem(name: "game", value: game.rawValue),
+                URLQueryItem(name: "target", value: targetURLString)
+            ]
+            guard let url = components.url else { return }
+            webView.loadFileURL(url, allowingReadAccessTo: root)
+        }
+
+        func webView(
+            _ webView: WKWebView,
+            decidePolicyFor navigationAction: WKNavigationAction,
+            decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void
+        ) {
+            if navigationAction.targetFrame?.isMainFrame != false,
+               let url = navigationAction.request.url,
+               url.scheme != "file" {
+                retry()
+                decisionHandler(.cancel)
+                return
+            }
+            decisionHandler(.allow)
         }
     }
 }

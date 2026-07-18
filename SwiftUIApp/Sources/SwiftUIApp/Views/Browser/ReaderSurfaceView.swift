@@ -12,7 +12,7 @@ struct ReaderSurfaceView: View {
                 HStack {
                     Picker("Reader Theme", selection: $themeName) {
                         ForEach(ReaderTheme.allCases) { theme in
-                            Text(theme.title).tag(theme.rawValue)
+                            Text(LocalizedStringKey(theme.title)).tag(theme.rawValue)
                         }
                     }
                     .pickerStyle(.segmented)

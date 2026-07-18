@@ -43,6 +43,17 @@ final class ProfileStore: ObservableObject {
         persist()
     }
 
+    func deleteProfile(_ id: BrowserProfile.ID) {
+        guard id != BrowserProfile.defaultID,
+              profiles.contains(where: { $0.id == id })
+        else {
+            return
+        }
+        profiles.removeAll { $0.id == id }
+        try? FileManager.default.removeItem(at: ApplicationDirectories.profile(id))
+        persist()
+    }
+
     func profile(id: BrowserProfile.ID?) -> BrowserProfile {
         guard let id, let profile = profiles.first(where: { $0.id == id }) else {
             return .defaultProfile

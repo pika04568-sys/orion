@@ -26,7 +26,7 @@ struct LibrarySidebarView: View {
                         .textCase(.uppercase)
                         .foregroundStyle(OrionVisualStyle.secondaryText(for: colorScheme))
 
-                    Text(mode.title)
+                    Text(LocalizedStringKey(mode.title))
                         .font(.title3.weight(.semibold))
                         .foregroundStyle(OrionVisualStyle.primaryText(for: colorScheme))
                 }

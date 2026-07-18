@@ -93,7 +93,15 @@ enum OrionPerformance {
 
         guard performanceOutputURL != nil, !resultWasWritten else { return }
         webView.evaluateJavaScript(
-            "performance.getEntriesByName('first-contentful-paint')[0]?.startTime ?? null"
+            """
+            (() => {
+              const fcp = performance.getEntriesByName('first-contentful-paint')[0]?.startTime;
+              if (Number.isFinite(fcp) && fcp > 0) return fcp;
+              const navigation = performance.getEntriesByType('navigation')[0];
+              const fallback = navigation?.domContentLoadedEventEnd;
+              return Number.isFinite(fallback) && fallback > 0 ? fallback : null;
+            })()
+            """
         ) { value, _ in
             let firstContentfulPaint = (value as? NSNumber)?.doubleValue
             Task { @MainActor in
@@ -123,7 +131,10 @@ enum OrionPerformance {
         resultWasWritten = true
         stallTimer?.invalidate()
         stallTimer = nil
-        sample.firstContentfulPaintMs = firstContentfulPaintMs
+        // Paint Timing is not exposed by every WKWebView/OS combination.
+        // Treat completed navigation as the conservative upper bound rather
+        // than omitting the metric and invalidating the whole sample.
+        sample.firstContentfulPaintMs = firstContentfulPaintMs ?? sample.loadCompleteMs
         sample.newTabMs = newTabMs
         sample.tabSwitchMs = tabSwitchMs
         sample.mainThreadStallMs = maximumMainThreadStallMs

@@ -16,16 +16,26 @@ final class BrowserState: ObservableObject {
     @Published var findQuery = ""
     @Published var findStatus = ""
     @Published private(set) var memoryStatus: MemoryStatus = .idle
+    @Published var protectionGateMessage: String?
     var onOpenWindow: ((BrowserWindowRoute) -> Void)?
+    var remoteNavigationAllowed: () -> Bool = { true }
+    var onRetryProtection: (() async -> Bool)?
 
     private let library: BrowserLibraryStore
     let profile: BrowserProfile
     let isPrivateSession: Bool
     private let sessionStore: BrowserSessionStore?
     private let makeWebView: @MainActor (Bool) -> WKWebView
+    private let permissionStore: WebsitePermissionStore?
+    private var extensionController: WKWebExtensionController?
+    private var extensionDelegate: WebExtensionControllerCoordinator?
+    @Published private(set) var extensionRuntime: ExtensionRuntime?
+    private var extensionWindowAdapter: WebExtensionWindowAdapter?
+    private var extensionTabAdapters: [UUID: WebExtensionTabAdapter] = [:]
     private var recentlyClosed: [BrowserTabSnapshot] = []
     private var sessionSaveTask: Task<Void, Never>?
     private var didRestoreSession = false
+    private var pendingRemoteNavigation: (input: String, tabID: UUID)?
 
     init(
         library: BrowserLibraryStore,
@@ -33,15 +43,24 @@ final class BrowserState: ObservableObject {
         profile: BrowserProfile = .defaultProfile,
         isPrivateSession: Bool = false,
         sessionStore: BrowserSessionStore? = nil,
+        permissionStore: WebsitePermissionStore? = nil,
+        extensionController: WKWebExtensionController? = nil,
+        extensionRuntime: ExtensionRuntime? = nil,
+        extensionDelegate: WebExtensionControllerCoordinator? = nil,
         makeWebView: (@MainActor (Bool) -> WKWebView)? = nil
     ) {
         self.library = library
         self.profile = profile
         self.isPrivateSession = isPrivateSession
         self.sessionStore = sessionStore
+        self.permissionStore = permissionStore
+        self.extensionController = extensionController
+        self.extensionRuntime = extensionRuntime
+        self.extensionDelegate = extensionDelegate
         self.makeWebView = makeWebView ?? { isPrivate in
             WebViewEnvironment.makeWebView(profile: profile, isPrivate: isPrivate)
         }
+        registerExtensionWindowAndTabsIfNeeded()
         createTab(initial: initialURL, activate: true, isPrivate: isPrivateSession)
     }
 
@@ -58,20 +77,23 @@ final class BrowserState: ObservableObject {
         createTab(initial: initial, activate: true, isPrivate: true)
     }
 
+    @discardableResult
     private func createTab(
         id: UUID = UUID(),
         title: String = "New Tab",
         initial: String?,
         activate: Bool,
         isPrivate: Bool = false,
-        groupID: UUID? = nil
-    ) {
+        groupID: UUID? = nil,
+        webViewFactory: (@MainActor () -> WKWebView)? = nil
+    ) -> BrowserTab {
         let tab = BrowserTab(
             id: id,
             title: title,
             isPrivate: isPrivate,
             groupID: groupID,
-            makeWebView: { [makeWebView] in makeWebView(isPrivate) }
+            makeWebView: webViewFactory ?? { [makeWebView] in makeWebView(isPrivate) },
+            permissionStore: isPrivate ? nil : permissionStore
         )
         tab.onNavigationFinished = { [weak self] finishedTab in
             self?.recordNavigation(for: finishedTab)
@@ -102,6 +124,7 @@ final class BrowserState: ObservableObject {
             )
         }
         tabs.append(tab)
+        registerExtensionTabIfNeeded(tab)
 
         if let initial, !initial.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             load(initial, in: tab)
@@ -112,12 +135,29 @@ final class BrowserState: ObservableObject {
         }
         enforceBackgroundTabBudget()
         scheduleSessionSave()
+        return tab
     }
 
     func activateTab(_ id: BrowserTab.ID) {
         guard let tab = tabs.first(where: { $0.id == id }) else { return }
+        let previousAdapter = activeTabID.flatMap { extensionTabAdapters[$0] }
         activeTabID = id
-        tab.activate()
+        let webView = tab.activate()
+        if let webView = webView as? OrionWebView,
+           let runtime = extensionRuntime,
+           let adapter = extensionTabAdapters[id] {
+            configureExtensionContextMenu(
+                webView: webView,
+                runtime: runtime,
+                adapter: adapter
+            )
+        }
+        if let adapter = extensionTabAdapters[id] {
+            extensionController?.didActivateTab(
+                adapter,
+                previousActiveTab: previousAdapter
+            )
+        }
         enforceBackgroundTabBudget()
         scheduleSessionSave()
     }
@@ -126,7 +166,8 @@ final class BrowserState: ObservableObject {
         guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
         let closingActiveTab = activeTabID == id
         let closingTab = tabs[index]
-        if closingTab.navigationEntry != nil {
+        detachExtensionTab(id)
+        if !closingTab.isPrivate, closingTab.navigationEntry != nil {
             recentlyClosed.insert(closingTab.sessionSnapshot, at: 0)
             if recentlyClosed.count > 10 {
                 recentlyClosed.removeLast(recentlyClosed.count - 10)
@@ -153,10 +194,12 @@ final class BrowserState: ObservableObject {
     }
 
     func closeOtherTabs(keeping id: BrowserTab.ID) {
-        for tab in tabs where tab.id != id {
-            if tab.navigationEntry != nil {
+        let closingTabs = tabs.filter { $0.id != id }
+        for tab in closingTabs {
+            if !tab.isPrivate, tab.navigationEntry != nil {
                 recentlyClosed.append(tab.sessionSnapshot)
             }
+            detachExtensionTab(tab.id)
         }
         tabs.removeAll { $0.id != id }
         activateTab(id)
@@ -202,6 +245,13 @@ final class BrowserState: ObservableObject {
         }
 
         guard let request = NavigationResolver.request(for: input) else { return }
+        if let url = request.url,
+           RemoteNavigationPolicy.requiresManagedProtection(url),
+           !remoteNavigationAllowed() {
+            pendingRemoteNavigation = (input, tab.id)
+            protectionGateMessage = "Orion is preparing managed content protection before opening remote pages."
+            return
+        }
         tab.addressText = request.url?.absoluteString ?? input
         tab.load(request)
         if tab.id == activeTabID {
@@ -212,6 +262,20 @@ final class BrowserState: ObservableObject {
 
     func load(entry: NavigationEntry) {
         load(entry.urlString)
+    }
+
+    func retryProtectionAndNavigation() async {
+        guard let onRetryProtection else { return }
+        let ready = await onRetryProtection()
+        guard ready else {
+            protectionGateMessage = "Managed content protection could not be installed. Check your connection and try again."
+            return
+        }
+        protectionGateMessage = nil
+        guard let pendingRemoteNavigation else { return }
+        self.pendingRemoteNavigation = nil
+        let tab = tabs.first { $0.id == pendingRemoteNavigation.tabID }
+        load(pendingRemoteNavigation.input, in: tab)
     }
 
     func goBack() {
@@ -301,13 +365,20 @@ final class BrowserState: ObservableObject {
     }
 
     func toggleBookmarkForActiveTab() {
-        guard !isPrivateSession else { return }
-        guard let entry = activeTab?.navigationEntry else { return }
+        guard !isPrivateSession,
+              let activeTab,
+              !activeTab.isPrivate,
+              let entry = activeTab.navigationEntry
+        else { return }
         _ = library.toggleBookmark(title: entry.displayTitle, urlString: entry.urlString)
     }
 
     func bookmarkActiveTab(destinations: Set<BookmarkDestination>) {
-        guard !isPrivateSession, let entry = activeTab?.navigationEntry else { return }
+        guard !isPrivateSession,
+              let activeTab,
+              !activeTab.isPrivate,
+              let entry = activeTab.navigationEntry
+        else { return }
         library.addBookmark(
             title: entry.displayTitle,
             urlString: entry.urlString,
@@ -316,15 +387,100 @@ final class BrowserState: ObservableObject {
     }
 
     func isBookmarked(_ tab: BrowserTab) -> Bool {
-        guard !isPrivateSession else { return false }
+        guard !isPrivateSession, !tab.isPrivate else { return false }
         guard let entry = tab.navigationEntry else { return false }
         return library.isBookmarked(urlString: entry.urlString)
+    }
+
+    func extensionTabAdapter(for tabID: BrowserTab.ID) -> WebExtensionTabAdapter? {
+        extensionTabAdapters[tabID]
+    }
+
+    func configureExtensions(
+        controller: WKWebExtensionController,
+        runtime: ExtensionRuntime,
+        delegate: WebExtensionControllerCoordinator
+    ) {
+        guard !isPrivateSession, extensionController == nil else { return }
+        extensionController = controller
+        extensionRuntime = runtime
+        extensionDelegate = delegate
+        registerExtensionWindowAndTabsIfNeeded()
+        if let activeTabID,
+           let webView = activeTab?.webView as? OrionWebView,
+           let adapter = extensionTabAdapters[activeTabID] {
+            configureExtensionContextMenu(
+                webView: webView,
+                runtime: runtime,
+                adapter: adapter
+            )
+        }
+    }
+
+    func resumePendingNavigationIfProtectionReady() {
+        guard remoteNavigationAllowed(),
+              let pendingRemoteNavigation
+        else {
+            return
+        }
+        protectionGateMessage = nil
+        self.pendingRemoteNavigation = nil
+        load(
+            pendingRemoteNavigation.input,
+            in: tabs.first { $0.id == pendingRemoteNavigation.tabID }
+        )
+    }
+
+    @discardableResult
+    func openExtensionPage(
+        _ url: URL,
+        context: WKWebExtensionContext,
+        activate: Bool = true
+    ) -> WebExtensionTabAdapter? {
+        guard !isPrivateSession,
+              let configuration = context.webViewConfiguration
+        else {
+            return nil
+        }
+        let tab = createTab(
+            initial: nil,
+            activate: false,
+            webViewFactory: {
+                WKWebView(frame: .zero, configuration: configuration)
+            }
+        )
+        load(url.absoluteString, in: tab)
+        if activate {
+            activateTab(tab.id)
+        }
+        return extensionTabAdapters[tab.id]
+    }
+
+    @discardableResult
+    func openExtensionRequestedTab(
+        url: URL?,
+        context: WKWebExtensionContext,
+        activate: Bool
+    ) -> WebExtensionTabAdapter? {
+        guard let url else {
+            newTab(activate: activate)
+            return activeTabID.flatMap { extensionTabAdapters[$0] }
+        }
+        if url.scheme == context.baseURL.scheme {
+            return openExtensionPage(url, context: context, activate: activate)
+        }
+        let tab = createTab(initial: url.absoluteString, activate: activate)
+        return extensionTabAdapters[tab.id]
     }
 
     func recordNavigation(for tab: BrowserTab) {
         guard !tab.isPrivate else { return }
         guard let entry = tab.navigationEntry else { return }
         library.addHistory(title: entry.displayTitle, urlString: entry.urlString)
+    }
+
+    func evaluateMemoryPressure() {
+        enforceBackgroundTabBudget()
     }
 
     private func enforceBackgroundTabBudget() {
@@ -338,7 +494,7 @@ final class BrowserState: ObservableObject {
                 historicalPeakBytes: tab.historicalPeakBytes,
                 lastActivatedAt: tab.lastActivatedAt,
                 isActive: tab.id == activeTabID,
-                isAudible: tab.webView?.isPlayingAudio == true,
+                isAudible: tab.isAudible,
                 isPrivate: tab.isPrivate,
                 isUnloaded: tab.webView == nil || tab.navigationState.isUnloaded
             )
@@ -452,6 +608,9 @@ final class BrowserState: ObservableObject {
         let snapshot = await sessionStore.load()
         guard !snapshot.tabs.isEmpty else { return }
 
+        for tab in tabs {
+            detachExtensionTab(tab.id)
+        }
         tabs.removeAll()
         activeTabID = nil
         tabGroups = snapshot.groups
@@ -482,10 +641,14 @@ final class BrowserState: ObservableObject {
     }
 
     private var sessionSnapshot: BrowserSessionSnapshot {
-        BrowserSessionSnapshot(
-            tabs: tabs.map(\.sessionSnapshot),
+        let persistentTabs = tabs.filter { !$0.isPrivate }
+        let persistentTabIDs = Set(persistentTabs.map(\.id))
+        return BrowserSessionSnapshot(
+            tabs: persistentTabs.map(\.sessionSnapshot),
             groups: tabGroups,
-            activeTabID: activeTabID,
+            activeTabID: activeTabID.flatMap {
+                persistentTabIDs.contains($0) ? $0 : persistentTabs.first?.id
+            },
             recentlyClosed: Array(recentlyClosed.prefix(10))
         )
     }
@@ -516,7 +679,7 @@ final class BrowserState: ObservableObject {
         let tabSwitchMs = OrionPerformance.milliseconds(since: switchStartedAt)
 
         if let probeTabID, probeTabID != originalTabID {
-            tabs.removeAll { $0.id == probeTabID }
+            closeTab(probeTabID)
         }
 
         return (newTabMs, tabSwitchMs)
@@ -554,6 +717,58 @@ final class BrowserState: ObservableObject {
             toggleReaderMode()
         case .bookmarkPage:
             toggleBookmarkForActiveTab()
+        }
+    }
+
+    private func detachExtensionTab(_ id: BrowserTab.ID) {
+        guard let adapter = extensionTabAdapters.removeValue(forKey: id) else {
+            return
+        }
+        extensionWindowAdapter?.tabAdapters.removeAll { $0 === adapter }
+        extensionController?.didCloseTab(adapter)
+    }
+
+    private func registerExtensionWindowAndTabsIfNeeded() {
+        guard !isPrivateSession,
+              let extensionController,
+              extensionWindowAdapter == nil
+        else {
+            return
+        }
+        let adapter = WebExtensionWindowAdapter(browser: self)
+        extensionWindowAdapter = adapter
+        extensionDelegate?.register(adapter)
+        extensionController.didOpenWindow(adapter)
+        for tab in tabs {
+            registerExtensionTabIfNeeded(tab)
+        }
+    }
+
+    private func registerExtensionTabIfNeeded(_ tab: BrowserTab) {
+        guard !tab.isPrivate,
+              let extensionController,
+              let extensionWindowAdapter,
+              extensionTabAdapters[tab.id] == nil
+        else {
+            return
+        }
+        let adapter = WebExtensionTabAdapter(
+            tab: tab,
+            window: extensionWindowAdapter
+        )
+        extensionWindowAdapter.tabAdapters.append(adapter)
+        extensionTabAdapters[tab.id] = adapter
+        extensionController.didOpenTab(adapter)
+    }
+
+    private func configureExtensionContextMenu(
+        webView: OrionWebView,
+        runtime: ExtensionRuntime,
+        adapter: WebExtensionTabAdapter
+    ) {
+        webView.additionalContextMenuItems = { [weak runtime, weak adapter] in
+            guard let runtime, let adapter else { return [] }
+            return runtime.pageMenuItems(for: adapter)
         }
     }
 }
