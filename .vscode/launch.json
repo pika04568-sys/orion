@@ -1,24 +1,3 @@
 {
-    "configurations": [
-        {
-            "type": "swift",
-            "request": "launch",
-            "args": [],
-            "cwd": "${workspaceFolder:MyBrowser}/SwiftUIApp",
-            "name": "Debug SwiftUIApp (SwiftUIApp)",
-            "target": "SwiftUIApp",
-            "configuration": "debug",
-            "preLaunchTask": "swift: Build Debug SwiftUIApp (SwiftUIApp)"
-        },
-        {
-            "type": "swift",
-            "request": "launch",
-            "args": [],
-            "cwd": "${workspaceFolder:MyBrowser}/SwiftUIApp",
-            "name": "Release SwiftUIApp (SwiftUIApp)",
-            "target": "SwiftUIApp",
-            "configuration": "release",
-            "preLaunchTask": "swift: Build Release SwiftUIApp (SwiftUIApp)"
-        }
-    ]
+    "configurations": []
 }

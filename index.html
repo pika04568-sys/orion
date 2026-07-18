@@ -3232,6 +3232,32 @@
                     <p class="memory-warning" data-i18n="settings.ramWarning">When Orion is over the limit, the background tabs with the highest observed memory use reload when reopened. Scroll position, navigation history, form entries, and other unsaved page state may be lost. Active and audible tabs are protected.</p>
                 </div>
             </div>
+            <div class="settings-section" id="ai-settings">
+                <h3 data-i18n="settings.aiTitle">On-device AI</h3>
+                <p class="settings-subtitle" data-i18n="settings.aiSubtitle">Manage the local language model used for page summaries.</p>
+                <div class="settings-stack">
+                    <div class="memory-status-card">
+                        <div class="memory-status-main">
+                            <span data-i18n="settings.aiModelId">Model</span>
+                            <strong id="ai-model-id" style="font-size: 11px; word-break: break-all;">onnx-community/Qwen3-0.6B-Instruct-ONNX</strong>
+                        </div>
+                        <div class="memory-status-main" style="margin-top: 8px;">
+                            <span data-i18n="settings.aiStatusLabel">Status</span>
+                            <strong id="ai-model-status" aria-live="polite">Unknown</strong>
+                        </div>
+                        <div id="ai-model-progress-container" style="display:none; margin-top: 8px;">
+                            <div class="progress-bar-wrap" style="height: 6px; background: rgba(0,0,0,0.1); border-radius: 3px; overflow: hidden;">
+                                <div id="ai-model-progress-bar" style="height: 100%; width: 0%; background: var(--accent-color, #1a73e8); transition: width 0.1s;"></div>
+                            </div>
+                            <div id="ai-model-progress-text" style="font-size: 11px; color: var(--text-muted); margin-top: 4px; text-align: right;">0%</div>
+                        </div>
+                    </div>
+                    <div class="settings-actions" style="margin-top: 8px;">
+                        <button id="remove-ai-model-btn" class="settings-btn settings-btn-secondary" data-i18n="settings.removeAiModel" style="display:none;">Remove</button>
+                        <button id="redownload-ai-model-btn" class="settings-btn settings-btn-primary" data-i18n="settings.redownloadAiModel" style="display:none;">Redownload</button>
+                    </div>
+                </div>
+            </div>
             <div class="settings-section">
                 <h3 data-i18n="settings.systemTitle">System</h3>
                 <p class="settings-subtitle" data-i18n="settings.systemSubtitle">Check your version and open browser extension management.</p>

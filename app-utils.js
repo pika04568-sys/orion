@@ -46,6 +46,10 @@
     "set-browser-settings",
     "stop-find-in-page",
     "summarize-active-page",
+    "cancel-page-summary",
+    "get-ai-model-status",
+    "cancel-ai-model-download",
+    "remove-ai-model",
     "switch-profile",
     "switch-tab",
     "toggle-tab-group-collapsed",
@@ -79,7 +83,8 @@
     "tab-groups-changed",
     "tab-switched",
     "updater-status",
-    "view-event"
+    "view-event",
+    "ai-model-status-changed"
   ]);
   const NEWTAB_INVOKE_CHANNELS = Object.freeze([
     "bootstrap-newtab",

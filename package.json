@@ -13,8 +13,7 @@
     "test": "node --test --test-concurrency=1 test/*.test.js",
     "test:electron": "npm run build:runtime && node --test --test-concurrency=1 test/electron/*.test.js",
     "perf:electron": "npm run build:runtime && node scripts/perf.js",
-    "perf:swift": "bash SwiftUIApp/script/perf.sh",
-    "perf": "npm run perf:electron && npm run perf:swift",
+    "perf": "npm run perf:electron",
     "pack": "npm run build:runtime && electron-builder --dir",
     "dist": "npm run build:runtime && electron-builder",
     "dist:mac": "npm run build:runtime && electron-builder --mac",
@@ -100,12 +99,20 @@
     "asar": {
       "ordering": "scripts/asar-ordering.txt"
     },
+    "asarUnpack": [
+      "**/*.node",
+      "**/onnxruntime-node/bin/**"
+    ],
     "files": [
       ".build/**",
       "package.json",
       "node_modules/electron-chrome-extensions/**",
       "node_modules/electron-chrome-web-store/**",
-      "node_modules/electron-updater/**"
+      "node_modules/electron-updater/**",
+      "node_modules/@huggingface/**",
+      "node_modules/onnxruntime-node/**",
+      "node_modules/onnxruntime-web/**",
+      "node_modules/sharp/**"
     ]
   },
   "devDependencies": {
@@ -115,6 +122,7 @@
     "playwright-core": "^1.55.0"
   },
   "dependencies": {
+    "@huggingface/transformers": "^4.2.0",
     "electron-chrome-extensions": "4.9.0",
     "electron-chrome-web-store": "0.13.0",
     "electron-updater": "^6.8.9"

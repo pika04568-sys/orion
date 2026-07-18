@@ -2334,6 +2334,308 @@ function getAiSummaryModule() {
   return aiSummaryModule;
 }
 
+let summaryExtractionService = null;
+function getSummaryExtractionService() {
+  if (!summaryExtractionService) {
+    const { createReaderExtractionService } = require("./reader-extraction");
+    summaryExtractionService = createReaderExtractionService({
+      analysisSource: collectSummaryAnalysisInPage.toString()
+    });
+  }
+  return summaryExtractionService;
+}
+
+async function resolveSummarySnapshot(pIdx, tabId) {
+  const sourceView = getSourceViewForTab(tabId);
+  if (!sourceView || !sourceView.webContents || sourceView.webContents.isDestroyed()) return null;
+  const committedUrl = getCommittedReaderUrl(sourceView.webContents);
+  if (!committedUrl) return null;
+  const documentGeneration = Number.isInteger(sourceView.readerDocumentGeneration)
+    ? sourceView.readerDocumentGeneration
+    : 0;
+
+  const tab = pTabs[pIdx] && pTabs[pIdx].find((entry) => entry && entry.id === tabId) || null;
+  const snapshot = await getSummaryExtractionService().resolve(sourceView.webContents, {
+    cache: !(tab && tab.incognito),
+    contextKey: `summary:${getReaderCacheContext(pIdx, sourceView)}`
+  });
+
+  const currentDocumentGeneration = Number.isInteger(sourceView.readerDocumentGeneration)
+    ? sourceView.readerDocumentGeneration
+    : 0;
+  if (
+    !snapshot ||
+    currentDocumentGeneration !== documentGeneration ||
+    getCommittedReaderUrl(sourceView.webContents) !== committedUrl
+  ) return null;
+
+  return snapshot;
+}
+
+async function collectSummaryAnalysisInPage() {
+  const clock = globalThis.performance && typeof globalThis.performance.now === "function"
+    ? () => globalThis.performance.now()
+    : () => Date.now();
+  const deadline = clock() + 60;
+  const hasBudget = () => clock() < deadline;
+
+  const normalizeWhitespace = (value) => {
+    return String(value == null ? "" : value)
+      .replace(/[\u0000-\u001f\u007f]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  };
+
+  const cleanText = (value, limit = 6000) => {
+    return normalizeWhitespace(value).slice(0, limit);
+  };
+
+  // 1. Media and Transcript detection
+  const url = window.location.href;
+  const isYouTube = url.includes("youtube.com/watch") || url.includes("youtu.be/");
+  let isMedia = isYouTube || document.querySelectorAll("video, audio").length > 0;
+  let transcriptText = "";
+
+  if (isYouTube) {
+    try {
+      const playerResponse = window.ytInitialPlayerResponse;
+      if (playerResponse && playerResponse.captions) {
+        const tracklist = playerResponse.captions.playerCaptionsTracklistRenderer;
+        if (tracklist && tracklist.captionTracks && tracklist.captionTracks.length > 0) {
+          const tracks = tracklist.captionTracks;
+          const selectedTrack = tracks.find(t => t.languageCode === 'en') || tracks[0];
+          if (selectedTrack && selectedTrack.baseUrl) {
+            const res = await fetch(selectedTrack.baseUrl);
+            const xmlText = await res.text();
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(xmlText, 'text/xml');
+            const texts = Array.from(doc.getElementsByTagName('text')).map(el => el.textContent);
+            transcriptText = texts.join(' ');
+          }
+        }
+      }
+    } catch (e) {}
+
+    if (!transcriptText) {
+      try {
+        const domCaptions = Array.from(document.querySelectorAll(".ytp-caption-segment"))
+          .map(el => el.textContent.trim())
+          .filter(Boolean)
+          .join(" ");
+        if (domCaptions) {
+          transcriptText = domCaptions;
+        }
+      } catch (e) {}
+    }
+  }
+
+  if (!transcriptText && document.querySelectorAll("video track").length > 0) {
+    const tracks = Array.from(document.querySelectorAll('video track[kind="captions"], video track[kind="subtitles"]'));
+    for (const track of tracks) {
+      if (track.src) {
+        try {
+          const res = await fetch(track.src);
+          const vttText = await res.text();
+          const parsed = vttText
+            .replace(/WEBVTT/g, '')
+            .replace(/\d{2}:\d{2}:\d{2}[,.]\d{3} --> \d{2}:\d{2}:\d{2}[,.]\d{3}/g, '')
+            .replace(/^\d+$/gm, '')
+            .replace(/<[^>]*>/g, '')
+            .split(/\r?\n/)
+            .map(line => line.trim())
+            .filter(line => line && !/^\d+$/.test(line))
+            .join(' ');
+          if (parsed) {
+            transcriptText = parsed;
+            break;
+          }
+        } catch (e) {}
+      }
+    }
+  }
+
+  if (!transcriptText) {
+    const schemaEl = document.querySelector('[itemprop="transcript"]');
+    if (schemaEl) {
+      transcriptText = schemaEl.textContent;
+    }
+  }
+
+  if (!transcriptText) {
+    const regionEl = document.querySelector('.transcript, #transcript, [class*="transcript"], [id*="transcript"]');
+    if (regionEl) {
+      const text = regionEl.textContent.trim();
+      if (text.length > 100) {
+        transcriptText = text;
+      }
+    }
+  }
+
+  if (transcriptText) {
+    const cleaned = cleanText(transcriptText, 32000);
+    return {
+      sourceUrl: url,
+      title: document.title,
+      siteName: "",
+      sourceType: "transcript",
+      readable: cleaned.length > 40,
+      blocks: [{ type: "paragraph", text: cleaned }]
+    };
+  }
+
+  if (isMedia) {
+    let descText = "";
+    if (isYouTube) {
+      const descEl = document.querySelector("#description-inline-expander, ytd-text-inline-expander, .ytd-video-secondary-info-renderer");
+      if (descEl) descText = descEl.textContent.trim();
+    }
+    if (!descText) {
+      const metaDesc = document.querySelector('meta[name="description"], meta[property="og:description"]');
+      if (metaDesc) descText = metaDesc.getAttribute("content") || "";
+    }
+
+    if (descText && descText.length > 40) {
+      const cleaned = cleanText(descText, 12000);
+      return {
+        sourceUrl: url,
+        title: document.title,
+        siteName: "",
+        sourceType: "page",
+        readable: true,
+        blocks: [{ type: "paragraph", text: cleaned }]
+      };
+    } else {
+      return {
+        sourceUrl: url,
+        title: document.title,
+        siteName: "",
+        sourceType: "transcript",
+        readable: false,
+        reason: "Captions or transcript are not available for this media."
+      };
+    }
+  }
+
+  // 2. Normal Page text extraction
+  const badSelectors = [
+    'nav', 'footer', 'header', 'menu', 'aside', 'noscript', 'script', 'style', 'iframe', 'svg', 'template',
+    '[role="navigation"]', '[role="contentinfo"]', '[role="banner"]',
+    '.nav', '.footer', '.header', '.menu', '.sidebar', '.cookie', '.banner', '.ad', '.ads',
+    '[class*="cookie"]', '[id*="cookie"]', '[class*="banner"]', '[id*="banner"]',
+    '[class*="share"]', '[class*="social"]', '[class*="breadcrumb"]',
+    '[class*="promo"]', '[class*="advert"]', '[id*="advert"]', '[class*="ad-"]', '[id*="ad-"]',
+    'form', 'input[type="password"]', 'input[type="hidden"]'
+  ];
+
+  const blocks = [];
+  const seenText = new Set();
+
+  const isVisible = (el) => {
+    if (!el) return false;
+    if (el.nodeType === Node.ELEMENT_NODE) {
+      const style = window.getComputedStyle(el);
+      if (style.display === 'none' || style.visibility === 'hidden') return false;
+      if (el.hasAttribute('aria-hidden') && el.getAttribute('aria-hidden') === 'true') return false;
+    }
+    return true;
+  };
+
+  const walk = (node) => {
+    if (!node || !isVisible(node) || !hasBudget()) return;
+
+    if (node.nodeType === Node.ELEMENT_NODE) {
+      const tag = node.tagName.toLowerCase();
+
+      if (badSelectors.some(sel => node.matches && node.matches(sel))) {
+        return;
+      }
+
+      if (node.shadowRoot) {
+        const shadowChildren = node.shadowRoot.childNodes;
+        for (let i = 0; i < shadowChildren.length; i++) {
+          walk(shadowChildren[i]);
+        }
+      }
+
+      if (tag === 'p' || tag === 'blockquote') {
+        const txt = node.textContent.trim().replace(/\s+/g, ' ');
+        if (txt.length > 20 && !seenText.has(txt)) {
+          seenText.add(txt);
+          blocks.push({ type: 'paragraph', text: txt });
+        }
+        return;
+      }
+      if (/^h[1-6]$/.test(tag)) {
+        const txt = node.textContent.trim().replace(/\s+/g, ' ');
+        if (txt.length > 5 && !seenText.has(txt)) {
+          seenText.add(txt);
+          blocks.push({ type: 'heading', text: txt });
+        }
+        return;
+      }
+      if (tag === 'li') {
+        const txt = node.textContent.trim().replace(/\s+/g, ' ');
+        if (txt.length > 10 && !seenText.has(txt)) {
+          seenText.add(txt);
+          blocks.push({ type: 'list', text: txt });
+        }
+        return;
+      }
+      if (tag === 'td' || tag === 'th') {
+        const txt = node.textContent.trim().replace(/\s+/g, ' ');
+        if (txt.length > 5 && !seenText.has(txt)) {
+          seenText.add(txt);
+          blocks.push({ type: 'table', text: txt });
+        }
+        return;
+      }
+    }
+
+    const childNodes = node.childNodes;
+    for (let i = 0; i < childNodes.length; i++) {
+      walk(childNodes[i]);
+    }
+  };
+
+  const semanticContainers = ['article', 'main', '[role="main"]'];
+  let root = null;
+  for (const sel of semanticContainers) {
+    const el = document.querySelector(sel);
+    if (el && el.textContent.trim().length > 200) {
+      root = el;
+      break;
+    }
+  }
+
+  if (root) {
+    walk(root);
+  } else {
+    walk(document.body);
+  }
+
+  const metaValue = (...selectors) => {
+    for (const selector of selectors) {
+      const el = document.querySelector(selector);
+      if (el) {
+        const val = normalizeWhitespace(el.content || el.getAttribute("content") || el.textContent || "");
+        if (val) return val;
+      }
+    }
+    return "";
+  };
+
+  const siteName = metaValue('meta[property="og:site_name"]', 'meta[name="application-name"]');
+
+  return {
+    sourceUrl: url,
+    title: document.title,
+    siteName,
+    sourceType: "page",
+    readable: blocks.length > 0,
+    blocks
+  };
+}
+
 function getCommittedReaderUrl(webContents) {
   if (!webContents || webContents.isDestroyed()) return "";
   try {
@@ -4053,7 +4355,7 @@ ipcMain.handle("summarize-active-page", withTrustedSender(async (e) => {
   if (!committedUrl) {
     return { ok: false, reason: "On-device summaries work on readable web pages." };
   }
-  const snapshot = await resolveReaderSnapshot(profileIndex, tabId);
+  const snapshot = await resolveSummarySnapshot(profileIndex, tabId);
 
   const currentWindow = getSenderWindow(e.sender);
   if (
@@ -4070,12 +4372,37 @@ ipcMain.handle("summarize-active-page", withTrustedSender(async (e) => {
   if (!snapshot.readable) {
     return {
       ok: false,
+      requestId: require("crypto").randomUUID(),
+      title: snapshot.title || "",
+      siteName: snapshot.siteName || "",
+      sourceUrl: snapshot.sourceUrl || "",
+      sourceType: snapshot.sourceType || "page",
+      summary: "",
+      mode: "fallback",
+      localOnly: true,
+      readingTimeMinutes: 1,
       reason: snapshot && snapshot.reason ? snapshot.reason : "Orion could not extract readable page text to summarize."
     };
   }
 
   return getAiSummaryModule().summarizeSnapshot(snapshot);
 }, { ok: false, reason: "Summary is unavailable." }));
+
+ipcMain.handle("cancel-page-summary", withTrustedSender(() => {
+  return getAiSummaryModule().cancelPageSummary();
+}, null));
+
+ipcMain.handle("get-ai-model-status", withTrustedSender(() => {
+  return getAiSummaryModule().getAiModelStatus();
+}, null));
+
+ipcMain.handle("cancel-ai-model-download", withTrustedSender(() => {
+  return getAiSummaryModule().cancelAiModelDownload();
+}, null));
+
+ipcMain.handle("remove-ai-model", withTrustedSender(() => {
+  return getAiSummaryModule().removeAiModel();
+}, null));
 ipcMain.handle("close-reader", withTrustedSender((e) => {
   const w = getSenderWindow(e.sender);
   if (!w) return { active: false, available: true };

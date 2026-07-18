@@ -31,26 +31,11 @@ The test suite covers managed uBlock Origin Lite provisioning and policy, privac
 
 ### Performance gates
 
-Orion ships deterministic localhost performance harnesses for both desktop implementations. Each command builds the relevant release runtime, collects 20 samples by default, and reports p50/p95 measurements against the macOS budgets.
+Orion ships deterministic localhost performance harnesses for the Electron desktop implementation. The command builds the release runtime, collects 20 samples by default, and reports p50/p95 measurements against the macOS budgets.
 
 ```sh
-npm run perf:electron
-npm run perf:swift
 npm run perf
 ```
-
-`perf` runs both harnesses. The Electron harness stages its matching Electron runtime outside cloud-synced project storage before launching; the Swift harness uses SwiftPM and retries with the native build system only for the known property-list initialization failure.
-
-### Native SwiftUI implementation
-
-The macOS SwiftUI implementation lives in `SwiftUIApp/` and can be built and tested independently:
-
-```sh
-swift build --package-path SwiftUIApp
-swift test --package-path SwiftUIApp
-```
-
-If the installed SwiftPM toolchain reports its known property-list initialization error, use `--build-system native` for that invocation.
 
 ## Building
 

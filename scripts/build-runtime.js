@@ -34,6 +34,7 @@ const htmlEntries = [
 
 const lazyMainServiceEntries = [
   "ai-summary.js",
+  "ai-summary-worker.js",
   "extension-manager.js",
   "memory-manager.js",
   "reader-extraction.js"
@@ -239,6 +240,10 @@ async function buildRuntime() {
     ...lazyMainServiceEntries.map((file) => esbuild.build({
       ...shared,
       entryPoints: [path.join(projectRoot, file)],
+      external: [
+        "electron",
+        "@huggingface/transformers"
+      ],
       format: "cjs",
       outfile: path.join(buildRoot, file),
       platform: "node",
