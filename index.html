@@ -2076,7 +2076,7 @@
         }
 
         #search-engine-select,
-        #ram-limit-select,
+        #ram-limit-mode-select,
         .settings-input,
         .settings-color-wheel {
             border: 1px solid var(--border-color);
@@ -2089,15 +2089,77 @@
         }
 
         #search-engine-select:focus,
-        #ram-limit-select:focus,
+        #ram-limit-mode-select:focus,
         .settings-input:focus {
             border-color: var(--accent-color);
             box-shadow: 0 0 0 3px rgba(15, 107, 255, .12)
         }
 
         #search-engine-select,
-        #ram-limit-select {
+        #ram-limit-mode-select {
             min-width: 180px
+        }
+
+        .ram-slider-row {
+            margin-top: 8px
+        }
+
+        .ram-slider-container {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex: 1
+        }
+
+        #ram-limit-slider {
+            flex: 1;
+            height: 6px;
+            border-radius: 3px;
+            background: var(--border-color);
+            outline: 0;
+            -webkit-appearance: none;
+            appearance: none
+        }
+
+        #ram-limit-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: var(--accent-color);
+            cursor: pointer;
+            box-shadow: 0 2px 6px rgba(15, 107, 255, .3);
+            transition: transform .2s, box-shadow .2s
+        }
+
+        #ram-limit-slider::-webkit-slider-thumb:hover {
+            transform: scale(1.1);
+            box-shadow: 0 4px 12px rgba(15, 107, 255, .4)
+        }
+
+        #ram-limit-slider::-moz-range-thumb {
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: var(--accent-color);
+            cursor: pointer;
+            border: none;
+            box-shadow: 0 2px 6px rgba(15, 107, 255, .3);
+            transition: transform .2s, box-shadow .2s
+        }
+
+        #ram-limit-slider::-moz-range-thumb:hover {
+            transform: scale(1.1);
+            box-shadow: 0 4px 12px rgba(15, 107, 255, .4)
+        }
+
+        #ram-limit-value {
+            min-width: 60px;
+            text-align: right;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-primary)
         }
 
         .memory-status-card {
@@ -3213,10 +3275,20 @@
                 <div class="settings-stack">
                     <div class="settings-row">
                         <div class="settings-label" data-i18n="settings.ramLimitLabel">RAM limit</div>
-                        <select id="ram-limit-select" aria-label="RAM limit" data-i18n-aria-label="settings.ramLimitLabel">
-                            <option value="off" data-i18n="settings.ramOff">Off</option>
-                            <option id="ram-limit-automatic-option" value="automatic">Automatic</option>
-                        </select>
+                        <div class="ram-limit-controls">
+                            <select id="ram-limit-mode-select" aria-label="RAM limit mode" data-i18n-aria-label="settings.ramLimitLabel">
+                                <option value="off" data-i18n="settings.ramOff">Off</option>
+                                <option id="ram-limit-automatic-option" value="automatic">Automatic</option>
+                                <option value="custom" data-i18n="settings.ramCustom">Custom</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="settings-row ram-slider-row" id="ram-slider-row" style="display: none;">
+                        <div class="settings-label" data-i18n="settings.ramCustomLabel">Custom limit</div>
+                        <div class="ram-slider-container">
+                            <input type="range" id="ram-limit-slider" min="0" max="0" step="1024" value="0" aria-label="Custom RAM limit">
+                            <span id="ram-limit-value">0 GB</span>
+                        </div>
                     </div>
                     <div class="memory-status-card">
                         <div class="memory-status-main">

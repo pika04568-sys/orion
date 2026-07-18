@@ -1,6 +1,7 @@
 const RAM_LIMIT_MODE_OFF = "off";
 const RAM_LIMIT_MODE_AUTOMATIC = "automatic";
-const RAM_LIMIT_MODES = Object.freeze([RAM_LIMIT_MODE_OFF, RAM_LIMIT_MODE_AUTOMATIC]);
+const RAM_LIMIT_MODE_CUSTOM = "custom";
+const RAM_LIMIT_MODES = Object.freeze([RAM_LIMIT_MODE_OFF, RAM_LIMIT_MODE_AUTOMATIC, RAM_LIMIT_MODE_CUSTOM]);
 const MEBIBYTE_BYTES = 1024 * 1024;
 const GIBIBYTE_BYTES = 1024 * MEBIBYTE_BYTES;
 const DEFAULT_POLL_INTERVAL_MS = 5000;
@@ -37,9 +38,15 @@ function resolveRamLimitMode(value, legacyRamLimitMb = 0) {
     : RAM_LIMIT_MODE_OFF;
 }
 
-function resolveRamLimitMb(mode, automaticRamLimitMb) {
-  if (sanitizeRamLimitMode(mode) !== RAM_LIMIT_MODE_AUTOMATIC) return 0;
-  return sanitizeRamLimitMb(automaticRamLimitMb);
+function resolveRamLimitMb(mode, automaticRamLimitMb, customRamLimitMb) {
+  const sanitizedMode = sanitizeRamLimitMode(mode);
+  if (sanitizedMode === RAM_LIMIT_MODE_AUTOMATIC) {
+    return sanitizeRamLimitMb(automaticRamLimitMb);
+  }
+  if (sanitizedMode === RAM_LIMIT_MODE_CUSTOM) {
+    return sanitizeRamLimitMb(customRamLimitMb);
+  }
+  return 0;
 }
 
 function sumWorkingSetKb(metrics) {

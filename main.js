@@ -30,7 +30,8 @@ const { createProtocolAssetHandler } = require("./protocol-assets");
 const { getInitialMaterializedTabId } = require("./startup-performance");
 const RAM_LIMIT_MODE_OFF = "off";
 const RAM_LIMIT_MODE_AUTOMATIC = "automatic";
-const RAM_LIMIT_MODES = new Set([RAM_LIMIT_MODE_OFF, RAM_LIMIT_MODE_AUTOMATIC]);
+const RAM_LIMIT_MODE_CUSTOM = "custom";
+const RAM_LIMIT_MODES = new Set([RAM_LIMIT_MODE_OFF, RAM_LIMIT_MODE_AUTOMATIC, RAM_LIMIT_MODE_CUSTOM]);
 const GIBIBYTE_BYTES = 1024 * 1024 * 1024;
 function isValidRamLimitMode(value) {
   return typeof value === "string" && RAM_LIMIT_MODES.has(value);
@@ -49,10 +50,15 @@ function calculateAutomaticRamLimitMb(totalMemoryBytes) {
   const halfMemoryGiB = Math.floor(totalMemoryBytes / (2 * GIBIBYTE_BYTES));
   return halfMemoryGiB >= 1 ? halfMemoryGiB * 1024 : 0;
 }
-function resolveRamLimitMb(mode, automaticRamLimitMb) {
-  return sanitizeRamLimitMode(mode) === RAM_LIMIT_MODE_AUTOMATIC
-    ? automaticRamLimitMb
-    : 0;
+function resolveRamLimitMb(mode, automaticRamLimitMb, customRamLimitMb) {
+  const sanitizedMode = sanitizeRamLimitMode(mode);
+  if (sanitizedMode === RAM_LIMIT_MODE_AUTOMATIC) {
+    return automaticRamLimitMb;
+  }
+  if (sanitizedMode === RAM_LIMIT_MODE_CUSTOM) {
+    return customRamLimitMb;
+  }
+  return 0;
 }
 const AUTOMATIC_RAM_LIMIT_MB = calculateAutomaticRamLimitMb(os.totalmem());
 let memoryManagerModule = null;
@@ -1156,6 +1162,8 @@ function getBrowserSettings() {
     themeColor: bSett.themeColor || "#e9e9f0",
     ramLimitMode: sanitizeRamLimitMode(bSett.ramLimitMode),
     automaticRamLimitMb: AUTOMATIC_RAM_LIMIT_MB,
+    customRamLimitMb: bSett && bSett.customRamLimitMb,
+    totalMemoryMb: Math.floor(os.totalmem() / (1024 * 1024)),
     ramLimitMb: getEffectiveRamLimitMb()
   };
 }
@@ -1163,7 +1171,8 @@ function getBrowserSettings() {
 function getEffectiveRamLimitMb() {
   return resolveRamLimitMb(
     bSett && bSett.ramLimitMode,
-    AUTOMATIC_RAM_LIMIT_MB
+    AUTOMATIC_RAM_LIMIT_MB,
+    bSett && bSett.customRamLimitMb
   );
 }
 
@@ -1198,6 +1207,16 @@ function updateBrowserSettings(patch = {}) {
     bSett.ramLimitMode !== patch.ramLimitMode
   ) {
     bSett.ramLimitMode = patch.ramLimitMode;
+    changed = true;
+  }
+
+  if (
+    Object.prototype.hasOwnProperty.call(patch, "customRamLimitMb") &&
+    Number.isInteger(patch.customRamLimitMb) &&
+    patch.customRamLimitMb >= 0 &&
+    bSett.customRamLimitMb !== patch.customRamLimitMb
+  ) {
+    bSett.customRamLimitMb = patch.customRamLimitMb;
     changed = true;
   }
 

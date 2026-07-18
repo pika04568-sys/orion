@@ -5,7 +5,7 @@ const localization = window.OrionLocalization;
 let tabBar, newTabBtn, groupTabsBtn, groupTabsMenu, clearTabsBtn, addressBar, backBtn, forwardBtn, reloadBtn, readerBtn, aiSummaryBtn, aiSummarySidebar, closeAiSummaryBtn, aiSummaryContent, historyBtn, historySidebar, closeHistoryBtn, historyList, chromeContainer, profileBtn, profileMenu, profileListContainer, addProfileBtn, settingsBtn, settingsSidebar, closeSettingsBtn, profileColorPicker, renameModal, renameInput, renameSaveBtn, renameCancelBtn, pendingRenameProfileId = null, bookmarkBtn, bookmarksSidebar, closeBookmarksBtn, bookmarksList, downloadsBtn, downloadsSidebar, closeDownloadsBtn, downloadsList, findBar, findInput, findResults, findPrev, findNext, findClose, openExtensionsBtn, progressBarContainer, progressBar, addBookmarkBtn, bookmarksBar, bookmarkDestModal, addToBarBtn, addToNewTabBtn, addToBothBtn, cancelBookmarkBtn, checkUpdatesBtn, versionEl, updateStatusEl, startupOverlay, startupLanguagePicker, settingsLanguagePicker, readerToast, extensionActionList, extensionActionsMenuBtn, extensionActionsMenu, extensionActionsMenuList, extensionActionState = null, metrics = () => { }, pendingBookmark = null, activeTabId = null, activeProfile = 0, isIncognitoWindow = false, tabs = [], tabGroups = [], profiles = [];
 let updaterState = { state: 'idle', message: localization.t(localization.DEFAULT_LOCALE, 'updates.ready') };
 let memoryStatus = { supported: true, enabled: false, usedMb: 0, limitMb: 0, overLimit: false, unloadedTabCount: 0 };
-let ramLimitSettings = { mode: 'off', automaticLimitMb: 0 };
+let ramLimitSettings = { mode: 'off', automaticLimitMb: 0, customLimitMb: 0, totalMemoryMb: 0 };
 let cachedBrowserSettings = {};
 let applyMountedBrowserSettings = null;
 let settingsStateListenersInitialized = false;
@@ -556,18 +556,40 @@ function formatMemoryNumber(value) {
 }
 
 function renderRamLimitControl() {
-  const select = document.getElementById('ram-limit-select');
+  const modeSelect = document.getElementById('ram-limit-mode-select');
   const automaticOption = document.getElementById('ram-limit-automatic-option');
-  if (!select || !automaticOption) return;
+  const sliderRow = document.getElementById('ram-slider-row');
+  const slider = document.getElementById('ram-limit-slider');
+  const sliderValue = document.getElementById('ram-limit-value');
+  
+  if (!modeSelect || !automaticOption || !sliderRow || !slider || !sliderValue) return;
 
   const automaticLimitMb = Number.isInteger(ramLimitSettings.automaticLimitMb)
     ? ramLimitSettings.automaticLimitMb
     : 0;
+  const totalMemoryMb = Number.isInteger(ramLimitSettings.totalMemoryMb)
+    ? ramLimitSettings.totalMemoryMb
+    : 0;
+  const customLimitMb = Number.isInteger(ramLimitSettings.customLimitMb)
+    ? ramLimitSettings.customLimitMb
+    : 0;
+
   automaticOption.textContent = automaticLimitMb > 0
     ? t('settings.ramAutomatic', { limit: formatMemoryNumber(automaticLimitMb / 1024) })
     : t('settings.ramAutomaticUnavailable');
   automaticOption.disabled = automaticLimitMb <= 0 && ramLimitSettings.mode !== 'automatic';
-  select.value = ramLimitSettings.mode;
+  
+  modeSelect.value = ramLimitSettings.mode;
+
+  // Configure slider
+  slider.max = totalMemoryMb;
+  slider.min = 1024; // Minimum 1 GB
+  slider.step = 1024; // 1 GB increments
+  slider.value = customLimitMb > 0 ? customLimitMb : Math.floor(totalMemoryMb / 2);
+  sliderValue.textContent = formatMemoryNumber(slider.value / 1024) + ' GB';
+
+  // Show/hide slider based on mode
+  sliderRow.style.display = ramLimitSettings.mode === 'custom' ? 'flex' : 'none';
 }
 
 function renderMemoryStatus() {
@@ -1480,7 +1502,8 @@ function initSettings(initialSettings = {}, initialMemoryStatus = null) {
   const httpsOnlyToggle = document.getElementById('https-only-toggle');
   const antiFingerprintingToggle = document.getElementById('anti-fingerprinting-toggle');
   const dnsOverHttpsToggle = document.getElementById('dns-over-https-toggle');
-  const ramLimitSelect = document.getElementById('ram-limit-select');
+  const ramLimitModeSelect = document.getElementById('ram-limit-mode-select');
+  const ramLimitSlider = document.getElementById('ram-limit-slider');
   const se = document.getElementById('search-engine-select');
   const applySharedSettings = (settings = {}) => {
     cachedBrowserSettings = { ...cachedBrowserSettings, ...settings };
@@ -1497,11 +1520,17 @@ function initSettings(initialSettings = {}, initialMemoryStatus = null) {
     if (dnsOverHttpsToggle && typeof settings.dnsOverHttpsEnabled === 'boolean') {
       dnsOverHttpsToggle.checked = settings.dnsOverHttpsEnabled;
     }
-    if (settings.ramLimitMode === 'off' || settings.ramLimitMode === 'automatic') {
+    if (settings.ramLimitMode === 'off' || settings.ramLimitMode === 'automatic' || settings.ramLimitMode === 'custom') {
       ramLimitSettings.mode = settings.ramLimitMode;
     }
     if (Number.isInteger(settings.automaticRamLimitMb)) {
       ramLimitSettings.automaticLimitMb = settings.automaticRamLimitMb;
+    }
+    if (Number.isInteger(settings.customRamLimitMb)) {
+      ramLimitSettings.customLimitMb = settings.customRamLimitMb;
+    }
+    if (Number.isInteger(settings.totalMemoryMb)) {
+      ramLimitSettings.totalMemoryMb = settings.totalMemoryMb;
     }
     renderRamLimitControl();
   };
@@ -1560,8 +1589,8 @@ function initSettings(initialSettings = {}, initialMemoryStatus = null) {
       } catch (_error) {}
     };
   }
-  if (ramLimitSelect) {
-    ramLimitSelect.onchange = async (event) => {
+  if (ramLimitModeSelect) {
+    ramLimitModeSelect.onchange = async (event) => {
       const previousMode = ramLimitSettings.mode;
       const ramLimitMode = event.target.value;
       try {
@@ -1569,6 +1598,23 @@ function initSettings(initialSettings = {}, initialMemoryStatus = null) {
         if (settings) applySharedSettings(settings);
       } catch (_error) {
         ramLimitSettings.mode = previousMode;
+        renderRamLimitControl();
+      }
+    };
+  }
+  if (ramLimitSlider) {
+    ramLimitSlider.oninput = (event) => {
+      const sliderValue = document.getElementById('ram-limit-value');
+      if (sliderValue) {
+        sliderValue.textContent = formatMemoryNumber(event.target.value / 1024) + ' GB';
+      }
+    };
+    ramLimitSlider.onchange = async (event) => {
+      const customRamLimitMb = parseInt(event.target.value, 10);
+      try {
+        const settings = await ipcRenderer.invoke('set-browser-settings', { customRamLimitMb });
+        if (settings) applySharedSettings(settings);
+      } catch (_error) {
         renderRamLimitControl();
       }
     };

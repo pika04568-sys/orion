@@ -80,6 +80,12 @@ test("RAM limiter settings and status strings are localized", () => {
   assert.equal(localization.t("de", "settings.ramUnavailable"), "Nutzung nicht verfügbar");
   assert.equal(localization.t("ja", "settings.ramLimitLabel"), "RAM 上限");
   assert.equal(
+    localization.t("en", "settings.ramAutomaticSubtitle"),
+    "Automatically cap Orion at half of this computer's RAM."
+  );
+  assert.equal(localization.t("en", "settings.ramCustomSubtitle"), "Set a custom RAM limit for Orion.");
+  assert.equal(localization.t("en", "settings.ramOffSubtitle"), "Turn off Orion's RAM limit.");
+  assert.equal(
     localization.t("en", "settings.ramAutomatic", { limit: "16" }),
     "Automatic (16 GB)"
   );
