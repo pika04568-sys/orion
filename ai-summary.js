@@ -17,6 +17,9 @@ let idleTimeout = null;
 
 const requestQueue = [];
 let processing = false;
+const MAX_PROMPT_CHARS = 12000;
+const MAX_GENERATION_TOKENS = 160;
+const GENERATION_TIMEOUT_MS = 30000;
 
 // Global model status
 const modelStatus = {
@@ -124,6 +127,13 @@ function getWorker(cacheDir) {
         break;
 
       case "summary-result":
+        if (currentResolve) {
+          currentResolve(msg.summary);
+        }
+        clearActiveRequest();
+        break;
+
+      case "answer-result":
         if (currentResolve) {
           currentResolve(msg.summary);
         }
@@ -284,7 +294,27 @@ async function summarizeSnapshot(snapshot) {
   }
 
   return new Promise((resolve) => {
-    queueRequest(snapshot, resolve);
+    queueRequest(snapshot, resolve, "summary");
+  });
+}
+
+async function answerSnapshot(snapshot, question) {
+  const normalizedQuestion = String(question || "").replace(/\s+/g, " ").trim().slice(0, 1000);
+  if (!normalizedQuestion) return { ok: false, reason: "Ask a question about this page." };
+
+  const cacheDir = path.join(getElectronApp().getPath("userData"), "ai-models");
+  const isDownloaded = await checkModelDownloaded(cacheDir);
+  if (isDownloaded) {
+    modelStatus.state = "ready";
+    modelStatus.progress = 100;
+  }
+  if (modelStatus.state !== "ready") {
+    if (modelStatus.state !== "downloading") getWorker(cacheDir);
+    return { ok: false, reason: "The local model is still downloading. Try again when it is ready." };
+  }
+
+  return new Promise((resolve) => {
+    queueRequest({ ...snapshot, question: normalizedQuestion }, resolve, "answer");
   });
 }
 
@@ -297,10 +327,16 @@ function cancelPageSummary() {
     currentReject(new Error("cancelled"));
   }
   clearActiveRequest();
+  while (requestQueue.length) {
+    const queued = requestQueue.shift();
+    if (queued && typeof queued.resolve === "function") {
+      queued.resolve(runFallbackSummary(queued.snapshot, "cancelled"));
+    }
+  }
 }
 
-function queueRequest(snapshot, resolve) {
-  requestQueue.push({ snapshot, resolve });
+function queueRequest(snapshot, resolve, kind = "summary") {
+  requestQueue.push({ snapshot, resolve, kind });
   processNextRequest();
 }
 
@@ -313,13 +349,19 @@ async function processNextRequest() {
 
   try {
     const w = getWorker(cacheDir);
-    const prompt = buildMultilingualPrompt(req.snapshot);
+    const prompt = req.kind === "answer"
+      ? buildChatPrompt(req.snapshot, req.snapshot.question)
+      : buildMultilingualPrompt(req.snapshot);
 
-    const summary = await runWorkerInference(w, prompt);
-    const isValid = validateSummaryOutput(summary, req.snapshot);
+    const summary = await runWorkerInference(w, prompt, req.kind === "answer" ? "answer" : "summarize");
+    const isValid = req.kind === "answer"
+      ? validateChatOutput(summary)
+      : validateSummaryOutput(summary, req.snapshot);
 
     if (isValid) {
-      req.resolve(buildSummaryResult(req.snapshot, summary, "model"));
+      req.resolve(req.kind === "answer"
+        ? buildChatResult(req.snapshot, summary)
+        : buildSummaryResult(req.snapshot, summary, "model"));
     } else {
       logMessage("Generated summary failed output validation. Returning fallback.");
       req.resolve(runFallbackSummary(req.snapshot, "Output validation failed."));
@@ -333,17 +375,28 @@ async function processNextRequest() {
   }
 }
 
-function runWorkerInference(w, prompt) {
+function runWorkerInference(w, prompt, type = "summarize") {
   return new Promise((resolve, reject) => {
     currentResolve = resolve;
     currentReject = reject;
     w.postMessage({
-      type: "summarize",
+      type,
       prompt,
-      maxNewTokens: 120,
-      timeoutMs: 30000
+      maxNewTokens: MAX_GENERATION_TOKENS,
+      timeoutMs: GENERATION_TIMEOUT_MS
     });
   });
+}
+
+function buildChatResult(snapshot, answer) {
+  return {
+    ok: true,
+    requestId: require("crypto").randomUUID(),
+    sourceUrl: snapshot.sourceUrl || "",
+    answer: String(answer || "").replace(/\s+/g, " ").trim(),
+    localOnly: true,
+    mode: "model"
+  };
 }
 
 // Multilingual Prompt & Diversity Scoring Implementation
@@ -421,7 +474,7 @@ function buildMultilingualPrompt(snapshot) {
   const sentenceIndexMap = new Map(allSentences.map((s, idx) => [s, idx]));
   selected.sort((a, b) => sentenceIndexMap.get(a) - sentenceIndexMap.get(b));
 
-  const textToSummarize = selected.join(" ");
+  const textToSummarize = selected.join(" ").slice(0, MAX_PROMPT_CHARS);
 
   const systemPrompt = `You are a helpful assistant. Write a summary of the provided text.
 Requirements:
@@ -450,6 +503,38 @@ function tokenizeMultilingual(text) {
   const words = text.toLowerCase().match(/[a-z0-9]+/g) || [];
   const cjks = text.match(cjkRegex) || [];
   return [...words, ...cjks];
+}
+
+function buildChatPrompt(snapshot, question) {
+  const summaryPrompt = buildMultilingualPrompt(snapshot);
+  const sourceMatch = summaryPrompt.match(/Source text:\n([\s\S]*?)\n\nSummary:/);
+  const sourceText = (sourceMatch ? sourceMatch[1] : "").slice(0, MAX_PROMPT_CHARS);
+  const safeQuestion = String(question || "").replace(/\s+/g, " ").trim().slice(0, 1000);
+  return `<|im_start|>system
+You answer questions about the provided webpage using only its content.
+Requirements:
+1. Answer in the same language as the question when possible.
+2. If the answer is not supported by the page, say that the page does not provide enough information.
+3. Do not invent facts, URLs, citations, or details.
+4. Do not use markdown, HTML, or thinking tags. Keep the answer concise.
+<|im_end|>
+<|im_start|>user
+Page content:
+${sourceText}
+
+Question:
+${safeQuestion}
+<|im_end|>
+<|im_start|>assistant
+`;
+}
+
+function validateChatOutput(answer) {
+  if (!answer || typeof answer !== "string") return false;
+  const trimmed = answer.replace(/\s+/g, " ").trim();
+  if (!trimmed || trimmed.length > 4000) return false;
+  if (/<[^>]+>/.test(trimmed) || /<think>|<\|im_/i.test(trimmed)) return false;
+  return true;
 }
 
 // Output Validation
@@ -630,8 +715,12 @@ module.exports = {
   cancelAiModelDownload,
   removeAiModel,
   summarizeSnapshot,
+  answerSnapshot,
   cancelPageSummary,
   buildSummaryResult,
+  buildMultilingualPrompt,
+  buildChatPrompt,
+  validateChatOutput,
   runFallbackSummary,
   validateSummaryOutput
 };

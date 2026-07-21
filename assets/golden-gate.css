@@ -1,0 +1,65 @@
+/* Golden Gate — Liquid glass theme overrides */
+:root{
+  --gg-accent: rgba(27, 126, 255, 0.95);
+  --gg-glass-1: rgba(255,255,255,0.7);
+  --gg-glass-2: rgba(255,255,255,0.16);
+  --gg-stroke: rgba(255,255,255,0.6);
+}
+html,body{
+  font-family: -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  -webkit-font-smoothing:antialiased;
+  -moz-osx-font-smoothing:grayscale;
+}
+
+/* A reusable glass card */
+.gg-glass{
+  background: linear-gradient(135deg,var(--gg-glass-1),var(--gg-glass-2));
+  backdrop-filter: blur(20px) saturate(1.15);
+  -webkit-backdrop-filter: blur(20px) saturate(1.15);
+  border: 1px solid rgba(255,255,255,0.34);
+  border-radius: 14px;
+  box-shadow: 0 24px 60px rgba(12,24,48,0.12), inset 0 1px 0 rgba(255,255,255,0.6);
+}
+
+/* Gentle accent for actionable items */
+.gg-accent{
+  color: var(--gg-accent) !important;
+}
+
+/* Make main chrome subtly frosted and prevent clipping */
+#chrome-container, #tab-bar-wrapper, #view-container, .panel, .panel-shell, .page-shell {
+  backdrop-filter: blur(18px) saturate(1.05);
+  -webkit-backdrop-filter: blur(18px) saturate(1.05);
+  background-clip: padding-box;
+  overflow: visible !important;
+}
+
+/* Raise important floating UI so nothing is hidden */
+.dropdown-menu, #group-tabs-menu, .modal-content, .menu, .popup, .panel-close-btn, .tab-group-menu {
+  z-index: 12000 !important;
+}
+
+/* Where dropdowns are absolutely positioned and could be clipped,
+   prefer fixed to avoid parent overflow clipping when showing */
+.dropdown-menu.show, #group-tabs-menu.show, .menu.show, .popup.show {
+  position: fixed !important;
+  will-change: transform, opacity;
+}
+
+/* Tabs refined */
+.tab { border-radius: 12px; box-shadow: 0 12px 30px rgba(10,24,48,0.08); }
+.tab.active{ box-shadow: 0 18px 40px rgba(27,126,255,0.16); border-color: rgba(27,126,255,0.20); }
+
+/* Improve legibility for modals & dropdown items */
+.modal-content, .dropdown-menu, .dropdown-item, .panel { color: inherit; border-radius: 12px; }
+
+/* Prevent large backdrops from hiding interactive elements */
+.orbs, .card-orbs { pointer-events: none; z-index: 0; }
+
+/* Accessibility: reduce extreme blur for reduced-motion users */
+@media (prefers-reduced-motion: reduce){
+  .gg-glass, #chrome-container { backdrop-filter: none; -webkit-backdrop-filter: none; }
+}
+
+/* Small helper to center and style standalone cards */
+.gg-center-card{ padding: 20px; max-width: 1200px; margin: 0 auto; }

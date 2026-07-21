@@ -39,6 +39,9 @@ const downloadItems = new Map();
 let bookmarksStorageSnapshot = null;
 let parsedBookmarks = [];
 let aiSummaryRequestGeneration = 0;
+let aiChatRequestGeneration = 0;
+let aiChatMessages = [];
+let aiChatBusy = false;
 
 const SEARCH_ENGINES = [
   { id: 'google', label: 'Google', searchUrl: 'https://www.google.com/search?q=', homeUrl: 'https://www.google.com/' },
@@ -587,6 +590,9 @@ function renderRamLimitControl() {
   slider.step = 1024; // 1 GB increments
   slider.value = customLimitMb > 0 ? customLimitMb : Math.floor(totalMemoryMb / 2);
   sliderValue.textContent = formatMemoryNumber(slider.value / 1024) + ' GB';
+  const sliderSpan = Math.max(1, Number(slider.max) - Number(slider.min));
+  const sliderProgress = Math.min(100, Math.max(0, ((Number(slider.value) - Number(slider.min)) / sliderSpan) * 100));
+  slider.style.setProperty('--ram-progress', `${sliderProgress}%`);
 
   // Show/hide slider based on mode
   sliderRow.style.display = ramLimitSettings.mode === 'custom' ? 'flex' : 'none';
@@ -596,6 +602,7 @@ function renderMemoryStatus() {
   if (settingsSidebar && !isPanelInitialized(settingsSidebar)) return;
   const usageEl = document.getElementById('memory-usage-status');
   const unloadedEl = document.getElementById('memory-unloaded-status');
+  const meterFill = document.getElementById('memory-meter-fill');
   if (!usageEl || !unloadedEl) return;
 
   if (!memoryStatus || memoryStatus.supported === false || !Number.isFinite(memoryStatus.usedMb)) {
@@ -615,6 +622,14 @@ function renderMemoryStatus() {
     ? Math.max(0, Math.floor(memoryStatus.unloadedTabCount))
     : 0;
   unloadedEl.textContent = t(count === 1 ? 'settings.ramUnloadedTab' : 'settings.ramUnloadedTabs', { count });
+  if (meterFill) {
+    const usedMb = Number(memoryStatus && memoryStatus.usedMb);
+    const limitMb = Number(memoryStatus && memoryStatus.limitMb);
+    const percent = Number.isFinite(usedMb) && Number.isFinite(limitMb) && limitMb > 0
+      ? Math.min(100, Math.max(0, (usedMb / limitMb) * 100))
+      : 0;
+    meterFill.style.width = `${percent}%`;
+  }
   const card = usageEl.closest('.memory-status-card');
   if (card) card.classList.toggle('over-limit', !!(memoryStatus && memoryStatus.overLimit));
 }
@@ -752,7 +767,25 @@ function showReaderToast(message) {
 
 function renderAiSummaryLoading() {
   if (!aiSummaryContent) return;
-  aiSummaryContent.innerHTML = `<div class="ai-summary-card ai-summary-muted">${t('aiSummary.loading')}</div>`;
+  const state = aiModelStatus && aiModelStatus.state ? aiModelStatus.state : 'missing';
+  const message = state === 'downloading' || state === 'missing'
+    ? t('aiSummary.downloading')
+    : t('aiSummary.generating');
+  aiSummaryContent.innerHTML = `<div class="ai-summary-card ai-summary-muted"><p>${message}</p><button type="button" class="settings-btn settings-btn-secondary ai-summary-cancel" data-i18n="aiSummary.cancel">${t('aiSummary.cancel')}</button></div>`;
+  const cancelButton = aiSummaryContent.querySelector('.ai-summary-cancel');
+  if (cancelButton) {
+    cancelButton.onclick = async () => {
+      invalidateAiSummaryRequest();
+      try {
+        await ipcRenderer.invoke('cancel-page-summary');
+      } catch (_error) {
+        // The request may already have completed or been invalidated by navigation.
+      }
+      if (aiSummaryContent) {
+        aiSummaryContent.innerHTML = `<div class="ai-summary-card ai-summary-muted">${t('aiSummary.cancelled')}</div>`;
+      }
+    };
+  }
 }
 
 function renderAiSummary(summary) {
@@ -785,10 +818,89 @@ function renderAiSummary(summary) {
   paragraph.textContent = summary.summary || '';
   card.appendChild(paragraph);
   aiSummaryContent.appendChild(card);
+  aiChatMessages = [];
+  aiChatBusy = false;
+  renderAiChatInterface();
+}
+
+function renderAiChatInterface() {
+  if (!aiSummaryContent) return;
+  const previous = aiSummaryContent.querySelector('.ai-chat-section');
+  if (previous) previous.remove();
+  const section = document.createElement('section');
+  section.className = 'ai-chat-section';
+
+  const title = document.createElement('h3');
+  title.textContent = t('aiSummary.chatTitle');
+  section.appendChild(title);
+
+  const messages = document.createElement('div');
+  messages.className = 'ai-chat-messages';
+  aiChatMessages.forEach((message) => {
+    const bubble = document.createElement('div');
+    bubble.className = `ai-chat-message ${message.role}`;
+    bubble.textContent = message.text;
+    messages.appendChild(bubble);
+  });
+  section.appendChild(messages);
+
+  const form = document.createElement('form');
+  form.className = 'ai-chat-form';
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.maxLength = 1000;
+  input.autocomplete = 'off';
+  input.placeholder = t('aiSummary.chatPlaceholder');
+  input.disabled = aiChatBusy;
+  const send = document.createElement('button');
+  send.type = 'submit';
+  send.className = 'settings-btn settings-btn-primary';
+  send.textContent = aiChatBusy ? t('aiSummary.chatThinking') : t('aiSummary.chatSend');
+  send.disabled = aiChatBusy;
+  form.append(input, send);
+  form.onsubmit = async (event) => {
+    event.preventDefault();
+    const question = input.value.trim();
+    if (!question || aiChatBusy) return;
+    aiChatMessages.push({ role: 'user', text: question });
+    aiChatBusy = true;
+    const requestGeneration = ++aiChatRequestGeneration;
+    const requestedTabId = activeTabId;
+    const requestedProfile = activeProfile;
+    renderAiChatInterface();
+    try {
+      const result = await ipcRenderer.invoke('chat-with-active-page', question);
+      if (
+        requestGeneration !== aiChatRequestGeneration ||
+        requestedTabId !== activeTabId ||
+        requestedProfile !== activeProfile ||
+        !aiSummarySidebar.classList.contains('open')
+      ) return;
+      aiChatMessages.push({
+        role: 'assistant',
+        text: result && result.ok ? result.answer : (result && result.reason) || t('aiSummary.chatUnavailable')
+      });
+    } catch (error) {
+      if (requestGeneration !== aiChatRequestGeneration) return;
+      aiChatMessages.push({ role: 'assistant', text: error && error.message ? error.message : t('aiSummary.chatUnavailable') });
+    } finally {
+      if (requestGeneration === aiChatRequestGeneration) {
+        aiChatBusy = false;
+        renderAiChatInterface();
+      }
+    }
+  };
+  section.appendChild(form);
+  aiSummaryContent.appendChild(section);
+  if (!aiChatBusy) input.focus();
 }
 
 function invalidateAiSummaryRequest(options = {}) {
   aiSummaryRequestGeneration += 1;
+  aiChatRequestGeneration += 1;
+  aiChatBusy = false;
+  void ipcRenderer.invoke('cancel-page-summary').catch(() => {});
+  void ipcRenderer.invoke('cancel-page-chat').catch(() => {});
   if (options.closePanel && aiSummarySidebar && aiSummarySidebar.classList.contains('open')) {
     closePanels();
   }
@@ -1608,6 +1720,9 @@ function initSettings(initialSettings = {}, initialMemoryStatus = null) {
       if (sliderValue) {
         sliderValue.textContent = formatMemoryNumber(event.target.value / 1024) + ' GB';
       }
+      const span = Math.max(1, Number(event.target.max) - Number(event.target.min));
+      const progress = Math.min(100, Math.max(0, ((Number(event.target.value) - Number(event.target.min)) / span) * 100));
+      event.target.style.setProperty('--ram-progress', `${progress}%`);
     };
     ramLimitSlider.onchange = async (event) => {
       const customRamLimitMb = parseInt(event.target.value, 10);
@@ -1677,6 +1792,9 @@ ipcRenderer.on('tab-groups-changed', (e, payload) => {
 ipcRenderer.on('active-tab-changed', (e, id) => {
   invalidateAiSummaryRequest({ closePanel: true });
   setActiveTab(id);
+});
+ipcRenderer.on('open-ai-summary', () => {
+  if (aiSummaryBtn && typeof aiSummaryBtn.click === 'function') aiSummaryBtn.click();
 });
 ipcRenderer.on('view-event', (e, d) => {
   if (d.type === 'did-start-navigation' && d.tabId === activeTabId) {

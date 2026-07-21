@@ -3837,6 +3837,7 @@ async function ensureWindowBootstrapState(win) {
     browserSettings: getBrowserSettings(),
     memoryStatus: { ...memoryStatus },
     managedExtensionStatus: win.incognitoWindow ? null : getManagedExtensionStatus(pIdx),
+    aiModelStatus: await getAiSummaryModule().getAiModelStatus(),
     updaterState: getUpdaterState(),
     version: app.getVersion(),
     startupPerformance: {
@@ -4052,6 +4053,20 @@ function createV(id, url, inc, pIdx, options = {}) {
     if (extensionMenuItems.length) {
       if (m.items.length) m.append(new MenuItem({ type: "separator" }));
       extensionMenuItems.forEach((item) => m.append(item));
+      m.append(new MenuItem({ type: "separator" }));
+    }
+    const currentPageUrl = v.webContents.getURL();
+    if (isHttpUrl(currentPageUrl)) {
+      m.append(
+        new MenuItem({
+          label: localization.t(getCurrentLocale(), "aiSummary.contextMenu"),
+          click: () => {
+            if (!win || win.isDestroyed() || !win.webContents || win.webContents.isDestroyed()) return;
+            if (getActiveT(pIdx) !== id) switchT(id, pIdx);
+            win.webContents.send("open-ai-summary");
+          }
+        })
+      );
       m.append(new MenuItem({ type: "separator" }));
     }
     // Validate URL to prevent javascript: and data: URL attacks
@@ -4404,10 +4419,59 @@ ipcMain.handle("summarize-active-page", withTrustedSender(async (e) => {
     };
   }
 
-  return getAiSummaryModule().summarizeSnapshot(snapshot);
+  const result = await getAiSummaryModule().summarizeSnapshot(snapshot);
+  const stillCurrent =
+    getSenderWindow(e.sender) === w &&
+    getActiveT(profileIndex) === tabId &&
+    getSourceViewForTab(tabId) === sourceView &&
+    getCommittedReaderUrl(sourceView.webContents) === committedUrl;
+  return stillCurrent
+    ? result
+    : { ok: false, reason: "The summary was cancelled because the active page changed." };
 }, { ok: false, reason: "Summary is unavailable." }));
 
+ipcMain.handle("chat-with-active-page", withTrustedSender(async (e, question) => {
+  const w = getSenderWindow(e.sender);
+  if (!w) return { ok: false, reason: "No active browser window is available." };
+  const profileIndex = w.profileIndex;
+  const tabId = getActiveT(profileIndex);
+  const sourceView = tabId ? getSourceViewForTab(tabId) : null;
+  if (!tabId || !sourceView || !sourceView.webContents || sourceView.webContents.isDestroyed()) {
+    return { ok: false, reason: "This tab is not ready for page chat." };
+  }
+  const committedUrl = getCommittedReaderUrl(sourceView.webContents);
+  if (!committedUrl) return { ok: false, reason: "Page chat works on readable web pages." };
+
+  const snapshot = await resolveSummarySnapshot(profileIndex, tabId);
+  if (
+    getSenderWindow(e.sender) !== w ||
+    getActiveT(profileIndex) !== tabId ||
+    getSourceViewForTab(tabId) !== sourceView ||
+    getCommittedReaderUrl(sourceView.webContents) !== committedUrl ||
+    !snapshot || snapshot.sourceUrl !== committedUrl
+  ) {
+    return { ok: false, reason: "The answer was cancelled because the active page changed." };
+  }
+  if (!snapshot.readable) {
+    return { ok: false, reason: snapshot.reason || "Orion could not extract readable page text." };
+  }
+
+  const result = await getAiSummaryModule().answerSnapshot(snapshot, question);
+  const stillCurrent =
+    getSenderWindow(e.sender) === w &&
+    getActiveT(profileIndex) === tabId &&
+    getSourceViewForTab(tabId) === sourceView &&
+    getCommittedReaderUrl(sourceView.webContents) === committedUrl;
+  return stillCurrent
+    ? result
+    : { ok: false, reason: "The answer was cancelled because the active page changed." };
+}, { ok: false, reason: "Page chat is unavailable." }));
+
 ipcMain.handle("cancel-page-summary", withTrustedSender(() => {
+  return getAiSummaryModule().cancelPageSummary();
+}, null));
+
+ipcMain.handle("cancel-page-chat", withTrustedSender(() => {
   return getAiSummaryModule().cancelPageSummary();
 }, null));
 

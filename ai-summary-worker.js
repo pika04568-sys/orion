@@ -29,7 +29,11 @@ process.parentPort.on("message", async (event) => {
       break;
 
     case "summarize":
-      handleSummarize(msg.prompt, msg.cacheDir, msg.maxNewTokens, msg.timeoutMs);
+      handleGenerate(msg.prompt, msg.cacheDir, msg.maxNewTokens, msg.timeoutMs, "summary-result");
+      break;
+
+    case "answer":
+      handleGenerate(msg.prompt, msg.cacheDir, msg.maxNewTokens, msg.timeoutMs, "answer-result");
       break;
 
     case "cancel":
@@ -113,7 +117,8 @@ async function handleInit(cacheDir) {
   }
 }
 
-async function handleSummarize(prompt, cacheDir, maxNewTokens = 120, timeoutMs = 30000) {
+async function handleGenerate(prompt, cacheDir, maxNewTokens = 120, timeoutMs = 30000, resultType = "summary-result") {
+  let timeout = null;
   try {
     if (!generator) {
       log("Generator not ready, initializing now");
@@ -127,7 +132,7 @@ async function handleSummarize(prompt, cacheDir, maxNewTokens = 120, timeoutMs =
     const signal = currentAbortController.signal;
 
     // Build-in generation timeout
-    const timeout = setTimeout(() => {
+    timeout = setTimeout(() => {
       if (currentAbortController) {
         log("Generation timed out in worker, aborting");
         currentAbortController.abort();
@@ -144,6 +149,7 @@ async function handleSummarize(prompt, cacheDir, maxNewTokens = 120, timeoutMs =
     });
 
     clearTimeout(timeout);
+    timeout = null;
     currentAbortController = null;
 
     if (!result || !result[0] || typeof result[0].generated_text !== "string") {
@@ -167,7 +173,7 @@ async function handleSummarize(prompt, cacheDir, maxNewTokens = 120, timeoutMs =
 
     log("Generation completed successfully");
     process.parentPort.postMessage({
-      type: "summary-result",
+      type: resultType,
       summary: outputText
     });
   } catch (error) {
@@ -177,6 +183,7 @@ async function handleSummarize(prompt, cacheDir, maxNewTokens = 120, timeoutMs =
       error: error.name === "AbortError" ? "cancelled" : error.message
     });
   } finally {
+    if (timeout) clearTimeout(timeout);
     currentAbortController = null;
   }
 }
