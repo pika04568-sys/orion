@@ -52,6 +52,7 @@
     "get-ai-model-status",
     "cancel-ai-model-download",
     "remove-ai-model",
+    "redownload-ai-model",
     "switch-profile",
     "switch-tab",
     "toggle-tab-group-collapsed",
@@ -342,8 +343,24 @@
   function resolveBrowserShortcutAction(input = {}) {
     if (!input || input.type !== "keyDown") return null;
 
-    const key = typeof input.key === "string" ? input.key.toLowerCase() : "";
     const code = typeof input.code === "string" ? input.code.toLowerCase() : "";
+    const reportedKey = typeof input.key === "string" ? input.key.toLowerCase() : "";
+    const codeKey = code.match(/^key([a-z])$/)?.[1]
+      || code.match(/^(?:digit|numpad)([1-9])$/)?.[1]
+      || ({
+        arrowleft: "arrowleft",
+        arrowright: "arrowright",
+        pageup: "pageup",
+        pagedown: "pagedown",
+        tab: "tab",
+        comma: ",",
+        bracketleft: "[",
+        bracketright: "]",
+        f5: "f5"
+      }[code] || "");
+    const key = !reportedKey || reportedKey === "unidentified" || reportedKey === "dead"
+      ? codeKey
+      : reportedKey;
     const primary = !!(input.control || input.meta);
     const shift = !!input.shift;
     const alt = !!input.alt;

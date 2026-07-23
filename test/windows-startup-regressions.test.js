@@ -480,3 +480,18 @@ test("browser shortcut resolver maps tab, reload, and panel shortcuts", () => {
     "bookmark-page"
   );
 });
+
+test("browser shortcut resolver falls back to physical key codes", () => {
+  assert.equal(
+    appUtils.resolveBrowserShortcutAction({ type: "keyDown", meta: true, key: "Unidentified", code: "KeyL" }),
+    "focus-address-bar"
+  );
+  assert.equal(
+    appUtils.resolveBrowserShortcutAction({ type: "keyDown", control: true, key: "Dead", code: "Digit2" }),
+    "switch-tab-2"
+  );
+  assert.equal(
+    appUtils.resolveBrowserShortcutAction({ type: "keyDown", control: true, key: "Unidentified", code: "Comma" }),
+    "show-settings"
+  );
+});

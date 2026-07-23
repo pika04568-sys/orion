@@ -1,12 +1,13 @@
 /**
  * AI Summary Utility Process Worker
- * Runs Qwen3 0.6B model download and inference.
+ * Runs the selected local ONNX model for download and inference.
  */
 const { pipeline, env } = require("@huggingface/transformers");
 
 let generator = null;
 let currentAbortController = null;
 let modelLoadingPromise = null;
+let modelConfig = null;
 
 // Send logs to parent port
 function log(msg, err) {
@@ -25,7 +26,7 @@ process.parentPort.on("message", async (event) => {
   switch (msg.type) {
     case "init":
     case "download":
-      handleInit(msg.cacheDir);
+      handleInit(msg.cacheDir, msg.model);
       break;
 
     case "summarize":
@@ -45,7 +46,7 @@ process.parentPort.on("message", async (event) => {
   }
 });
 
-async function handleInit(cacheDir) {
+async function handleInit(cacheDir, nextModelConfig = modelConfig) {
   try {
     if (modelLoadingPromise) {
       await modelLoadingPromise;
@@ -57,14 +58,18 @@ async function handleInit(cacheDir) {
       // Do not use local models only, since we need to download it
       env.allowLocalModels = false;
 
-      const modelId = "onnx-community/Qwen3-0.6B-Instruct-ONNX";
-      const revision = "54250909aca286a05b9d013c8af7a21859ee6ead";
+      modelConfig = nextModelConfig || modelConfig;
+      if (!modelConfig || !modelConfig.modelId || !modelConfig.revision) {
+        throw new Error("Missing AI model configuration.");
+      }
+      const modelId = modelConfig.modelId;
+      const revision = modelConfig.revision;
 
       log(`Starting model loading for ${modelId} (revision: ${revision})`);
 
       const options = {
         revision,
-        dtype: "q4",
+        dtype: modelConfig.dtype || "q4",
         progress_callback: (progressEvent) => {
           if (progressEvent.status === "downloading" || progressEvent.status === "done" || progressEvent.status === "ready") {
             process.parentPort.postMessage({
@@ -122,7 +127,7 @@ async function handleGenerate(prompt, cacheDir, maxNewTokens = 120, timeoutMs = 
   try {
     if (!generator) {
       log("Generator not ready, initializing now");
-      await handleInit(cacheDir);
+      await handleInit(cacheDir, modelConfig);
       if (!generator) {
         throw new Error("Model is not initialized and failed to load.");
       }

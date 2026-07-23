@@ -33,6 +33,7 @@ const htmlEntries = [
 ];
 
 const lazyMainServiceEntries = [
+  "ai-models.js",
   "ai-summary.js",
   "ai-summary-worker.js",
   "extension-manager.js",

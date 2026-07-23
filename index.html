@@ -3691,6 +3691,14 @@
                 <h3 data-i18n="settings.aiTitle">On-device AI</h3>
                 <p class="settings-subtitle" data-i18n="settings.aiSubtitle">Manage the local language model used for page summaries.</p>
                 <div class="settings-stack">
+                    <div class="settings-row">
+                        <div class="settings-label" data-i18n="settings.aiModelLabel">AI model</div>
+                        <select id="ai-model-select" aria-label="AI model" data-i18n-aria-label="settings.aiModelLabel">
+                            <option value="standard" data-i18n="settings.aiModelStandard">Standard (Qwen3)</option>
+                            <option value="lite" data-i18n="settings.aiModelLite">Lite (SmolLM2 360M)</option>
+                        </select>
+                    </div>
+                    <div id="ai-model-options-status" class="settings-stack" aria-live="polite"></div>
                     <div class="memory-status-card">
                         <div class="memory-status-main">
                             <span data-i18n="settings.aiModelId">Model</span>

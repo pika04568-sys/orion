@@ -4,12 +4,19 @@
  */
 const fs = require("node:fs/promises");
 const path = require("node:path");
+const {
+  DEFAULT_MODEL_KEY,
+  MODEL_DEFINITIONS,
+  getModelDefinition,
+  normalizeModelKey
+} = require("./ai-models");
 
 function getElectronApp() {
   return require("electron").app;
 }
 
 let worker = null;
+let workerModelKey = null;
 let currentResolve = null;
 let currentReject = null;
 let activeRequest = null;
@@ -17,19 +24,36 @@ let idleTimeout = null;
 
 const requestQueue = [];
 let processing = false;
+let selectedModelKey = DEFAULT_MODEL_KEY;
 const MAX_PROMPT_CHARS = 12000;
 const MAX_GENERATION_TOKENS = 160;
 const GENERATION_TIMEOUT_MS = 30000;
 
-// Global model status
-const modelStatus = {
-  state: "missing", // "missing" | "downloading" | "ready" | "error"
-  modelId: "onnx-community/Qwen3-0.6B-Instruct-ONNX",
+const modelStatuses = Object.fromEntries(Object.keys(MODEL_DEFINITIONS).map((key) => [key, {
+  key,
+  state: "missing",
+  modelId: MODEL_DEFINITIONS[key].modelId,
   progress: 0,
   loadedBytes: 0,
   totalBytes: 0,
   error: null
-};
+}]));
+
+function getSelectedModel() {
+  return getModelDefinition(selectedModelKey);
+}
+
+function getSelectedStatus() {
+  return modelStatuses[selectedModelKey];
+}
+
+function getPublicStatus() {
+  return {
+    ...getSelectedStatus(),
+    selectedModelKey,
+    models: Object.values(modelStatuses).map((status) => ({ ...status }))
+  };
+}
 
 function buildSummaryResult(snapshot, summary, mode, reasonText) {
   return {
@@ -60,7 +84,7 @@ function emitStatusChanged() {
   const windows = BrowserWindow.getAllWindows();
   for (const win of windows) {
     if (win.webContents && !win.webContents.isDestroyed()) {
-      win.webContents.send("ai-model-status-changed", { ...modelStatus });
+      win.webContents.send("ai-model-status-changed", getPublicStatus());
     }
   }
 }
@@ -70,7 +94,7 @@ function resetIdleTimeout() {
   if (idleTimeout) {
     clearTimeout(idleTimeout);
   }
-  if (modelStatus.state === "downloading") return;
+  if (getSelectedStatus().state === "downloading") return;
 
   idleTimeout = setTimeout(() => {
     if (worker) {
@@ -82,7 +106,15 @@ function resetIdleTimeout() {
 }
 
 // Spawn the utility process
-function getWorker(cacheDir) {
+function getWorker(cacheDir, modelKey = selectedModelKey) {
+  if (worker && workerModelKey !== modelKey) {
+    logMessage(`Switching worker from ${workerModelKey} to ${modelKey}`);
+    if (currentReject) currentReject(new Error("AI model changed."));
+    worker.kill();
+    worker = null;
+    workerModelKey = null;
+    clearActiveRequest();
+  }
   if (worker) {
     resetIdleTimeout();
     return worker;
@@ -93,12 +125,15 @@ function getWorker(cacheDir) {
   
   // Utility worker script is compiled to the same directory (.build) as main.cjs
   const workerPath = path.join(__dirname, "ai-summary-worker.js");
-  worker = utilityProcess.fork(workerPath);
+  const instance = utilityProcess.fork(workerPath);
+  worker = instance;
+  workerModelKey = modelKey;
 
   worker.on("message", (event) => {
     const msg = event.data;
     if (!msg || typeof msg !== "object") return;
 
+    if (worker !== instance) return;
     resetIdleTimeout();
 
     switch (msg.type) {
@@ -110,21 +145,25 @@ function getWorker(cacheDir) {
         handleWorkerDownloadProgress(msg);
         break;
 
-      case "ready":
-        modelStatus.state = "ready";
-        modelStatus.progress = 100;
-        modelStatus.error = null;
+      case "ready": {
+        const status = modelStatuses[modelKey];
+        status.state = "ready";
+        status.progress = 100;
+        status.error = null;
         emitStatusChanged();
         break;
+      }
 
-      case "error":
-        modelStatus.state = "error";
-        modelStatus.error = msg.error;
+      case "error": {
+        const errorStatus = modelStatuses[modelKey];
+        errorStatus.state = "error";
+        errorStatus.error = msg.error;
         emitStatusChanged();
         if (currentReject) {
           currentReject(new Error(msg.error));
         }
         break;
+      }
 
       case "summary-result":
         if (currentResolve) {
@@ -150,11 +189,13 @@ function getWorker(cacheDir) {
   });
 
   worker.on("exit", (code) => {
+    if (worker !== instance) return;
     logMessage(`Worker exited with code ${code}`);
     worker = null;
-    if (modelStatus.state === "downloading") {
-      modelStatus.state = "error";
-      modelStatus.error = "Model download was interrupted.";
+    workerModelKey = null;
+    if (getSelectedStatus().state === "downloading") {
+      getSelectedStatus().state = "error";
+      getSelectedStatus().error = "Model download was interrupted.";
       emitStatusChanged();
     }
     if (currentReject) {
@@ -163,7 +204,8 @@ function getWorker(cacheDir) {
     clearActiveRequest();
   });
 
-  worker.postMessage({ type: "init", cacheDir });
+  fileProgress.clear();
+  worker.postMessage({ type: "init", cacheDir, model: getModelDefinition(modelKey) });
   resetIdleTimeout();
 
   return worker;
@@ -183,15 +225,16 @@ function handleWorkerDownloadProgress(msg) {
   }
 
   // Fallback to approximate total size if files don't report total size yet
-  if (totalBytes < 900000000) {
-    totalBytes = 997000000;
+  if (totalBytes < 250000000) {
+    totalBytes = getModelDefinition(workerModelKey || selectedModelKey).minimumBytes;
   }
 
-  modelStatus.state = "downloading";
-  modelStatus.loadedBytes = totalLoaded;
-  modelStatus.totalBytes = totalBytes;
-  modelStatus.progress = Math.min(99, Math.round((totalLoaded / totalBytes) * 100));
-  modelStatus.error = null;
+  const status = modelStatuses[workerModelKey || selectedModelKey];
+  status.state = "downloading";
+  status.loadedBytes = totalLoaded;
+  status.totalBytes = totalBytes;
+  status.progress = Math.min(99, Math.round((totalLoaded / totalBytes) * 100));
+  status.error = null;
 
   emitStatusChanged();
 }
@@ -201,17 +244,17 @@ function clearActiveRequest() {
   currentReject = null;
 }
 
-async function findFileNamed(dir, fileName) {
+async function findFileNamed(dir, fileName, minimumBytes) {
   try {
     const entries = await fs.readdir(dir, { withFileTypes: true });
     for (const entry of entries) {
       const fullPath = path.join(dir, entry.name);
       if (entry.isDirectory()) {
-        const found = await findFileNamed(fullPath, fileName);
+        const found = await findFileNamed(fullPath, fileName, minimumBytes);
         if (found) return true;
       } else if (entry.isFile() && entry.name === fileName) {
         const stat = await fs.stat(fullPath);
-        if (stat.size > 900000000) { // Check size is >900MB
+        if (stat.size > minimumBytes) {
           return true;
         }
       }
@@ -220,11 +263,12 @@ async function findFileNamed(dir, fileName) {
   return false;
 }
 
-async function checkModelDownloaded(cacheDir) {
-  const modelDir = path.join(cacheDir, "models--onnx-community--Qwen3-0.6B-Instruct-ONNX");
+async function checkModelDownloaded(cacheDir, modelKey = selectedModelKey) {
+  const model = getModelDefinition(modelKey);
+  const modelDir = path.join(cacheDir, model.cacheDirectory);
   try {
     await fs.access(modelDir);
-    return await findFileNamed(modelDir, "model_q4.onnx");
+    return await findFileNamed(modelDir, model.modelFile, model.minimumBytes);
   } catch (e) {
     return false;
   }
@@ -233,46 +277,82 @@ async function checkModelDownloaded(cacheDir) {
 // Public API
 async function getAiModelStatus() {
   const cacheDir = path.join(getElectronApp().getPath("userData"), "ai-models");
-  const isDownloaded = await checkModelDownloaded(cacheDir);
-  if (isDownloaded) {
-    modelStatus.state = "ready";
-    modelStatus.progress = 100;
-    modelStatus.error = null;
-  } else if (modelStatus.state === "ready") {
-    modelStatus.state = "missing";
-    modelStatus.progress = 0;
+  await Promise.all(Object.keys(MODEL_DEFINITIONS).map(async (key) => {
+    const status = modelStatuses[key];
+    const isDownloaded = await checkModelDownloaded(cacheDir, key);
+    if (isDownloaded) {
+      status.state = "ready";
+      status.progress = 100;
+      status.error = null;
+    } else if (status.state === "ready") {
+      status.state = "missing";
+      status.progress = 0;
+    }
+  }));
+  if (workerModelKey && workerModelKey !== selectedModelKey) {
+    getWorker(cacheDir, selectedModelKey);
   }
-  return { ...modelStatus };
+  return getPublicStatus();
 }
 
-async function cancelAiModelDownload() {
+async function cancelAiModelDownload(modelKey = selectedModelKey, removeFiles = true) {
+  const normalizedKey = normalizeModelKey(modelKey);
   logMessage("Cancelling model download and cleaning cache folder");
-  if (worker) {
+  if (worker && workerModelKey === normalizedKey) {
+    if (currentReject) currentReject(new Error("AI model download cancelled."));
     worker.kill();
     worker = null;
+    workerModelKey = null;
   }
 
-  modelStatus.state = "missing";
-  modelStatus.progress = 0;
-  modelStatus.loadedBytes = 0;
-  modelStatus.totalBytes = 0;
-  modelStatus.error = null;
+  const status = modelStatuses[normalizedKey];
+  status.state = "missing";
+  status.progress = 0;
+  status.loadedBytes = 0;
+  status.totalBytes = 0;
+  status.error = null;
   fileProgress.clear();
   emitStatusChanged();
 
+  if (!removeFiles) return getPublicStatus();
   const cacheDir = path.join(getElectronApp().getPath("userData"), "ai-models");
-  const modelDir = path.join(cacheDir, "models--onnx-community--Qwen3-0.6B-Instruct-ONNX");
+  const modelDir = path.join(cacheDir, getModelDefinition(normalizedKey).cacheDirectory);
   try {
     await fs.rm(modelDir, { recursive: true, force: true });
     logMessage("Cleaned up partial model directory successfully");
   } catch (e) {
     logMessage("Error cleaning model directory", e);
   }
+  return getPublicStatus();
 }
 
-async function removeAiModel() {
+async function removeAiModel(modelKey = selectedModelKey) {
   logMessage("Removing model files");
-  await cancelAiModelDownload();
+  await cancelAiModelDownload(modelKey);
+}
+
+async function redownloadAiModel(modelKey = selectedModelKey) {
+  const normalizedKey = normalizeModelKey(modelKey);
+  await cancelAiModelDownload(normalizedKey, true);
+  const cacheDir = path.join(getElectronApp().getPath("userData"), "ai-models");
+  getWorker(cacheDir, normalizedKey);
+  return getPublicStatus();
+}
+
+function setAiModelKey(modelKey) {
+  const nextKey = normalizeModelKey(modelKey);
+  if (nextKey === selectedModelKey) return getPublicStatus();
+  if (worker) {
+    if (currentReject) currentReject(new Error("AI model changed."));
+    worker.kill();
+    worker = null;
+    workerModelKey = null;
+  }
+  clearActiveRequest();
+  fileProgress.clear();
+  selectedModelKey = nextKey;
+  emitStatusChanged();
+  return getPublicStatus();
 }
 
 async function summarizeSnapshot(snapshot) {
@@ -280,14 +360,14 @@ async function summarizeSnapshot(snapshot) {
   const isDownloaded = await checkModelDownloaded(cacheDir);
 
   if (isDownloaded) {
-    modelStatus.state = "ready";
-    modelStatus.progress = 100;
+    getSelectedStatus().state = "ready";
+    getSelectedStatus().progress = 100;
   }
 
-  if (modelStatus.state !== "ready") {
-    if (modelStatus.state !== "downloading") {
+  if (getSelectedStatus().state !== "ready") {
+    if (getSelectedStatus().state !== "downloading") {
       logMessage("Model not ready. Initiating download automatically.");
-      getWorker(cacheDir); // Spawns worker and starts download
+      getWorker(cacheDir, selectedModelKey); // Spawns worker and starts download
     }
     logMessage("Model is downloading. Returning deterministic fallback summary.");
     return runFallbackSummary(snapshot, "Model is downloading.");
@@ -305,11 +385,11 @@ async function answerSnapshot(snapshot, question) {
   const cacheDir = path.join(getElectronApp().getPath("userData"), "ai-models");
   const isDownloaded = await checkModelDownloaded(cacheDir);
   if (isDownloaded) {
-    modelStatus.state = "ready";
-    modelStatus.progress = 100;
+    getSelectedStatus().state = "ready";
+    getSelectedStatus().progress = 100;
   }
-  if (modelStatus.state !== "ready") {
-    if (modelStatus.state !== "downloading") getWorker(cacheDir);
+  if (getSelectedStatus().state !== "ready") {
+    if (getSelectedStatus().state !== "downloading") getWorker(cacheDir, selectedModelKey);
     return { ok: false, reason: "The local model is still downloading. Try again when it is ready." };
   }
 
@@ -348,7 +428,7 @@ async function processNextRequest() {
   const cacheDir = path.join(getElectronApp().getPath("userData"), "ai-models");
 
   try {
-    const w = getWorker(cacheDir);
+    const w = getWorker(cacheDir, selectedModelKey);
     const prompt = req.kind === "answer"
       ? buildChatPrompt(req.snapshot, req.snapshot.question)
       : buildMultilingualPrompt(req.snapshot);
@@ -711,9 +791,11 @@ function runFallbackSummary(snapshot, reasonText) {
 }
 
 module.exports = {
+  setAiModelKey,
   getAiModelStatus,
   cancelAiModelDownload,
   removeAiModel,
+  redownloadAiModel,
   summarizeSnapshot,
   answerSnapshot,
   cancelPageSummary,

@@ -22,12 +22,14 @@ let managedExtensionBody = null;
 let managedExtensionError = null;
 let managedExtensionRetry = null;
 let aiModelStatusEl = null;
+let aiModelSelect = null;
+let aiModelOptionsStatus = null;
 let aiModelProgressContainer = null;
 let aiModelProgressBar = null;
 let aiModelProgressText = null;
 let removeAiModelBtn = null;
 let redownloadAiModelBtn = null;
-let aiModelStatus = { state: 'missing', modelId: '', progress: 0, loadedBytes: 0, totalBytes: 0, error: null };
+let aiModelStatus = { state: 'missing', modelId: '', selectedModelKey: 'standard', models: [], progress: 0, loadedBytes: 0, totalBytes: 0, error: null };
 let tabStripRenderSignature = '';
 let metricsFrame = null;
 let lastChromeMetrics = { top: null, left: null };
@@ -667,6 +669,36 @@ function initializeExtensionToolbarOnce() {
 
 function renderAiModelStatus() {
   if (!aiModelStatusEl) return;
+  const selectedKey = aiModelStatus.selectedModelKey || 'standard';
+  const statuses = Array.isArray(aiModelStatus.models) && aiModelStatus.models.length
+    ? aiModelStatus.models
+    : [{ ...aiModelStatus, key: selectedKey }];
+  const statusLabel = (status) => status.state === 'ready'
+    ? t('settings.aiReady')
+    : status.state === 'downloading'
+      ? t('aiModel.status.downloading', { progress: Math.round(Number(status.progress) || 0) })
+      : status.state === 'error'
+        ? (status.error || t('settings.aiError'))
+        : t('settings.aiMissing');
+  const escapeHtml = (value) => String(value == null ? '' : value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+  if (aiModelSelect) aiModelSelect.value = selectedKey;
+  if (aiModelOptionsStatus) {
+    aiModelOptionsStatus.innerHTML = statuses.map((status) => {
+      const labelKey = status.key === 'lite' ? 'settings.aiModelLite' : 'settings.aiModelStandard';
+      const selected = status.key === selectedKey;
+      return `<div class="memory-status-card" data-ai-model-status="${status.key}">
+        <div class="memory-status-main"><span>${escapeHtml(t(labelKey))}</span><strong>${escapeHtml(statusLabel(status))}</strong></div>
+        <div class="memory-status-detail">${escapeHtml(status.modelId || '')}${selected ? ` · ${escapeHtml(t('settings.aiModelSelected'))}` : ''}</div>
+      </div>`;
+    }).join('');
+  }
+  const selectedStatus = statuses.find((status) => status.key === selectedKey) || aiModelStatus;
+  aiModelStatus = { ...aiModelStatus, ...selectedStatus, selectedModelKey: selectedKey };
   const state = aiModelStatus && aiModelStatus.state ? aiModelStatus.state : 'missing';
   const statusText = state === 'ready'
     ? t('settings.aiReady')
@@ -1147,45 +1179,167 @@ function renderUpdaterState() {
   if (updateStatusEl) updateStatusEl.textContent = getUpdateStatusText(updaterState);
 }
 
+function showSettingsError(message, duration = 4000) {
+  let errorEl = document.getElementById('settings-error-toast');
+  if (!errorEl) {
+    errorEl = document.createElement('div');
+    errorEl.id = 'settings-error-toast';
+    errorEl.setAttribute('role', 'alert');
+    errorEl.setAttribute('aria-live', 'assertive');
+    errorEl.style.cssText = `
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      padding: 12px 20px;
+      background: #dc2626;
+      color: #fff;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 500;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+      z-index: 10000;
+      max-width: 320px;
+      opacity: 0;
+      transform: translateY(10px);
+      transition: opacity 0.2s, transform 0.2s;
+    `;
+    document.body.appendChild(errorEl);
+  }
+  errorEl.textContent = message;
+  errorEl.style.opacity = '1';
+  errorEl.style.transform = 'translateY(0)';
+
+  if (errorEl.hideTimeout) clearTimeout(errorEl.hideTimeout);
+  errorEl.hideTimeout = setTimeout(() => {
+    errorEl.style.opacity = '0';
+    errorEl.style.transform = 'translateY(10px)';
+  }, duration);
+}
+
+function showSettingsSuccess(message, duration = 2500) {
+  let successEl = document.getElementById('settings-success-toast');
+  if (!successEl) {
+    successEl = document.createElement('div');
+    successEl.id = 'settings-success-toast';
+    successEl.setAttribute('role', 'status');
+    successEl.setAttribute('aria-live', 'polite');
+    successEl.style.cssText = `
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      padding: 12px 20px;
+      background: #16a34a;
+      color: #fff;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 500;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+      z-index: 10000;
+      max-width: 320px;
+      opacity: 0;
+      transform: translateY(10px);
+      transition: opacity 0.2s, transform 0.2s;
+    `;
+    document.body.appendChild(successEl);
+  }
+  successEl.textContent = message;
+  successEl.style.opacity = '1';
+  successEl.style.transform = 'translateY(0)';
+
+  if (successEl.hideTimeout) clearTimeout(successEl.hideTimeout);
+  successEl.hideTimeout = setTimeout(() => {
+    successEl.style.opacity = '0';
+    successEl.style.transform = 'translateY(10px)';
+  }, duration);
+}
+
 function initializeSettingsPanelActions() {
   if (versionEl && bootstrapSnapshot.version) versionEl.textContent = `v${bootstrapSnapshot.version}`;
+  if (aiModelSelect) {
+    aiModelSelect.onchange = async () => {
+      const nextKey = aiModelSelect.value === 'lite' ? 'lite' : 'standard';
+      aiModelSelect.disabled = true;
+      try {
+        await ipcRenderer.invoke('set-browser-settings', { aiModelKey: nextKey });
+        aiModelStatus = { ...aiModelStatus, selectedModelKey: nextKey };
+        renderAiModelStatus();
+      } catch (error) {
+        showSettingsError(error && error.message ? error.message : t('settings.aiModelSelectionError'));
+        renderAiModelStatus();
+      } finally {
+        aiModelSelect.disabled = false;
+      }
+    };
+  }
   if (removeAiModelBtn) {
     removeAiModelBtn.onclick = async () => {
+      const originalText = removeAiModelBtn.textContent;
+      removeAiModelBtn.disabled = true;
+      removeAiModelBtn.textContent = t('settings.removingAiModel') || 'Removing...';
       try {
         await ipcRenderer.invoke('remove-ai-model');
+        showSettingsSuccess(t('settings.aiModelRemoved') || 'AI model removed successfully');
       } catch (error) {
         console.error(error);
+        showSettingsError(error && error.message ? error.message : (t('settings.aiModelRemoveError') || 'Failed to remove AI model'));
+      } finally {
+        removeAiModelBtn.disabled = false;
+        removeAiModelBtn.textContent = originalText;
       }
     };
   }
   if (redownloadAiModelBtn) {
     redownloadAiModelBtn.onclick = async () => {
+      const originalText = redownloadAiModelBtn.textContent;
+      redownloadAiModelBtn.disabled = true;
+      redownloadAiModelBtn.textContent = t('settings.redownloadingAiModel') || 'Starting...';
       try {
-        await ipcRenderer.invoke('cancel-ai-model-download');
+        await ipcRenderer.invoke('redownload-ai-model');
         await ipcRenderer.invoke('get-ai-model-status');
+        showSettingsSuccess(t('settings.aiModelRedownloading') || 'AI model download started');
       } catch (error) {
         console.error(error);
+        showSettingsError(error && error.message ? error.message : (t('settings.aiModelRedownloadError') || 'Failed to redownload AI model'));
+      } finally {
+        redownloadAiModelBtn.disabled = false;
+        redownloadAiModelBtn.textContent = originalText;
       }
     };
   }
   if (checkUpdatesBtn) {
     checkUpdatesBtn.onclick = async () => {
+      const originalText = checkUpdatesBtn.textContent;
+      checkUpdatesBtn.disabled = true;
+      checkUpdatesBtn.textContent = t('updates.checking') || 'Checking...';
       try {
         const nextState = await ipcRenderer.invoke('check-for-updates');
         if (nextState) updaterState = { ...updaterState, ...nextState };
+        if (nextState && nextState.state === 'available') {
+          showSettingsSuccess(t('updates.available') || 'Update available');
+        } else if (nextState && nextState.state === 'idle') {
+          showSettingsSuccess(t('updates.uptodate') || 'You\'re up to date');
+        }
       } catch (error) {
         updaterState = {
           state: 'error',
           message: error && error.message ? error.message : 'Unable to check for updates.'
         };
+        showSettingsError(updaterState.message);
+      } finally {
+        checkUpdatesBtn.disabled = false;
+        renderUpdaterState();
       }
-      renderUpdaterState();
     };
   }
   if (openExtensionsBtn) {
-    openExtensionsBtn.onclick = () => {
-      closePanels();
-      ipcRenderer.invoke('navigate-to', 'chrome://extensions');
+    openExtensionsBtn.onclick = async () => {
+      try {
+        closePanels();
+        await ipcRenderer.invoke('navigate-to', 'chrome://extensions');
+      } catch (error) {
+        console.error(error);
+        showSettingsError(t('settings.openExtensionsError') || 'Failed to open extensions page');
+      }
     };
   }
 }
@@ -1290,6 +1444,8 @@ function init(snapshot = {}) {
   managedExtensionError = document.getElementById('managed-extension-error');
   managedExtensionRetry = document.getElementById('managed-extension-retry');
   aiModelStatusEl = document.getElementById('ai-model-status');
+  aiModelSelect = document.getElementById('ai-model-select');
+  aiModelOptionsStatus = document.getElementById('ai-model-options-status');
   aiModelProgressContainer = document.getElementById('ai-model-progress-container');
   aiModelProgressBar = document.getElementById('ai-model-progress-bar');
   aiModelProgressText = document.getElementById('ai-model-progress-text');
@@ -1333,18 +1489,27 @@ function init(snapshot = {}) {
   if (managedExtensionRetry) {
     managedExtensionRetry.onclick = async () => {
       managedExtensionRetry.disabled = true;
+      const originalText = managedExtensionRetry.textContent;
+      managedExtensionRetry.textContent = t('managedExtension.retrying') || 'Retrying...';
       managedExtensionStatus = { ...(managedExtensionStatus || {}), state: 'installing', error: '' };
       renderManagedExtensionStatus();
       try {
         managedExtensionStatus = await ipcRenderer.invoke('retry-managed-extension-install');
+        if (managedExtensionStatus && managedExtensionStatus.state === 'ready') {
+          showSettingsSuccess(t('managedExtension.ready') || 'Extension installed successfully');
+        }
       } catch (error) {
         managedExtensionStatus = {
           ...(managedExtensionStatus || {}),
           state: 'error',
           error: error && error.message ? error.message : String(error)
         };
+        showSettingsError(t('managedExtension.retryError') || 'Failed to install extension. Please try again.');
+      } finally {
+        managedExtensionRetry.disabled = false;
+        managedExtensionRetry.textContent = originalText;
+        renderManagedExtensionStatus();
       }
-      renderManagedExtensionStatus();
     };
   }
   ipcRenderer.on('managed-extension-status-changed', (_event, status) => {
@@ -1588,11 +1753,48 @@ function initSettings(initialSettings = {}, initialMemoryStatus = null) {
   const wheel = sCon.querySelector('#custom-color-wheel');
   const text = sCon.querySelector('#custom-color-input');
   const btn = sCon.querySelector('#apply-custom-color');
+
+  const validateColorInput = (value) => {
+    if (!value || !value.trim()) {
+      return { valid: false, error: t('settings.colorEmpty') || 'Please enter a color value' };
+    }
+    const hexPattern = /^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/;
+    const rgbPattern = /^rgb\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*\)$/;
+    const rgbaPattern = /^rgba\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*(0|1|0?\.\d+)\s*\)$/;
+    const namedColorPattern = /^[a-zA-Z]+$/;
+
+    if (hexPattern.test(value) || rgbPattern.test(value) || rgbaPattern.test(value) || namedColorPattern.test(value)) {
+      return { valid: true };
+    }
+    return { valid: false, error: t('settings.colorInvalid') || 'Invalid color format. Use #hex, rgb(), or color name' };
+  };
+
   wheel.oninput = (e) => {
     applyColor(e.target.value);
     text.value = e.target.value;
+    text.style.borderColor = '';
   };
-  btn.onclick = () => text.value && applyColor(text.value);
+
+  text.oninput = () => {
+    text.style.borderColor = '';
+  };
+
+  btn.onclick = () => {
+    const validation = validateColorInput(text.value);
+    if (!validation.valid) {
+      text.style.borderColor = '#dc2626';
+      showSettingsError(validation.error);
+      return;
+    }
+    applyColor(text.value);
+    text.style.borderColor = '';
+  };
+
+  text.onkeydown = (e) => {
+    if (e.key === 'Enter') {
+      btn.click();
+    }
+  };
 
   const disco = document.createElement('button');
   disco.className = 'settings-btn settings-btn-secondary';
@@ -1669,8 +1871,10 @@ function initSettings(initialSettings = {}, initialMemoryStatus = null) {
       applySharedSettings({ showSeconds: enabled });
       try {
         await ipcRenderer.invoke('set-browser-settings', { showSeconds: enabled });
-      } catch (_error) {
-        // Keep the local toggle state even if the shared settings store is unavailable.
+      } catch (error) {
+        ss.checked = !enabled;
+        applySharedSettings({ showSeconds: !enabled });
+        showSettingsError(t('settings.showSecondsError') || 'Failed to change seconds display setting');
       }
     };
   }
@@ -1680,7 +1884,11 @@ function initSettings(initialSettings = {}, initialMemoryStatus = null) {
       applySharedSettings({ httpsOnlyMode: enabled });
       try {
         await ipcRenderer.invoke('set-browser-settings', { httpsOnlyMode: enabled });
-      } catch (_error) {}
+      } catch (error) {
+        httpsOnlyToggle.checked = !enabled;
+        applySharedSettings({ httpsOnlyMode: !enabled });
+        showSettingsError(t('settings.httpsOnlyError') || 'Failed to change HTTPS-only setting');
+      }
     };
   }
   if (antiFingerprintingToggle) {
@@ -1689,7 +1897,11 @@ function initSettings(initialSettings = {}, initialMemoryStatus = null) {
       applySharedSettings({ antiFingerprinting: enabled });
       try {
         await ipcRenderer.invoke('set-browser-settings', { antiFingerprinting: enabled });
-      } catch (_error) {}
+      } catch (error) {
+        antiFingerprintingToggle.checked = !enabled;
+        applySharedSettings({ antiFingerprinting: !enabled });
+        showSettingsError(t('settings.antiFingerprintingError') || 'Failed to change anti-fingerprinting setting');
+      }
     };
   }
   if (dnsOverHttpsToggle) {
@@ -1698,7 +1910,11 @@ function initSettings(initialSettings = {}, initialMemoryStatus = null) {
       applySharedSettings({ dnsOverHttpsEnabled: enabled });
       try {
         await ipcRenderer.invoke('set-browser-settings', { dnsOverHttpsEnabled: enabled });
-      } catch (_error) {}
+      } catch (error) {
+        dnsOverHttpsToggle.checked = !enabled;
+        applySharedSettings({ dnsOverHttpsEnabled: !enabled });
+        showSettingsError(t('settings.dohError') || 'Failed to change DNS-over-HTTPS setting');
+      }
     };
   }
   if (ramLimitModeSelect) {
@@ -1708,9 +1924,10 @@ function initSettings(initialSettings = {}, initialMemoryStatus = null) {
       try {
         const settings = await ipcRenderer.invoke('set-browser-settings', { ramLimitMode });
         if (settings) applySharedSettings(settings);
-      } catch (_error) {
+      } catch (error) {
         ramLimitSettings.mode = previousMode;
         renderRamLimitControl();
+        showSettingsError(t('settings.ramLimitError') || 'Failed to change RAM limit setting');
       }
     };
   }
@@ -1729,8 +1946,9 @@ function initSettings(initialSettings = {}, initialMemoryStatus = null) {
       try {
         const settings = await ipcRenderer.invoke('set-browser-settings', { customRamLimitMb });
         if (settings) applySharedSettings(settings);
-      } catch (_error) {
+      } catch (error) {
         renderRamLimitControl();
+        showSettingsError(t('settings.ramCustomError') || 'Failed to set custom RAM limit');
       }
     };
   }

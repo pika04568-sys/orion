@@ -28,6 +28,7 @@ const readerSession = require("./reader-session");
 const { createCoalescedAtomicWriter } = require("./async-store");
 const { createProtocolAssetHandler } = require("./protocol-assets");
 const { getInitialMaterializedTabId } = require("./startup-performance");
+const { DEFAULT_MODEL_KEY, normalizeModelKey } = require("./ai-models");
 const RAM_LIMIT_MODE_OFF = "off";
 const RAM_LIMIT_MODE_AUTOMATIC = "automatic";
 const RAM_LIMIT_MODE_CUSTOM = "custom";
@@ -960,6 +961,7 @@ function createDefaultSettings() {
     locale: null,
     showSeconds: undefined,
     ramLimitMode: RAM_LIMIT_MODE_OFF,
+    aiModelKey: DEFAULT_MODEL_KEY,
     httpsOnlyMode: privacyDefaults.httpsOnlyMode,
     antiFingerprinting: privacyDefaults.antiFingerprinting,
     dnsOverHttpsEnabled: privacyDefaults.dnsOverHttpsEnabled,
@@ -987,6 +989,7 @@ function loadS(value) {
     locale: localization.sanitizeLocale(s.locale),
     showSeconds: typeof s.showSeconds === "boolean" ? s.showSeconds : undefined,
     ramLimitMode: resolveRamLimitMode(s.ramLimitMode, s.ramLimitMb),
+    aiModelKey: normalizeModelKey(s.aiModelKey),
     ramLimitMb: undefined,
     httpsOnlyMode: privacySettings.httpsOnlyMode,
     antiFingerprinting: privacySettings.antiFingerprinting,
@@ -1164,7 +1167,8 @@ function getBrowserSettings() {
     automaticRamLimitMb: AUTOMATIC_RAM_LIMIT_MB,
     customRamLimitMb: bSett && bSett.customRamLimitMb,
     totalMemoryMb: Math.floor(os.totalmem() / (1024 * 1024)),
-    ramLimitMb: getEffectiveRamLimitMb()
+    ramLimitMb: getEffectiveRamLimitMb(),
+    aiModelKey: normalizeModelKey(bSett.aiModelKey)
   };
 }
 
@@ -1207,6 +1211,16 @@ function updateBrowserSettings(patch = {}) {
     bSett.ramLimitMode !== patch.ramLimitMode
   ) {
     bSett.ramLimitMode = patch.ramLimitMode;
+    changed = true;
+  }
+
+  if (
+    Object.prototype.hasOwnProperty.call(patch, "aiModelKey") &&
+    normalizeModelKey(patch.aiModelKey) === patch.aiModelKey &&
+    bSett.aiModelKey !== patch.aiModelKey
+  ) {
+    bSett.aiModelKey = patch.aiModelKey;
+    getAiSummaryModule().setAiModelKey(bSett.aiModelKey);
     changed = true;
   }
 
@@ -3824,6 +3838,7 @@ async function ensureWindowBootstrapState(win) {
     if (!views[requestedActiveId]) switchT(requestedActiveId, pIdx, { quiet: true });
   }
 
+  getAiSummaryModule().setAiModelKey(bSett.aiModelKey);
   const snapshot = {
     profileIndex: pIdx,
     incognitoWindow: !!win.incognitoWindow,
@@ -4485,6 +4500,9 @@ ipcMain.handle("cancel-ai-model-download", withTrustedSender(() => {
 
 ipcMain.handle("remove-ai-model", withTrustedSender(() => {
   return getAiSummaryModule().removeAiModel();
+}, null));
+ipcMain.handle("redownload-ai-model", withTrustedSender(() => {
+  return getAiSummaryModule().redownloadAiModel();
 }, null));
 ipcMain.handle("close-reader", withTrustedSender((e) => {
   const w = getSenderWindow(e.sender);
